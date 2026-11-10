@@ -10,9 +10,9 @@ type SpanID [8]byte
 type Attributes map[string]any
 
 type Scope struct {
-	Name       string
-	Version    string
-	Attributes Attributes
+	Name       string     `json:"name"`
+	Version    string     `json:"version"`
+	Attributes Attributes `json:"attributes"`
 }
 
 type Event struct {

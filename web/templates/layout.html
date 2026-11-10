@@ -1,0 +1,43 @@
+{{define "layout"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{.Title}} · Geko</title>
+  <link rel="icon" href="/assets/geko.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/dashboard.css">
+  <script defer src="/assets/dashboard.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <aside class="sidebar">
+    <a href="/failures" class="brand" aria-label="Geko home">
+      <img src="/assets/geko.svg" alt="" width="32" height="32">
+      <span>Geko<small>Trace investigation</small></span>
+    </a>
+    <nav aria-label="Main navigation">
+      <span class="nav-label">Workspace</span>
+      <a href="/overview"{{if eq .Page "overview"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="12" y="3" width="5" height="5" rx="1"/><rect x="3" y="12" width="5" height="5" rx="1"/><rect x="12" y="12" width="5" height="5" rx="1"/></svg>Overview</a>
+      <a href="/failures"{{if or (eq .Page "failures") (eq .Page "trace")}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h4l2-6 4 12 2-6h4"/></svg>Failures</a>
+      <a href="/settings"{{if eq .Page "settings"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3v14M10 3v14M16 3v14"/><path d="M2 7h4M8 13h4M14 6h4" stroke-width="3"/></svg>Settings</a>
+    </nav>
+    <div class="sidebar-foot"><span class="local-dot"></span> Local instance</div>
+  </aside>
+  <main id="main" tabindex="-1">
+    <p class="loading" role="status" hidden>Loading telemetry…</p>
+    {{if eq .Page "failures"}}{{template "failures" .Data}}
+    {{else if eq .Page "overview"}}{{template "overview" .Data}}
+    {{else if eq .Page "trace"}}{{template "trace" .Data}}
+    {{else if eq .Page "settings"}}{{template "settings" .Data}}
+    {{else}}{{template "error" .Data}}{{end}}
+  </main>
+</body>
+</html>{{end}}
+
+{{define "error"}}
+<div class="page-head"><h1>{{.Title}}</h1><p>{{.Message}}</p></div>
+<div class="actions">
+  <a class="button primary" href="/failures">Back to failures</a>
+  <a class="button" href="{{.Retry}}">Retry</a>
+</div>
+{{end}}

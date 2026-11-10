@@ -16,7 +16,7 @@ func TestOpenMigrateAndReopen(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	status, err := db.Check(t.Context())
-	if err != nil || status.SchemaVersion != 1 || status.SQLiteVersion == "" || status.Bytes <= 0 {
+	if err != nil || status.SchemaVersion != 2 || status.SQLiteVersion == "" || status.Bytes <= 0 {
 		t.Fatalf("Check() = %+v, %v", status, err)
 	}
 
@@ -24,7 +24,7 @@ func TestOpenMigrateAndReopen(t *testing.T) {
 	if err := db.db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
 		t.Fatalf("journal mode = %q, %v", mode, err)
 	}
-	if _, err := db.db.Exec("INSERT INTO traces VALUES (randomblob(16), 100, 100)"); err != nil {
+	if _, err := db.db.Exec("INSERT INTO traces (trace_id, first_observed_ns, last_observed_ns) VALUES (randomblob(16), 100, 100)"); err != nil {
 		t.Fatal(err)
 	}
 	// Preserve a child whose parent has yet to arrive, and preserve its timestamps as recorded.

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"os"
@@ -12,6 +13,12 @@ import (
 	"time"
 
 	"geko/internal/config"
+	"geko/internal/investigation"
+
+	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	common "go.opentelemetry.io/proto/otlp/common/v1"
+	trace "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestVersion(t *testing.T) {
@@ -45,7 +52,7 @@ func TestDoctorReportsBusyListener(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "GEKO_LISTEN_ADDR") {
 		t.Fatalf("doctor error = %v, want a listener configuration hint", err)
 	}
-	if !strings.Contains(out.String(), "schema 1") {
+	if !strings.Contains(out.String(), "schema 2") {
 		t.Fatalf("doctor output %q does not include the database result", out.String())
 	}
 	if _, err := os.Stat("doctor.db"); err != nil {
@@ -53,7 +60,7 @@ func TestDoctorReportsBusyListener(t *testing.T) {
 	}
 }
 
-func TestServeHealthAndShutdown(t *testing.T) {
+func TestServeOTLPQueryAndShutdown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
 
@@ -85,13 +92,72 @@ func TestServeHealthAndShutdown(t *testing.T) {
 		t.Errorf("health HTTP status = %d, want 204", resp.StatusCode)
 	}
 
-	resp, err = client.Post(baseURL+"/v1/traces", "application/x-protobuf", http.NoBody)
+	resp, err = client.Get(baseURL + "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Request.URL.Path != "/failures" ||
+		resp.Header.Get("Content-Type") != "text/html; charset=utf-8" {
+		t.Fatalf("dashboard entry = %d %s %s, want the failures page", resp.StatusCode, resp.Request.URL.Path, resp.Header.Get("Content-Type"))
+	}
+
+	body, err := proto.Marshal(&collector.ExportTraceServiceRequest{ResourceSpans: []*trace.ResourceSpans{{
+		ScopeSpans: []*trace.ScopeSpans{{Spans: []*trace.Span{{
+			TraceId: bytes.Repeat([]byte{1}, 16), SpanId: bytes.Repeat([]byte{2}, 8),
+			Name: "GET /checkout", Kind: trace.Span_SPAN_KIND_SERVER,
+			StartTimeUnixNano: 100, EndTimeUnixNano: 200,
+			Attributes: []*common.KeyValue{{
+				Key:   "http.response.status_code",
+				Value: &common.AnyValue{Value: &common.AnyValue_IntValue{IntValue: 500}},
+			}},
+		}}}},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err = client.Post(baseURL+"/v1/traces", "application/x-protobuf", bytes.NewReader(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/x-protobuf" {
-		t.Errorf("empty OTLP export = %d %s, want 200 protobuf", resp.StatusCode, resp.Header.Get("Content-Type"))
+		t.Fatalf("OTLP export = %d %s, want 200 protobuf", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+
+	resp, err = client.Get(baseURL + "/api/v1/failures?status=500")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var failures struct {
+		Items []investigation.TraceSummary `json:"items"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&failures)
+	resp.Body.Close()
+	if err != nil || resp.StatusCode != http.StatusOK || len(failures.Items) != 1 || failures.Items[0].HTTPOutcome != "server_error" {
+		t.Fatalf("failure list = %d %+v, %v", resp.StatusCode, failures, err)
+	}
+	resp, err = client.Get(baseURL + "/api/v1/traces/" + failures.Items[0].TraceID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var detail struct {
+		Trace investigation.TraceSummary `json:"trace"`
+		Spans []investigation.Span       `json:"spans"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&detail)
+	resp.Body.Close()
+	if err != nil || resp.StatusCode != http.StatusOK || len(detail.Spans) != 1 ||
+		detail.Trace.Evidence == nil || detail.Trace.Evidence.SpanID != detail.Spans[0].SpanID {
+		t.Fatalf("trace details = %d %+v, %v", resp.StatusCode, detail, err)
+	}
+	resp, err = client.Get(baseURL + "/api/v1/traces/" + strings.Repeat("a", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("missing trace status = %d, want 404", resp.StatusCode)
 	}
 
 	cancel()

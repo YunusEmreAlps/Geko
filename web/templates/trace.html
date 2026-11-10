@@ -1,0 +1,85 @@
+{{define "trace"}}
+<a class="back" href="/failures"><span aria-hidden="true">←</span> Failures</a>
+<header class="page-head trace-head">
+  <div>
+    <h1>{{if .Trace.EntrySpan}}{{.Trace.EntrySpan.Operation}}{{else if .Trace.Evidence}}{{.Trace.Evidence.Operation}}{{else}}Trace details{{end}}</h1>
+    <div class="trace-id"><code id="trace-id">{{.Trace.TraceID}}</code><button type="button" class="button quiet" data-copy="trace-id" hidden>Copy trace ID</button><span class="muted" role="status" id="copy-status"></span></div>
+  </div>
+  <span class="pill {{outcomeClass .Trace}}">{{outcome .Trace}}</span>
+</header>
+<dl class="trace-facts">
+  <div><dt>Request duration</dt><dd>{{with .Trace.EntrySpan}}{{duration .DurationNS}}{{else}}Unavailable{{end}}</dd></div>
+  <div><dt>Spans</dt><dd>{{with .Trace.Window}}{{.SpanCount}}{{else}}0{{end}}</dd></div>
+  <div><dt>First observed</dt><dd>{{timestamp .Trace.FirstObserved}}</dd></div>
+  <div><dt>Last observed</dt><dd>{{timestamp .Trace.LastObserved}}</dd></div>
+</dl>
+{{if .Trace.Evidence}}
+<section class="callout" aria-label="Observed evidence">
+  <div><h2>Observed evidence</h2><p><strong>{{classification .Trace.Evidence.Classification}}</strong> · {{.Trace.Evidence.Service}} · {{.Trace.Evidence.Operation}}{{with .Trace.Evidence.ExceptionMessage}}<br>{{.}}{{end}}</p></div>
+  <a class="button" href="{{evidenceLink .Trace}}">Open evidence span</a>
+</section>
+{{end}}
+<div class="trace-workspace">
+<section class="section timeline">
+  {{template "service-map" .ServiceMap}}
+  <details class="waterfall-disclosure">
+  <summary>Span waterfall · timing details</summary>
+  <h2>Span waterfall</h2>
+  <p class="muted">Bars show recorded timing across the trace. Select a span to inspect its attributes and events.</p>
+  {{if .Rows}}
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Span waterfall">
+    <table class="waterfall">
+      <thead><tr><th scope="col">Span / Service</th><th scope="col">Timeline <span class="axis"><span>0</span><span>{{.Window}}</span></span></th><th scope="col">Duration</th></tr></thead>
+      <tbody>
+      {{range .Rows}}
+        <tr{{if .Selected}} class="selected"{{end}}>
+          <td><div class="span-name depth-{{.Depth}}"><a class="operation" href="{{.URL}}"{{if .Selected}} aria-current="true"{{end}}>{{.Operation}}</a><span class="subtle">{{.Service}}{{if .Signal}} · {{classification .Signal}}{{end}}</span></div></td>
+          <td class="track"><svg viewBox="0 0 1000 14" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M1 0V14 M250 0V14 M500 0V14 M750 0V14 M999 0V14" class="ticks"></path><rect x="{{.X}}" y="3" width="{{.Width}}" height="8" rx="2" class="{{if .Signal}}signal-bar{{else}}span-bar{{end}}"></rect></svg></td>
+          <td class="time">{{duration .DurationNS}}</td>
+        </tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}<div class="empty compact"><p>No spans on this page.</p></div>{{end}}
+  {{if or .First .Next}}<nav class="pagination" aria-label="Span pages">
+    {{if .First}}<a class="button" href="{{.First}}">First spans</a>{{end}}
+    {{if .Next}}<a class="button" href="{{.Next}}" rel="next" data-loading>Next spans <span aria-hidden="true">→</span></a>{{end}}
+  </nav>{{end}}
+  </details>
+</section>
+<section class="section span-details" id="span-details">
+  {{if .MissingSpan}}<h2>Span unavailable</h2><p class="muted">The selected span is unavailable. Its parent or child may have arrived separately.</p>
+  {{else if .Selected}}
+  <h2>Span details</h2>
+  <dl class="properties">
+    <div><dt>Operation</dt><dd>{{.Selected.Operation}}</dd></div>
+    <div><dt>Service</dt><dd>{{.Selected.Service}}</dd></div>
+    <div><dt>Span ID</dt><dd><code>{{.Selected.SpanID}}</code></dd></div>
+    {{if .Parent}}<div><dt>Parent span</dt><dd><a href="{{.Parent}}"><code>{{.Selected.ParentID}}</code></a></dd></div>{{end}}
+    <div><dt>Evidence</dt><dd>{{classification (signal .Selected)}}</dd></div>
+    {{with .Selected.HTTPStatus}}<div><dt>HTTP status</dt><dd>{{.}}</dd></div>{{end}}
+    {{with .Selected.StatusDescription}}<div><dt>Status description</dt><dd class="prewrap">{{.}}</dd></div>{{end}}
+  </dl>
+  <div class="expanders">
+    {{template "attributes" (attributes "Span attributes" .Selected.Attributes)}}
+    {{template "attributes" (attributes "Resource attributes" .Selected.ResourceAttributes)}}
+    {{template "attributes" (attributes "Scope attributes" .Selected.Scope.Attributes)}}
+    {{range .Selected.Events}}
+    <details{{if eq .Name "exception"}} open{{end}}><summary>{{.Name}} <small>{{timestamp .Time}}</small></summary>
+      {{if .Attributes}}<dl class="attributes">{{range $key,$value := .Attributes}}<div><dt><code>{{$key}}</code></dt><dd class="prewrap">{{$value}}</dd></div>{{end}}</dl>
+      {{else}}<p class="muted">No captured attributes.</p>{{end}}
+    </details>
+    {{end}}
+  </div>
+  {{end}}
+</section>
+</div>
+{{end}}
+
+{{define "attributes"}}
+<details><summary>{{.Label}}</summary>
+  {{if .Values}}<dl class="attributes">{{range $key,$value := .Values}}<div><dt><code>{{$key}}</code></dt><dd class="prewrap">{{$value}}</dd></div>{{end}}</dl>
+  {{else}}<p class="muted">No captured attributes.</p>{{end}}
+</details>
+{{end}}

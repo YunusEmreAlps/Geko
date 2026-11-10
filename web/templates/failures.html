@@ -1,0 +1,61 @@
+{{define "failures"}}
+<header class="page-head">
+  <div><h1>Failures</h1><p>Find a trace and open the span where a failure signal was recorded.</p></div>
+  <a class="button" href="{{.Refresh}}" data-loading>Refresh list</a>
+</header>
+<form class="filters" action="/failures" method="get" data-loading>
+  <label>Search <input name="q" value="{{.Search}}" maxlength="256" placeholder="Trace ID or message"></label>
+  <label>Service <input name="service" value="{{.Service}}" maxlength="256" placeholder="Any service"></label>
+  <label>HTTP status <input name="status" type="number" min="100" max="599" value="{{.Status}}" placeholder="Any"></label>
+  <label>Time range
+    <select name="range">
+      <option value="">All time</option>
+      <option value="1h"{{if eq .Range "1h"}} selected{{end}}>Last hour</option>
+      <option value="24h"{{if eq .Range "24h"}} selected{{end}}>Last 24 hours</option>
+      <option value="7d"{{if eq .Range "7d"}} selected{{end}}>Last 7 days</option>
+    </select>
+  </label>
+  <div class="actions"><button class="button primary" type="submit">Apply</button>{{if .Filtered}}<a href="/failures">Reset</a>{{end}}</div>
+</form>
+{{if .Items}}{{template "failure-table" .Items}}
+{{else if .Filtered}}
+<section class="empty"><h2>No matching traces</h2><p>Try a broader time range or remove a filter.</p><a class="button" href="/failures">Clear filters</a></section>
+{{else}}
+<section class="empty"><h2>No failures observed</h2><p>Send trace data from an instrumented application to <code>POST /v1/traces</code>, then refresh this page.</p></section>
+{{end}}
+{{if or .First .Next}}
+<nav class="pagination" aria-label="Failure pages">
+  {{if .First}}<a class="button" href="{{.First}}" data-loading>First page</a>{{end}}
+  {{if .Next}}<a class="button" href="{{.Next}}" rel="next" data-loading>Next page <span aria-hidden="true">→</span></a>{{end}}
+</nav>
+{{end}}
+{{end}}
+
+{{define "failure-table"}}
+<div class="table-wrap" tabindex="0" role="region" aria-label="Trace failures">
+  <table class="failure-table">
+    <thead><tr><th scope="col">Operation</th><th scope="col">Request result</th><th scope="col">Observed evidence</th><th scope="col">Last observed</th></tr></thead>
+    <tbody>
+    {{range .}}
+      <tr>
+        <td class="operation-cell">
+          <a class="operation" href="{{evidenceLink .}}">
+          {{if .EntrySpan}}{{.EntrySpan.Operation}}{{else if .Evidence}}{{.Evidence.Operation}}{{else}}{{.TraceID}}{{end}}
+          </a>
+          <span class="subtle">{{if .EntrySpan}}{{.EntrySpan.Service}}{{else if .Evidence}}{{.Evidence.Service}}{{end}}</span>
+          <time class="time mobile-observed" datetime="{{.LastObserved.Format "2006-01-02T15:04:05Z07:00"}}">{{timestamp .LastObserved}}</time>
+        </td>
+        <td><span class="pill {{outcomeClass .}}">{{outcome .}}</span></td>
+        <td class="evidence-cell">
+          {{with .Evidence}}
+            <span class="evidence-label">{{classification .Classification}}</span>
+            <span class="subtle">{{.Service}}{{if .ExceptionMessage}} · {{.ExceptionMessage}}{{end}}</span>
+          {{end}}
+        </td>
+        <td class="time"><time datetime="{{.LastObserved.Format "2006-01-02T15:04:05Z07:00"}}">{{timestamp .LastObserved}}</time></td>
+      </tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

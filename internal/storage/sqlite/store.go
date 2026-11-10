@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"geko/internal/storage"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -20,17 +22,14 @@ const applicationID = 0x47454b4f // GEKO
 //go:embed migrations/001_initial.sql
 var initialSchema string
 
-var migrations = []string{initialSchema}
+//go:embed migrations/002_evidence.sql
+var evidenceSchema string
+
+var migrations = []string{initialSchema, evidenceSchema}
 
 type Store struct {
 	db   *sql.DB
 	path string
-}
-
-type Status struct {
-	SQLiteVersion string
-	SchemaVersion int
-	Bytes         int64
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -139,21 +138,24 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	return tx.Commit()
 }
 
-func (s *Store) Check(ctx context.Context) (Status, error) {
+func (s *Store) Check(ctx context.Context) (storage.Status, error) {
 	var result string
 	if err := s.db.QueryRowContext(ctx, "PRAGMA quick_check(1)").Scan(&result); err != nil {
-		return Status{}, fmt.Errorf("check SQLite integrity: %w", err)
+		return storage.Status{}, fmt.Errorf("check SQLite integrity: %w", err)
 	}
 	if result != "ok" {
-		return Status{}, errors.New("SQLite integrity check failed, inspect or restore the database before use")
+		return storage.Status{}, errors.New("SQLite integrity check failed, inspect or restore the database before use")
 	}
+	return s.Status(ctx)
+}
 
-	var status Status
+func (s *Store) Status(ctx context.Context) (storage.Status, error) {
+	var status storage.Status
 	if err := s.db.QueryRowContext(ctx, "SELECT sqlite_version()").Scan(&status.SQLiteVersion); err != nil {
-		return Status{}, err
+		return storage.Status{}, err
 	}
 	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&status.SchemaVersion); err != nil {
-		return Status{}, err
+		return storage.Status{}, err
 	}
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		info, err := os.Stat(s.path + suffix)
@@ -161,7 +163,7 @@ func (s *Store) Check(ctx context.Context) (Status, error) {
 			continue // SQLite can remove its sidecar files when connections close.
 		}
 		if err != nil {
-			return Status{}, fmt.Errorf("measure database size: %w", err)
+			return storage.Status{}, fmt.Errorf("measure database size: %w", err)
 		}
 		status.Bytes += info.Size()
 	}

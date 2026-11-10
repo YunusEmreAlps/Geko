@@ -1,0 +1,26 @@
+{{define "overview"}}
+<header class="page-head">
+  <div><h1>Overview</h1><p>Observed failure evidence across local traces in the last 24 hours.</p></div>
+  <a class="button" href="/failures?range=24h">Browse failures <span aria-hidden="true">→</span></a>
+</header>
+<dl class="metrics">
+  <div><dt>Traces with evidence</dt><dd>{{.TraceCount}}</dd></div>
+  <div><dt>Affected services</dt><dd>{{.ServiceCount}}</dd></div>
+</dl>
+<section class="section">
+  <h2>Most frequent operations</h2>
+  {{if .Operations}}
+  <div class="table-wrap" tabindex="0" role="region" aria-label="Most frequent operations">
+    <table class="ranking">
+      <thead><tr><th scope="col">Operation</th><th scope="col">Service</th><th scope="col">Traces</th></tr></thead>
+      <tbody>{{range .Operations}}<tr><td class="operation">{{.Operation}}</td><td>{{.Service}}</td><td>{{.Count}}</td></tr>{{end}}</tbody>
+    </table>
+  </div>
+  {{else}}<div class="empty compact"><p>No operations recorded failure evidence in this window.</p></div>{{end}}
+</section>
+<section class="section">
+  <h2>Recent failures</h2>
+  {{if .Items}}{{template "failure-table" .Items}}
+  {{else}}<div class="empty compact"><p>No failures observed in the last 24 hours.</p></div>{{end}}
+</section>
+{{end}}

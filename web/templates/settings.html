@@ -1,0 +1,30 @@
+{{define "settings"}}
+<header class="page-head"><div><h1>Settings</h1><p>Effective configuration and local diagnostics for this instance.</p></div></header>
+<section class="section">
+  <h2>Receiver</h2>
+  <dl class="properties">
+    <div><dt>Listener</dt><dd><code>{{.ListenAddr}}</code></dd></div>
+    <div><dt>Trace endpoint</dt><dd><code>http://{{.ListenAddr}}/v1/traces</code></dd></div>
+    <div><dt>Protocol</dt><dd>OTLP/HTTP protobuf</dd></div>
+    <div><dt>Receiver status</dt><dd><span class="pill non_5xx">Running</span></dd></div>
+  </dl>
+</section>
+<section class="section">
+  <h2>Storage</h2>
+  <dl class="properties">
+    <div><dt>Database</dt><dd><code>{{.DBPath}}</code></dd></div>
+    <div><dt>Disk usage</dt><dd>{{size .Storage.Bytes}} <span class="muted">including SQLite sidecars</span></dd></div>
+    <div><dt>Retention</dt><dd>Manual · no automatic expiration</dd></div>
+    <div><dt>SQLite</dt><dd>{{.Storage.SQLiteVersion}} · schema {{.Storage.SchemaVersion}}</dd></div>
+    <div><dt>Database status</dt><dd><span class="pill non_5xx">Reachable</span></dd></div>
+  </dl>
+</section>
+<section class="section">
+  <h2>Configuration</h2>
+  <dl class="properties">
+    <div><dt>Build</dt><dd><code>{{.Version}}</code></dd></div>
+    <div><dt>Configuration file</dt><dd><code>geko.yaml</code> or <code>GEKO_CONFIG</code></dd></div>
+    <div><dt>Integrity and port checks</dt><dd><code>geko doctor</code></dd></div>
+  </dl>
+</section>
+{{end}}

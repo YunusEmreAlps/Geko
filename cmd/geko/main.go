@@ -14,9 +14,11 @@ import (
 	"syscall"
 	"time"
 
+	"geko/internal/api"
 	"geko/internal/config"
 	"geko/internal/ingest/otlp"
 	"geko/internal/storage/sqlite"
+	"geko/web"
 )
 
 var version = "dev" // Set for release builds with -ldflags "-X main.version=v0.1.0".
@@ -26,7 +28,7 @@ const usage = `Geko — Find the failure. Follow the trace.
 Usage: geko <command>
 
 Commands:
-  serve     Start the local OTLP trace receiver
+  serve     Start the local dashboard and OTLP trace receiver
   doctor    Initialize and check SQLite, then probe the listener
   version   Print version and build information
 
@@ -88,9 +90,6 @@ func printVersion(out io.Writer) {
 }
 
 func doctor(ctx context.Context, cfg config.Config, out io.Writer) error {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-
 	dbErr := checkDatabase(ctx, cfg.DBPath, out)
 	listener, listenErr := listen(ctx, cfg.ListenAddr)
 	if listenErr == nil {
@@ -109,6 +108,8 @@ func checkDatabase(ctx context.Context, path string, out io.Writer) (err error) 
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
 
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	status, err := db.Check(ctx)
 	if err != nil {
 		return fmt.Errorf("check database %q: %w", path, err)
@@ -133,9 +134,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 	}
 	defer listener.Close()
 
-	startup, cancel := context.WithTimeout(ctx, 10*time.Second)
-	db, err := sqlite.Open(startup, cfg.DBPath)
-	cancel()
+	db, err := sqlite.Open(ctx, cfg.DBPath)
 	if err != nil {
 		return err
 	}
@@ -143,6 +142,10 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 
 	mux := http.NewServeMux()
 	mux.Handle("POST /v1/traces", otlp.NewHandler(db))
+	api.Register(mux, db)
+	if err := web.Register(mux, db, web.Settings{ListenAddr: listener.Addr().String(), DBPath: cfg.DBPath, Version: version}); err != nil {
+		return err
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
