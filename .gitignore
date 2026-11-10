@@ -1,6 +1,7 @@
 /bin/
 /geko
 /geko.exe
+/geko.yaml
 *.db
 *.db-shm
 *.db-wal

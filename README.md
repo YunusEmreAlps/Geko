@@ -3,8 +3,8 @@
 Find the failure. Follow the trace.
 
 Geko is a local-first tool for investigating backend failures from OpenTelemetry
-traces. The M0 foundation provides the CLI, a loopback HTTP service, and local
-SQLite storage.
+traces. Geko accepts OTLP/HTTP trace exports on loopback and stores sanitized
+spans in local SQLite.
 
 ## Build and run
 
@@ -26,10 +26,36 @@ The endpoint returns HTTP 204 after successful startup. Press Ctrl+C to shut dow
 check, reports file usage including SQLite sidecars, and tests whether the
 listener can be bound. Run it before starting `serve` to check the same port.
 
-| Environment variable | Default | Description |
+## Configuration
+
+Copy [`geko.example.yaml`](geko.example.yaml) to `geko.yaml` in the working
+directory. To choose another file, set `GEKO_CONFIG` to its path. An explicitly
+selected file must exist. `serve` and `doctor` both use these settings.
+
+Nonempty environment variables override YAML values. If neither source supplies
+a nonempty value, Geko uses the defaults below. Unknown YAML keys are rejected.
+
+| YAML key | Environment override | Default |
 | --- | --- | --- |
-| `GEKO_LISTEN_ADDR` | `127.0.0.1:4318` | A loopback IP and port. IPv6 loopback is accepted as `[::1]:4318`. |
-| `GEKO_DB_PATH` | `geko/geko.db` under the OS user configuration directory | Path to a database file on local storage. Relative paths resolve from the working directory. |
+| `listen_addr` | `GEKO_LISTEN_ADDR` | `127.0.0.1:4318`. Use a loopback IP and port, such as `[::1]:4318` for IPv6. |
+| `db_path` | `GEKO_DB_PATH` | `geko/geko.db` under the OS user configuration directory. |
+
+A relative `db_path` is resolved from the YAML file's directory. A relative
+`GEKO_DB_PATH` is resolved from the working directory.
+
+## Send traces
+
+For an instrumented application with an OpenTelemetry OTLP exporter, set these
+environment variables before starting the application.
+
+```sh
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
+export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+```
+
+In PowerShell, assign these variables with `$env:NAME = "value"`. Geko accepts
+both uncompressed and gzip-compressed protobuf requests. The current milestone
+stores spans for future query and investigation features.
 
 ```sh
 go test ./...

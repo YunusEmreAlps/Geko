@@ -1,0 +1,6 @@
+# Geko accepts a loopback IP and a nonzero TCP port.
+listen_addr: "127.0.0.1:4318"
+
+# Uncomment to override the default database in your user configuration directory.
+# A relative path is resolved from this file's directory.
+# db_path: "data/geko.db"

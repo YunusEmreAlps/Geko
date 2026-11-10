@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"geko/internal/config"
+	"geko/internal/ingest/otlp"
 	"geko/internal/storage/sqlite"
 )
 
@@ -25,11 +26,12 @@ const usage = `Geko — Find the failure. Follow the trace.
 Usage: geko <command>
 
 Commands:
-  serve     Start the local foundation server
+  serve     Start the local OTLP trace receiver
   doctor    Initialize and check SQLite, then probe the listener
   version   Print version and build information
 
 Environment:
+  GEKO_CONFIG       YAML file (default geko.yaml in the working directory, if present)
   GEKO_LISTEN_ADDR  Loopback address (default 127.0.0.1:4318)
   GEKO_DB_PATH      SQLite file (default geko/geko.db in the user configuration directory)
 `
@@ -119,7 +121,7 @@ func listen(ctx context.Context, addr string) (net.Listener, error) {
 	var lc net.ListenConfig
 	listener, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("bind %s (check GEKO_LISTEN_ADDR or stop the process using the port): %w", addr, err)
+		return nil, fmt.Errorf("bind %s (check listen_addr or GEKO_LISTEN_ADDR, or stop the process using the port): %w", addr, err)
 	}
 	return listener, nil
 }
@@ -140,6 +142,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 	defer func() { err = errors.Join(err, db.Close()) }()
 
 	mux := http.NewServeMux()
+	mux.Handle("POST /v1/traces", otlp.NewHandler(db))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
@@ -147,7 +150,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      5 * time.Second,
+		WriteTimeout:      20 * time.Second,
 		IdleTimeout:       30 * time.Second,
 	}
 	done := make(chan error, 1)

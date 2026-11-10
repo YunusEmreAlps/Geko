@@ -16,9 +16,9 @@ type Scope struct {
 }
 
 type Event struct {
-	Name       string
-	Time       time.Time
-	Attributes Attributes
+	Name       string     `json:"name"`
+	Time       time.Time  `json:"time"`
+	Attributes Attributes `json:"attributes"`
 }
 
 type SpanKind uint8

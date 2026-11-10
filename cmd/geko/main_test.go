@@ -5,6 +5,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,13 +26,19 @@ func TestVersion(t *testing.T) {
 }
 
 func TestDoctorReportsBusyListener(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv("GEKO_CONFIG", "")
+	t.Setenv("GEKO_LISTEN_ADDR", "")
+	t.Setenv("GEKO_DB_PATH", "")
 	listener, err := listen(t.Context(), "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer listener.Close()
-	t.Setenv("GEKO_LISTEN_ADDR", listener.Addr().String())
-	t.Setenv("GEKO_DB_PATH", filepath.Join(t.TempDir(), "geko.db"))
+	yaml := "listen_addr: '" + listener.Addr().String() + "'\ndb_path: doctor.db\n"
+	if err := os.WriteFile("geko.yaml", []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	var out bytes.Buffer
 	err = run(t.Context(), []string{"doctor"}, &out)
@@ -40,6 +47,9 @@ func TestDoctorReportsBusyListener(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "schema 1") {
 		t.Fatalf("doctor output %q does not include the database result", out.String())
+	}
+	if _, err := os.Stat("doctor.db"); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -73,6 +83,15 @@ func TestServeHealthAndShutdown(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNoContent {
 		t.Errorf("health HTTP status = %d, want 204", resp.StatusCode)
+	}
+
+	resp, err = client.Post(baseURL+"/v1/traces", "application/x-protobuf", http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/x-protobuf" {
+		t.Errorf("empty OTLP export = %d %s, want 200 protobuf", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
 
 	cancel()
