@@ -1,0 +1,174 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"runtime"
+	"runtime/debug"
+	"syscall"
+	"time"
+
+	"geko/internal/config"
+	"geko/internal/storage/sqlite"
+)
+
+var version = "dev" // Set for release builds with -ldflags "-X main.version=v0.1.0".
+
+const usage = `Geko — Find the failure. Follow the trace.
+
+Usage: geko <command>
+
+Commands:
+  serve     Start the local foundation server
+  doctor    Initialize and check SQLite, then probe the listener
+  version   Print version and build information
+
+Environment:
+  GEKO_LISTEN_ADDR  Loopback address (default 127.0.0.1:4318)
+  GEKO_DB_PATH      SQLite file (default geko/geko.db in the user configuration directory)
+`
+
+func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "geko:", err)
+		os.Exit(1)
+	}
+}
+
+func run(ctx context.Context, args []string, out io.Writer) error {
+	if len(args) == 0 {
+		_, err := io.WriteString(out, usage)
+		return err
+	}
+	if len(args) != 1 {
+		return errors.New("expected one command, run geko --help for usage")
+	}
+	switch args[0] {
+	case "help", "--help", "-h":
+		_, err := io.WriteString(out, usage)
+		return err
+	case "version":
+		printVersion(out)
+		return nil
+	case "doctor", "serve":
+		cfg, err := config.Load()
+		if err != nil {
+			return err
+		}
+		if args[0] == "doctor" {
+			return doctor(ctx, cfg, out)
+		}
+		return serve(ctx, cfg, out)
+	default:
+		return fmt.Errorf("unknown command %q, run geko --help for usage", args[0])
+	}
+}
+
+func printVersion(out io.Writer) {
+	fmt.Fprintf(out, "Geko %s (%s/%s, %s)\n", version, runtime.GOOS, runtime.GOARCH, runtime.Version())
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision", "vcs.time", "vcs.modified":
+				fmt.Fprintf(out, "%s=%s\n", setting.Key, setting.Value)
+			}
+		}
+	}
+}
+
+func doctor(ctx context.Context, cfg config.Config, out io.Writer) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	dbErr := checkDatabase(ctx, cfg.DBPath, out)
+	listener, listenErr := listen(ctx, cfg.ListenAddr)
+	if listenErr == nil {
+		listenErr = listener.Close()
+		if listenErr == nil {
+			fmt.Fprintf(out, "Listener available at %s\n", cfg.ListenAddr)
+		}
+	}
+	return errors.Join(dbErr, listenErr)
+}
+
+func checkDatabase(ctx context.Context, path string, out io.Writer) (err error) {
+	db, err := sqlite.Open(ctx, path)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, db.Close()) }()
+
+	status, err := db.Check(ctx)
+	if err != nil {
+		return fmt.Errorf("check database %q: %w", path, err)
+	}
+	_, err = fmt.Fprintf(out, "SQLite %s, schema %d, %d bytes at %q\n", status.SQLiteVersion, status.SchemaVersion, status.Bytes, path)
+	return err
+}
+
+func listen(ctx context.Context, addr string) (net.Listener, error) {
+	var lc net.ListenConfig
+	listener, err := lc.Listen(ctx, "tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("bind %s (check GEKO_LISTEN_ADDR or stop the process using the port): %w", addr, err)
+	}
+	return listener, nil
+}
+
+func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
+	listener, err := listen(ctx, cfg.ListenAddr)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
+
+	startup, cancel := context.WithTimeout(ctx, 10*time.Second)
+	db, err := sqlite.Open(startup, cfg.DBPath)
+	cancel()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, db.Close()) }()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+	server := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      5 * time.Second,
+		IdleTimeout:       30 * time.Second,
+	}
+	done := make(chan error, 1)
+	go func() {
+		err := server.Serve(listener)
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		done <- err
+	}()
+
+	fmt.Fprintf(out, "Geko listening on http://%s\n", listener.Addr())
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(shutdown); err != nil {
+			return errors.Join(err, server.Close(), <-done)
+		}
+		return <-done
+	}
+}
