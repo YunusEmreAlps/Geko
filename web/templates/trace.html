@@ -14,15 +14,33 @@
   <div><dt>Last observed</dt><dd>{{timestamp .Trace.LastObserved}}</dd></div>
 </dl>
 {{if .Trace.Evidence}}
-<section class="callout" aria-label="Observed evidence">
-  <div><h2>Observed evidence</h2><p><strong>{{classification .Trace.Evidence.Classification}}</strong> · {{.Trace.Evidence.Service}} · {{.Trace.Evidence.Operation}}{{with .Trace.Evidence.ExceptionMessage}}<br>{{.}}{{end}}</p></div>
-  <a class="button" href="{{evidenceLink .Trace}}">Open evidence span</a>
+<section class="section" id="evidence" aria-labelledby="evidence-title">
+  <h2 id="evidence-title">Observed evidence</h2>
+  {{if .Evidence}}
+  <ul class="evidence-list">
+    {{range .Evidence}}
+    <li>
+      <a href="{{.URL}}" class="operation"{{if .Selected}} aria-current="true"{{end}}>{{.Operation}}</a>
+      <span class="subtle">{{serviceLabel .Application .Service}} · <span class="evidence-label">{{classification .Classification}}</span></span>
+      {{with .ExceptionMessage}}<p class="subtle">{{.}}</p>{{end}}
+      {{with .ExceptionType}}<p class="subtle">{{.}}</p>{{end}}
+      {{with .ExceptionHash}}<p class="subtle">SHA-256 <code>{{.}}</code></p>{{end}}
+    </li>
+    {{end}}
+  </ul>
+  {{else}}<p class="muted">No evidence on this page.</p>{{end}}
+  {{if or .EvidenceFirst .EvidenceNext}}
+  <nav class="pagination" aria-label="Evidence pages">
+    {{if .EvidenceFirst}}<a class="button" href="{{.EvidenceFirst}}">First evidence</a>{{end}}
+    {{if .EvidenceNext}}<a class="button" href="{{.EvidenceNext}}" rel="next">Next evidence <span aria-hidden="true">→</span></a>{{end}}
+  </nav>
+  {{end}}
 </section>
 {{end}}
 <div class="trace-workspace">
 <section class="section timeline">
   {{template "service-map" .ServiceMap}}
-  <details class="waterfall-disclosure">
+  <details class="waterfall-disclosure"{{if .First}} open{{end}}>
   <summary>Span waterfall · timing details</summary>
   <h2>Span waterfall</h2>
   <p class="muted">Bars show recorded timing across the trace. Select a span to inspect its attributes and events.</p>
@@ -33,7 +51,7 @@
       <tbody>
       {{range .Rows}}
         <tr{{if .Selected}} class="selected"{{end}}>
-          <td><div class="span-name depth-{{.Depth}}"><a class="operation" href="{{.URL}}"{{if .Selected}} aria-current="true"{{end}}>{{.Operation}}</a><span class="subtle">{{.Service}}{{if .Signal}} · {{classification .Signal}}{{end}}</span></div></td>
+          <td><div class="span-name depth-{{.Depth}}"><a class="operation" href="{{.URL}}"{{if .Selected}} aria-current="true"{{end}}>{{.Operation}}</a><span class="subtle">{{serviceLabel .Application .Service}}{{if .Signal}} · {{classification .Signal}}{{end}}</span></div></td>
           <td class="track"><svg viewBox="0 0 1000 14" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M1 0V14 M250 0V14 M500 0V14 M750 0V14 M999 0V14" class="ticks"></path><rect x="{{.X}}" y="3" width="{{.Width}}" height="8" rx="2" class="{{if .Signal}}signal-bar{{else}}span-bar{{end}}"></rect></svg></td>
           <td class="time">{{duration .DurationNS}}</td>
         </tr>
@@ -52,9 +70,11 @@
   {{if .MissingSpan}}<h2>Span unavailable</h2><p class="muted">The selected span is unavailable. Its parent or child may have arrived separately.</p>
   {{else if .Selected}}
   <h2>Span details</h2>
+  <p class="muted">Showing one recorded span from this service. Use the waterfall to inspect other spans.</p>
   <dl class="properties">
     <div><dt>Operation</dt><dd>{{.Selected.Operation}}</dd></div>
     <div><dt>Service</dt><dd>{{.Selected.Service}}</dd></div>
+    <div><dt>Application</dt><dd>{{if .Selected.Application}}{{.Selected.Application}}{{else}}Ungrouped{{end}}</dd></div>
     <div><dt>Span ID</dt><dd><code>{{.Selected.SpanID}}</code></dd></div>
     {{if .Parent}}<div><dt>Parent span</dt><dd><a href="{{.Parent}}"><code>{{.Selected.ParentID}}</code></a></dd></div>{{end}}
     <div><dt>Evidence</dt><dd>{{classification (signal .Selected)}}</dd></div>
@@ -64,6 +84,7 @@
   <div class="expanders">
     {{template "attributes" (attributes "Span attributes" .Selected.Attributes)}}
     {{template "attributes" (attributes "Resource attributes" .Selected.ResourceAttributes)}}
+    {{with .ServiceMap.SelectedInstances}}<details><summary>Observed service instances ({{len .}})</summary><ul>{{range .}}<li><code>{{.}}</code></li>{{end}}</ul></details>{{end}}
     {{template "attributes" (attributes "Scope attributes" .Selected.Scope.Attributes)}}
     {{range .Selected.Events}}
     <details{{if eq .Name "exception"}} open{{end}}><summary>{{.Name}} <small>{{timestamp .Time}}</small></summary>

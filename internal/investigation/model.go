@@ -10,6 +10,12 @@ import (
 
 var ErrTraceNotFound = errors.New("trace not found")
 var ErrSpanNotFound = errors.New("span not found")
+var ErrAssignmentInProgress = errors.New("a historical assignment is already in progress")
+
+type ServiceApplication struct {
+	Service     string
+	Application string
+}
 
 const (
 	DefaultPageSize = 50
@@ -28,27 +34,32 @@ type Page[T any] struct {
 }
 
 type FailureFilter struct {
-	Service    string
-	Search     string
-	HTTPStatus int
-	From       *time.Time
-	To         *time.Time
-	After      *Cursor
-	Limit      int
+	Application     *string // nil means all, empty means ungrouped
+	Service         string
+	EvidenceService string
+	Search          string
+	HTTPStatus      int
+	From            *time.Time
+	To              *time.Time
+	After           *Cursor
+	Limit           int
 }
 
 type SpanSummary struct {
-	SpanID     string `json:"span_id"`
-	Service    string `json:"service"`
-	Operation  string `json:"operation"`
-	HTTPStatus *int   `json:"http_status"`
-	DurationNS *int64 `json:"duration_ns"`
+	Application string `json:"application,omitempty"`
+	SpanID      string `json:"span_id"`
+	Service     string `json:"service"`
+	Operation   string `json:"operation"`
+	HTTPStatus  *int   `json:"http_status"`
+	DurationNS  *int64 `json:"duration_ns"`
 }
 
 type Evidence struct {
 	SpanSummary
 	Classification   string `json:"classification"`
 	ExceptionMessage string `json:"exception_message,omitempty"`
+	ExceptionType    string `json:"exception_type,omitempty"`
+	ExceptionHash    string `json:"exception_hash,omitempty"`
 }
 
 type TraceSummary struct {
@@ -74,9 +85,10 @@ type Overview struct {
 }
 
 type OperationCount struct {
-	Service   string
-	Operation string
-	Count     int
+	Application string
+	Service     string
+	Operation   string
+	Count       int
 }
 
 type Span struct {

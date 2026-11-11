@@ -17,7 +17,7 @@ func TestServiceMapObservedRelationships(t *testing.T) {
 		{SpanSummary: investigation.SpanSummary{SpanID: "4", Service: "payments"}, ParentID: "2"},
 		{SpanSummary: investigation.SpanSummary{SpanID: "5", Service: "orphan"}, ParentID: "missing"},
 	}
-	view := serviceMap(spans, &spans[2], "/traces/demo")
+	view := serviceMap(spans, &spans[2], "/traces/demo", false)
 	if len(view.Nodes) != 3 || len(view.Edges) != 1 || view.MissingParents != 1 {
 		t.Fatalf("incorrect topology: %+v", view)
 	}
@@ -37,8 +37,8 @@ func TestServiceMapCyclesAndLongNames(t *testing.T) {
 		{SpanSummary: investigation.SpanSummary{SpanID: "2", Service: "b"}, ParentID: "1"},
 		{SpanSummary: investigation.SpanSummary{SpanID: "3", Service: "c"}, ParentID: "2"},
 	}
-	a := serviceMap(spans, nil, "/traces/demo")
-	b := serviceMap([]investigation.Span{spans[2], spans[0], spans[1]}, nil, "/traces/demo")
+	a := serviceMap(spans, nil, "/traces/demo", false)
+	b := serviceMap([]investigation.Span{spans[2], spans[0], spans[1]}, nil, "/traces/demo", false)
 	if len(a.Nodes) != 3 || len(a.Edges) != 3 || !reflect.DeepEqual(a, b) {
 		t.Fatalf("layout must be deterministic and retain cycles: %+v / %+v", a, b)
 	}
@@ -46,5 +46,25 @@ func TestServiceMapCyclesAndLongNames(t *testing.T) {
 		if len([]rune(n.Label)) > 24 {
 			t.Fatal("unbounded label")
 		}
+	}
+}
+
+func TestServiceMapSeparatesEnvironmentsAndAggregatesInstances(t *testing.T) {
+	spans := []investigation.Span{
+		{SpanSummary: investigation.SpanSummary{SpanID: "1", Service: "api", Application: "Storefront"},
+			ResourceAttributes: telemetry.Attributes{"deployment.environment.name": "prod", "service.instance.id": "pod-a"}},
+		{SpanSummary: investigation.SpanSummary{SpanID: "2", Service: "api", Application: "Storefront"},
+			ResourceAttributes: telemetry.Attributes{"deployment.environment": "prod", "service.instance.id": "pod-b"}},
+		{SpanSummary: investigation.SpanSummary{SpanID: "3", Service: "api", Application: "Storefront"},
+			ResourceAttributes: telemetry.Attributes{"deployment.environment.name": "staging", "service.instance.id": "pod-c"}},
+	}
+	separate := serviceMap(spans, &spans[0], "/traces/demo", false)
+	if len(separate.Nodes) != 2 || !reflect.DeepEqual(separate.SelectedInstances, []string{"pod-a", "pod-b"}) {
+		t.Fatalf("separate environments: %+v", separate)
+	}
+	merged := serviceMap(spans, &spans[0], "/traces/demo", true)
+	if len(merged.Nodes) != 1 || !reflect.DeepEqual(merged.SelectedInstances, []string{"pod-a", "pod-b", "pod-c"}) ||
+		!strings.Contains(merged.Nodes[0].URL, "environments=merged") {
+		t.Fatalf("merged environments: %+v", merged)
 	}
 }

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"geko/internal/config"
 	"geko/internal/storage/sqlite"
 	"geko/internal/telemetry"
 )
@@ -21,7 +23,14 @@ func TestDashboardInvestigation(t *testing.T) {
 	}
 	defer store.Close()
 	mux := http.NewServeMux()
-	if err := Register(mux, store, Settings{ListenAddr: "127.0.0.1:4318", DBPath: dbPath, Version: "test"}); err != nil {
+	configPath := filepath.Join(t.TempDir(), "custom.yaml")
+	if err := Register(mux, store, Settings{
+		ListenAddr: "127.0.0.1:4318", DBPath: dbPath, Version: "test",
+		ConfigSource: config.Source{
+			FilePath: configPath, DBPath: config.SettingSource{Kind: "env", Variable: "GEKO_DB_PATH"},
+			ListenAddr: config.SettingSource{Kind: "yaml"}, OnFull: config.SettingSource{Kind: "default"},
+		},
+	}); err != nil {
 		t.Fatal(err)
 	}
 	get := func(path string, status int, contains ...string) string {
@@ -43,19 +52,33 @@ func TestDashboardInvestigation(t *testing.T) {
 		return body
 	}
 	get("/", http.StatusSeeOther)
-	get("/failures", http.StatusOK, "No failures observed")
+	get("/failures", http.StatusOK, "No traces received yet", "http://127.0.0.1:4318/v1/traces", "go run ./examples/go")
 	get("/assets/dashboard.css", http.StatusOK, ".waterfall")
 	get("/assets/dashboard.js", http.StatusOK, "clipboard.writeText")
-	get("/settings", http.StatusOK, "schema 2", "SQLite sidecars", "127.0.0.1:4318")
+	get("/assets/theme.js", http.StatusOK, "geko.theme")
+	get("/settings", http.StatusOK, "schema 5", "SQLite sidecars", "127.0.0.1:4318", configPath,
+		"Set by <code>GEKO_DB_PATH</code>", ">yaml</span>", ">default</span>", "Traces evicted at capacity")
 
 	start := time.Now().UTC().Add(-time.Minute)
+	if err := store.WriteSpans(t.Context(), start, []telemetry.Span{{
+		TraceID: telemetry.TraceID{2}, ID: telemetry.SpanID{1}, Kind: telemetry.KindServer,
+		ServiceName: "healthy", Name: "GET /health", StartTime: start, EndTime: start.Add(time.Millisecond),
+		Attributes: telemetry.Attributes{"http.response.status_code": 200},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	get("/failures", http.StatusOK, "No failure evidence found")
+	get("/failures?q=missing", http.StatusOK, "No matching traces")
 	traceID := telemetry.TraceID{1}
-	root := telemetry.SpanID{1}
+	var root telemetry.SpanID
+	binary.BigEndian.PutUint16(root[:2], 1)
 	var spans []telemetry.Span
-	for i := 1; i <= 55; i++ {
+	for i := 1; i <= 505; i++ {
 		at := start.Add(time.Duration(i) * time.Millisecond)
+		var id telemetry.SpanID
+		binary.BigEndian.PutUint16(id[:2], uint16(i))
 		span := telemetry.Span{
-			TraceID: traceID, ID: telemetry.SpanID{byte(i)}, ParentID: root,
+			TraceID: traceID, ID: id, ParentID: root,
 			ServiceName: "checkout", Name: "checkout span", StartTime: at, EndTime: at.Add(time.Millisecond),
 		}
 		if i == 1 {
@@ -63,8 +86,18 @@ func TestDashboardInvestigation(t *testing.T) {
 			span.Kind = telemetry.KindServer
 			span.Attributes = telemetry.Attributes{"http.response.status_code": 200}
 		}
+		if i >= 3 && i <= 12 {
+			span.StatusCode = telemetry.StatusError
+			span.Name = "status evidence"
+		}
 		spans = append(spans, span)
 	}
+	early := &spans[1]
+	early.ServiceName, early.Name = "inventory", "reserve stock"
+	early.Events = []telemetry.Event{{
+		Name: "exception", Time: early.StartTime,
+		Attributes: telemetry.Attributes{"exception.message": "stock reservation failed"},
+	}}
 	evidence := &spans[len(spans)-1]
 	evidence.ServiceName = "payments"
 	evidence.Name = strings.Repeat("payment", 50)
@@ -84,9 +117,14 @@ func TestDashboardInvestigation(t *testing.T) {
 	if strings.Contains(body, "<script>alert") {
 		t.Fatal("telemetry was rendered as executable HTML")
 	}
+	get("/failures?evidence_service=payments", http.StatusOK, path+"#span-details")
+	get("/failures?evidence_service=inventory&q=alert", http.StatusOK, "No matching traces")
+	get("/failures?service=payments", http.StatusOK, "No matching traces")
 	get("/failures?status=500", http.StatusOK, "No matching traces")
 	get("/overview", http.StatusOK, "Most frequent operations", "checkout span", "Recent failures")
-	get(tracePath, http.StatusOK, "Next spans", "checkout span")
+	anchor := hex.EncodeToString(spans[9].ID[:])
+	get(tracePath, http.StatusOK, "Next spans", "checkout span", "reserve stock", path+"#span-details", "evidence_after="+anchor, "Partial map")
+	get(tracePath+"?evidence_after="+anchor, http.StatusOK, "First evidence", "status evidence")
 	get(path, http.StatusOK, "Span waterfall", "Span details", "aria-current=\"true\"", "payments.go:12", "Unavailable", "First spans")
 	get(tracePath+"?span=0909090909090909", http.StatusOK, "Span unavailable")
 	get("/traces/"+strings.Repeat("a", 32), http.StatusNotFound, "Trace not found")

@@ -45,17 +45,37 @@ if (graph) {
   const width = Number(graph.getAttribute("width"));
   const height = Number(graph.getAttribute("height"));
   let zoom = 1;
+  const output = controls.querySelector("[data-map-scale]");
+  function renderZoom() {
+    graph.setAttribute("width", String(width * zoom));
+    graph.setAttribute("height", String(height * zoom));
+    if (output) output.textContent = Math.round(zoom * 100) + "%";
+  }
   controls.hidden = false;
   controls.addEventListener("click", (event) => {
     const button = event.target.closest("[data-map-zoom]");
     if (!button) return;
     const action = button.dataset.mapZoom;
     if (action === "reset") {
-      zoom = Math.max(0.25, Math.min(1, canvas.clientWidth / width, canvas.clientHeight / height));
+      zoom = Math.min(1, canvas.clientWidth / width, canvas.clientHeight / height);
+      canvas.scrollTo(0, 0);
+    } else if (action === "actual") {
+      zoom = 1;
     } else {
       zoom = Math.max(0.25, Math.min(2, zoom * (action === "in" ? 1.25 : 0.8)));
     }
-    graph.setAttribute("width", String(width * zoom));
-    graph.setAttribute("height", String(height * zoom));
+    renderZoom();
+  });
+}
+
+const waterfall = document.querySelector(".waterfall-disclosure");
+if (waterfall) {
+  const key = "geko.waterfall:" + location.pathname;
+  try {
+    const saved = sessionStorage.getItem(key);
+    if (saved !== null) waterfall.open = saved === "open";
+  } catch {}
+  waterfall.addEventListener("toggle", () => {
+    try { sessionStorage.setItem(key, waterfall.open ? "open" : "closed"); } catch {}
   });
 }

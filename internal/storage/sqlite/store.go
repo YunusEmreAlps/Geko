@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
+	"sync"
 
 	"geko/internal/storage"
 
@@ -25,38 +25,106 @@ var initialSchema string
 //go:embed migrations/002_evidence.sql
 var evidenceSchema string
 
-var migrations = []string{initialSchema, evidenceSchema}
+//go:embed migrations/003_applications.sql
+var applicationSchema string
+
+//go:embed migrations/004_maintenance.sql
+var maintenanceSchema string
+
+//go:embed migrations/005_exception_search.sql
+var exceptionSearchSchema string
+
+var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema}
 
 type Store struct {
-	db   *sql.DB
-	path string
+	db         *sql.DB
+	read       *sql.DB
+	path       string
+	maxBytes   int64
+	onFull     storage.FullPolicy
+	assignment sync.Mutex
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
+	return OpenWithLimit(ctx, path, 0)
+}
+
+// OpenWithLimit limits ingestion growth of the main database file.
+func OpenWithLimit(ctx context.Context, path string, maxBytes int64) (*Store, error) {
+	return OpenWithPolicy(ctx, path, maxBytes, storage.EvictOldest)
+}
+
+func OpenWithPolicy(ctx context.Context, path string, maxBytes int64, onFull storage.FullPolicy) (*Store, error) {
+	if onFull == "" {
+		onFull = storage.EvictOldest
+	}
+	if onFull != storage.EvictOldest && onFull != storage.Reject {
+		return nil, fmt.Errorf("invalid capacity policy %q", onFull)
+	}
 	if err := prepareFile(path); err != nil {
 		return nil, fmt.Errorf("prepare database %q: %w", path, err)
 	}
 
-	uriPath := filepath.ToSlash(path)
-	if !strings.HasPrefix(uriPath, "/") {
-		uriPath = "/" + uriPath // SQLite file URI for a Windows drive path.
-	}
 	params := url.Values{
 		"mode":    {"rw"},
-		"_pragma": {"busy_timeout(5000)", "foreign_keys(ON)"},
+		"_pragma": {"busy_timeout(5000)", "foreign_keys(ON)", "journal_size_limit(0)"},
 		"_txlock": {"immediate"},
 	}
-	uri := url.URL{Scheme: "file", Path: uriPath, RawQuery: params.Encode()}
-	db, err := sql.Open("sqlite", uri.String())
+	db, err := openConnection(path, params, 1)
 	if err != nil {
 		return nil, fmt.Errorf("open database %q: %w", path, err)
 	}
-	db.SetMaxOpenConns(1)
-
 	if err := initialize(ctx, db); err != nil {
 		return nil, errors.Join(fmt.Errorf("initialize database %q: %w", path, err), db.Close())
 	}
-	return &Store{db: db, path: path}, nil
+	read, err := openReader(path)
+	if err != nil {
+		return nil, errors.Join(err, db.Close())
+	}
+	return &Store{db: db, read: read, path: path, maxBytes: maxBytes, onFull: onFull}, nil
+}
+
+func openConnection(path string, params url.Values, maxConnections int) (*sql.DB, error) {
+	uriPath := filepath.ToSlash(path)
+	if filepath.VolumeName(path) != "" && uriPath[0] != '/' {
+		uriPath = "/" + uriPath
+	}
+	uri := url.URL{Scheme: "file", Path: uriPath, RawQuery: params.Encode()}
+	db, err := sql.Open("sqlite", uri.String())
+	if err == nil {
+		db.SetMaxOpenConns(maxConnections)
+	}
+	return db, err
+}
+
+func openReader(path string) (*sql.DB, error) {
+	return openConnection(path, url.Values{
+		"mode": {"ro"}, "_pragma": {"busy_timeout(5000)", "query_only(ON)"},
+	}, 4)
+}
+
+// Inspect checks an existing database without acquiring the writer or migrating it.
+func Inspect(ctx context.Context, path string) (status storage.Status, err error) {
+	read, err := openReader(path)
+	if err != nil {
+		return status, err
+	}
+	defer func() { err = errors.Join(err, read.Close()) }()
+	var id int
+	if err := read.QueryRowContext(ctx, "PRAGMA application_id").Scan(&id); err != nil {
+		return status, err
+	}
+	if id != applicationID {
+		return status, errors.New("file is not a Geko database")
+	}
+	var version int
+	if err := read.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return status, err
+	}
+	if version < 1 || version > len(migrations) {
+		return status, fmt.Errorf("unsupported schema version %d, this build supports versions 1 through %d", version, len(migrations))
+	}
+	return (&Store{read: read, path: path}).Check(ctx)
 }
 
 func prepareFile(path string) error {
@@ -140,7 +208,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 
 func (s *Store) Check(ctx context.Context) (storage.Status, error) {
 	var result string
-	if err := s.db.QueryRowContext(ctx, "PRAGMA quick_check(1)").Scan(&result); err != nil {
+	if err := s.read.QueryRowContext(ctx, "PRAGMA quick_check(1)").Scan(&result); err != nil {
 		return storage.Status{}, fmt.Errorf("check SQLite integrity: %w", err)
 	}
 	if result != "ok" {
@@ -151,27 +219,40 @@ func (s *Store) Check(ctx context.Context) (storage.Status, error) {
 
 func (s *Store) Status(ctx context.Context) (storage.Status, error) {
 	var status storage.Status
-	if err := s.db.QueryRowContext(ctx, "SELECT sqlite_version()").Scan(&status.SQLiteVersion); err != nil {
+	if err := s.read.QueryRowContext(ctx, "SELECT sqlite_version()").Scan(&status.SQLiteVersion); err != nil {
 		return storage.Status{}, err
 	}
-	if err := s.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&status.SchemaVersion); err != nil {
+	if err := s.read.QueryRowContext(ctx, "PRAGMA user_version").Scan(&status.SchemaVersion); err != nil {
 		return storage.Status{}, err
 	}
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		info, err := os.Stat(s.path + suffix)
-		if suffix != "" && errors.Is(err, os.ErrNotExist) {
+	if err := s.read.QueryRowContext(ctx, "SELECT freelist_count * page_size FROM pragma_freelist_count(), pragma_page_size()").Scan(&status.FreeBytes); err != nil {
+		return storage.Status{}, err
+	}
+	if status.SchemaVersion >= 4 {
+		if err := s.read.QueryRowContext(ctx, "SELECT evicted_traces, rejected_exports FROM storage_counters WHERE id = 1").
+			Scan(&status.EvictedTraces, &status.RejectedExports); err != nil {
+			return storage.Status{}, err
+		}
+	}
+	for _, file := range []struct {
+		suffix string
+		size   *int64
+	}{{"", &status.MainBytes}, {"-wal", &status.WALBytes}, {"-shm", &status.SHMBytes}} {
+		info, err := os.Stat(s.path + file.suffix)
+		if file.suffix != "" && errors.Is(err, os.ErrNotExist) {
 			continue // SQLite can remove its sidecar files when connections close.
 		}
 		if err != nil {
 			return storage.Status{}, fmt.Errorf("measure database size: %w", err)
 		}
-		status.Bytes += info.Size()
+		*file.size = info.Size()
+		status.Bytes += *file.size
 	}
 	return status, nil
 }
 
 func (s *Store) Close() error {
-	if err := s.db.Close(); err != nil {
+	if err := errors.Join(s.read.Close(), s.db.Close()); err != nil {
 		return fmt.Errorf("close database %q: %w", s.path, err)
 	}
 	return nil

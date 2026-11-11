@@ -4,12 +4,62 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
 	"geko/internal/investigation"
 	"geko/internal/telemetry"
 )
+
+func BenchmarkApplicationFailureFilter(b *testing.B) {
+	for _, size := range []int{10_000, 100_000} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			ctx := b.Context()
+			store, err := Open(ctx, filepath.Join(b.TempDir(), "applications.db"))
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer store.Close()
+			tx, err := store.db.BeginTx(ctx, nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+			defer tx.Rollback()
+			if _, err := tx.ExecContext(ctx, `WITH RECURSIVE sequence(n) AS (
+                VALUES (1) UNION ALL SELECT n+1 FROM sequence WHERE n < ?
+            ) INSERT INTO traces (trace_id, first_observed_ns, last_observed_ns)
+              SELECT unhex(printf('%032x', n)), n, n FROM sequence`, size); err != nil {
+				b.Fatal(err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO spans
+                (trace_id, span_id, service_name, name, kind, start_ns, end_ns, status_code, resource_attributes)
+              SELECT trace_id, x'0000000000000001', 'api', 'checkout', 2, 1, 2, 2,
+                json_object('service.namespace', CASE WHEN last_observed_ns % 100 = 0 THEN 'Reporting' ELSE 'Storefront' END)
+              FROM traces`); err != nil {
+				b.Fatal(err)
+			}
+			if err := tx.Commit(); err != nil {
+				b.Fatal(err)
+			}
+			for _, name := range []string{"Storefront", "Reporting", "Missing"} {
+				b.Run(name, func(b *testing.B) {
+					filter := investigation.FailureFilter{Application: &name, Limit: 50}
+					want := 50
+					if name == "Missing" {
+						want = 0
+					}
+					for b.Loop() {
+						page, err := store.Failures(b.Context(), filter)
+						if err != nil || len(page.Items) != want {
+							b.Fatalf("application results: %d, %v", len(page.Items), err)
+						}
+					}
+				})
+			}
+		})
+	}
+}
 
 func TestFailureEvidenceAndLateRequestOutcome(t *testing.T) {
 	store := openTestStore(t)

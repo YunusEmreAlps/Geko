@@ -1,11 +1,19 @@
 {{define "failures"}}
 <header class="page-head">
-  <div><h1>Failures</h1><p>Find a trace and open the span where a failure signal was recorded.</p></div>
-  <a class="button" href="{{.Refresh}}" data-loading>Refresh list</a>
+  <div><h1>Failures</h1><p>Find traces with recorded errors. A request can succeed even when one of its spans records an error.</p></div>
+  <div class="actions"><a class="button" href="/applications">Manage applications</a><a class="button" href="{{.Refresh}}" data-loading>Refresh list</a></div>
 </header>
 <form class="filters" action="/failures" method="get" data-loading>
-  <label>Search <input name="q" value="{{.Search}}" maxlength="256" placeholder="Trace ID or message"></label>
-  <label>Service <input name="service" value="{{.Service}}" maxlength="256" placeholder="Any service"></label>
+  <label>Search <input name="q" value="{{.Search}}" maxlength="256" placeholder="Trace ID, exception type, or hash"></label>
+  <label>Application
+    <select name="application">
+      <option value="">All applications</option>
+      <option value="ungrouped"{{if eq .Application "ungrouped"}} selected{{end}}>Ungrouped</option>
+      {{range .Applications}}<option value="group:{{.}}"{{if eq $.Application (printf "group:%s" .)}} selected{{end}}>{{.}}</option>{{end}}
+    </select>
+  </label>
+  <label>Request service <input name="service" value="{{.Service}}" maxlength="256" placeholder="Any service"></label>
+  <label>Evidence service <input name="evidence_service" value="{{.EvidenceService}}" maxlength="256" placeholder="Any service"></label>
   <label>HTTP status <input name="status" type="number" min="100" max="599" value="{{.Status}}" placeholder="Any"></label>
   <label>Time range
     <select name="range">
@@ -18,10 +26,17 @@
   <div class="actions"><button class="button primary" type="submit">Apply</button>{{if .Filtered}}<a href="/failures">Reset</a>{{end}}</div>
 </form>
 {{if .Items}}{{template "failure-table" .Items}}
-{{else if .Filtered}}
+{{else if not .HasTraces}}
+<section class="empty">
+  <h2>No traces received yet</h2>
+  <p>Send OTLP/HTTP protobuf traces to <code>{{.Endpoint}}</code>.</p>
+  <p>To try the Go example, set <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code> to that URL and run <code>go run ./examples/go</code> from the repository. Open <a href="http://127.0.0.1:8080/failure">the demo failure</a>, wait a few seconds, then refresh this list.</p>
+  <a class="button" href="/settings#receiver">Check receiver diagnostics</a>
+</section>
+{{else if or .Filtered .First}}
 <section class="empty"><h2>No matching traces</h2><p>Try a broader time range or remove a filter.</p><a class="button" href="/failures">Clear filters</a></section>
 {{else}}
-<section class="empty"><h2>No failures observed</h2><p>Send trace data from an instrumented application to <code>POST /v1/traces</code>, then refresh this page.</p></section>
+<section class="empty"><h2>No failure evidence found</h2><p>Geko has stored traces. None contain observed failure evidence.</p><a class="button" href="/settings#receiver">Check receiver diagnostics</a></section>
 {{end}}
 {{if or .First .Next}}
 <nav class="pagination" aria-label="Failure pages">
@@ -42,14 +57,14 @@
           <a class="operation" href="{{evidenceLink .}}">
           {{if .EntrySpan}}{{.EntrySpan.Operation}}{{else if .Evidence}}{{.Evidence.Operation}}{{else}}{{.TraceID}}{{end}}
           </a>
-          <span class="subtle">{{if .EntrySpan}}{{.EntrySpan.Service}}{{else if .Evidence}}{{.Evidence.Service}}{{end}}</span>
+          <span class="subtle">{{with .EntrySpan}}{{serviceLabel .Application .Service}}{{else}}{{with .Evidence}}{{serviceLabel .Application .Service}}{{end}}{{end}}</span>
           <time class="time mobile-observed" datetime="{{.LastObserved.Format "2006-01-02T15:04:05Z07:00"}}">{{timestamp .LastObserved}}</time>
         </td>
         <td><span class="pill {{outcomeClass .}}">{{outcome .}}</span></td>
         <td class="evidence-cell">
           {{with .Evidence}}
             <span class="evidence-label">{{classification .Classification}}</span>
-            <span class="subtle">{{.Service}}{{if .ExceptionMessage}} · {{.ExceptionMessage}}{{end}}</span>
+            <span class="subtle">{{serviceLabel .Application .Service}}{{if .ExceptionMessage}} · {{.ExceptionMessage}}{{else if .ExceptionType}} · {{.ExceptionType}}{{end}}</span>
           {{end}}
         </td>
         <td class="time"><time datetime="{{.LastObserved.Format "2006-01-02T15:04:05Z07:00"}}">{{timestamp .LastObserved}}</time></td>

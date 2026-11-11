@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -14,6 +16,8 @@ import (
 
 	"geko/internal/config"
 	"geko/internal/investigation"
+	"geko/internal/storage/sqlite"
+	"geko/internal/telemetry"
 
 	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
@@ -52,7 +56,7 @@ func TestDoctorReportsBusyListener(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "GEKO_LISTEN_ADDR") {
 		t.Fatalf("doctor error = %v, want a listener configuration hint", err)
 	}
-	if !strings.Contains(out.String(), "schema 2") {
+	if !strings.Contains(out.String(), "schema 5") {
 		t.Fatalf("doctor output %q does not include the database result", out.String())
 	}
 	if _, err := os.Stat("doctor.db"); err != nil {
@@ -65,8 +69,22 @@ func TestServeOTLPQueryAndShutdown(t *testing.T) {
 	defer cancel()
 
 	cfg := config.Config{
-		ListenAddr: "127.0.0.1:0",
-		DBPath:     filepath.Join(t.TempDir(), "geko.db"),
+		ListenAddr:    "127.0.0.1:0",
+		DBPath:        filepath.Join(t.TempDir(), "geko.db"),
+		RetentionDays: config.DefaultRetentionDays,
+		MaxDBMiB:      config.DefaultMaxDBMiB,
+	}
+	db, err := sqlite.Open(ctx, cfg.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expired := telemetry.Span{
+		TraceID: telemetry.TraceID{0xaa}, ID: telemetry.SpanID{1},
+		Name: "expired fixture", ServiceName: "fixture", StatusCode: telemetry.StatusError,
+		StartTime: time.Unix(1, 0), EndTime: time.Unix(2, 0),
+	}
+	if err := errors.Join(db.WriteSpans(ctx, time.Now().Add(-8*24*time.Hour), []telemetry.Span{expired}), db.Close()); err != nil {
+		t.Fatal(err)
 	}
 	ready := make(startupOutput, 1)
 	done := make(chan error, 1)
@@ -96,7 +114,11 @@ func TestServeOTLPQueryAndShutdown(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	failuresHTML, err := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if err != nil || !strings.Contains(string(failuresHTML), "No traces received yet") {
+		t.Fatalf("startup retention did not clear the expired fixture: %v", err)
+	}
 	if resp.StatusCode != http.StatusOK || resp.Request.URL.Path != "/failures" ||
 		resp.Header.Get("Content-Type") != "text/html; charset=utf-8" {
 		t.Fatalf("dashboard entry = %d %s %s, want the failures page", resp.StatusCode, resp.Request.URL.Path, resp.Header.Get("Content-Type"))
@@ -123,6 +145,37 @@ func TestServeOTLPQueryAndShutdown(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/x-protobuf" {
 		t.Fatalf("OTLP export = %d %s, want 200 protobuf", resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+
+	resp, err = client.Post(baseURL+"/v1/traces", "application/x-protobuf", bytes.NewReader([]byte{0xff}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("malformed export = %d, want 400", resp.StatusCode)
+	}
+
+	resp, err = client.Get(baseURL + "/settings")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil || resp.StatusCode != http.StatusOK {
+		t.Fatalf("settings = %d, %v", resp.StatusCode, err)
+	}
+	for _, want := range []string{
+		"Accepted exports with spans</dt><dd>1", "Invalid payload</dt><dd>1 rejected",
+		"7 days since last receipt", "Main database limit</dt><dd>256.0 MiB",
+		"No YAML file loaded",
+	} {
+		if !strings.Contains(string(settings), want) {
+			t.Errorf("settings missing %q", want)
+		}
+	}
+	if strings.Contains(string(settings), "None this session") {
+		t.Error("last accepted export is missing after successful ingest")
 	}
 
 	resp, err = client.Get(baseURL + "/api/v1/failures?status=500")

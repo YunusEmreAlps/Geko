@@ -1,6 +1,6 @@
 {{define "service-map"}}
-<section class="service-map" aria-label="Service map">
-  <header class="map-toolbar"><div><h2>Service map <span class="map-scope">This trace</span></h2><p>{{len .Nodes}} services · {{.Spans}} observed spans</p></div><div class="map-controls" hidden><button class="button quiet" type="button" data-map-zoom="in" aria-label="Zoom in">+</button><button class="button quiet" type="button" data-map-zoom="out" aria-label="Zoom out">−</button><button class="button quiet" type="button" data-map-zoom="reset">Fit</button></div></header>
+<section class="service-map" id="service-map" aria-label="Service map">
+  <header class="map-toolbar"><div><h2>Service map <span class="map-scope">This trace</span></h2><p>{{len .Nodes}} services · {{.Spans}} observed spans</p></div><a class="button quiet" href="{{.EnvironmentToggle}}">{{if .MergeEnvironments}}Separate environments{{else}}Merge environments{{end}}</a><div class="map-controls" hidden><button class="button quiet" type="button" data-map-zoom="in" aria-label="Zoom in">+</button><button class="button quiet" type="button" data-map-zoom="out" aria-label="Zoom out">−</button><button class="button quiet" type="button" data-map-zoom="reset">Fit</button><button class="button quiet" type="button" data-map-zoom="actual" aria-label="Actual size">100%</button><output data-map-scale aria-live="polite">100%</output></div></header>
   {{if .Truncated}}<p class="map-notice">Partial map · first 500 spans. Additional services or connections may be absent.</p>{{end}}
   {{if .MissingParents}}<p class="map-notice">{{.MissingParents}} parent spans unavailable in this map. Their connections are not inferred.</p>{{end}}
   <div class="map-canvas" tabindex="0" role="region" aria-label="Scrollable service graph">
@@ -8,19 +8,24 @@
       <defs><marker id="map-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10z"/></marker></defs>
       {{range .Edges}}<path class="map-edge" d="{{.Path}}" marker-end="url(#map-arrow)"><title>{{.Label}}</title></path>{{end}}
       {{range .Nodes}}
-      <a href="{{.URL}}" class="map-node{{if .Errors}} has-errors{{end}}{{if .Selected}} is-selected{{end}}" aria-label="{{.Name}}: {{.Count}} spans, {{.Errors}} with failure evidence. Open span details.">
+      <a href="{{.URL}}" class="map-node{{if .Errors}} has-errors{{end}}{{if .Selected}} is-selected{{end}}" {{if .Selected}}aria-current="true"{{end}} aria-label="{{.Name}}: {{.Count}} spans, {{.Errors}} with failure evidence. Open span details.">
         <title>{{.Name}} · {{.Count}} spans · {{.Errors}} with failure evidence</title>
         <g transform="translate({{.X}} {{.Y}})">
-          <rect class="node-body" width="204" height="80" rx="6"/>
+          <rect class="node-body" width="204" height="80" rx="8"/><path class="node-divider" d="M0 36H204"/><circle class="node-port" cx="0" cy="40" r="4"/><circle class="node-port" cx="204" cy="40" r="4"/><path class="node-service" d="M171 13h18v5h-18z M171 22h18v5h-18z"/>
           <rect class="node-indicator" x="14" y="17" width="7" height="7" rx="1"/>
           <text class="node-count" x="30" y="26">{{.Count}} spans</text>
-          <text class="node-name" x="14" y="53">{{.Label}}</text>
-          <text class="node-status" x="14" y="102">{{if .Errors}}{{.Errors}} with failure evidence{{else}}No failure evidence{{end}}</text>
+          <text class="node-name" x="14" y="62">{{.Label}}</text>
+          <text class="node-status" x="14" y="98">{{if .Errors}}{{.Errors}} with failure evidence{{else}}No failure evidence{{end}}</text>
+          {{if or .Environment .Instances}}<text class="node-status" x="14" y="115">{{.Environment}}{{if and .Environment .Instances}} · {{end}}{{with .Instances}}{{len .}} {{if eq (len .) 1}}instance{{else}}instances{{end}}{{end}}</text>{{end}}
         </g>
       </a>
       {{end}}
     </svg>
   </div>
+  <details class="service-list">
+    <summary>Services · readable list</summary>
+    <ul>{{range .Nodes}}<li><a href="{{.URL}}"{{if .Selected}} aria-current="true"{{end}}>{{if .Name}}{{.Name}}{{else}}Unknown service{{end}}</a><span>{{.Count}} spans · {{.Errors}} with failure evidence{{with .Instances}} · {{len .}} {{if eq (len .) 1}}instance{{else}}instances{{end}}{{end}}</span></li>{{end}}</ul>
+  </details>
   <footer class="map-legend"><span><i class="legend-error"></i> Failure evidence</span><span>→ Observed relationship</span><span>Select a service to inspect a span</span></footer>
 </section>
 {{end}}

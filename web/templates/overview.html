@@ -13,7 +13,7 @@
   <div class="table-wrap" tabindex="0" role="region" aria-label="Most frequent operations">
     <table class="ranking">
       <thead><tr><th scope="col">Operation</th><th scope="col">Service</th><th scope="col">Traces</th></tr></thead>
-      <tbody>{{range .Operations}}<tr><td class="operation">{{.Operation}}</td><td>{{.Service}}</td><td>{{.Count}}</td></tr>{{end}}</tbody>
+      <tbody>{{range .Operations}}<tr><td class="operation">{{.Operation}}</td><td>{{serviceLabel .Application .Service}}</td><td>{{.Count}}</td></tr>{{end}}</tbody>
     </table>
   </div>
   {{else}}<div class="empty compact"><p>No operations recorded failure evidence in this window.</p></div>{{end}}

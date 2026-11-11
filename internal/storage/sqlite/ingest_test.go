@@ -2,6 +2,8 @@ package sqlite
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"geko/internal/ingest/otlp"
+	"geko/internal/investigation"
 	"geko/internal/telemetry"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -22,6 +25,71 @@ import (
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestStrictExceptionExportAndSearch(t *testing.T) {
+	db := openTestStore(t)
+	const message = "private customer reference 638a9"
+	const stack = "private-stack-marker"
+	const description = "private-status-marker"
+	const kind = "PaymentTimeout"
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(message)))
+	attribute := func(key, value string) *common.KeyValue {
+		return &common.KeyValue{Key: key, Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: value}}}
+	}
+	traceID := telemetry.TraceID{1}
+	spanID := telemetry.SpanID{2}
+	batch := &collector.ExportTraceServiceRequest{ResourceSpans: []*trace.ResourceSpans{{
+		Resource: &resource.Resource{Attributes: []*common.KeyValue{attribute("service.instance.id", "payments-1")}},
+		ScopeSpans: []*trace.ScopeSpans{{Spans: []*trace.Span{{
+			TraceId: traceID[:], SpanId: spanID[:], Name: "authorize", StartTimeUnixNano: 100, EndTimeUnixNano: 120,
+			Status: &trace.Status{Code: trace.Status_STATUS_CODE_ERROR, Message: description},
+			Events: []*trace.Span_Event{{Name: "exception", TimeUnixNano: 110, Attributes: []*common.KeyValue{
+				attribute("exception.type", kind), attribute("exception.message", message), attribute("exception.stacktrace", stack),
+			}}},
+		}}}},
+	}}}
+	payload, err := proto.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	response := httptest.NewRecorder()
+	otlp.NewHandlerWithRedaction(db, true).ServeHTTP(response, req)
+	if response.Code != http.StatusOK {
+		t.Fatalf("export status %d", response.Code)
+	}
+	for _, query := range []struct {
+		search string
+		count  int
+	}{{kind, 1}, {strings.ToUpper(hash), 1}, {hash[:12], 0}, {message, 0}} {
+		page, err := db.Failures(t.Context(), investigation.FailureFilter{Search: query.search, Limit: 10})
+		if err != nil || len(page.Items) != query.count {
+			t.Fatalf("search %q = %d results, %v", query.search, len(page.Items), err)
+		}
+		if query.count > 0 {
+			evidence := page.Items[0].Evidence
+			if evidence == nil || evidence.ExceptionType != kind || evidence.ExceptionHash != hash || evidence.ExceptionMessage != "" {
+				t.Fatalf("unexpected evidence: %+v", evidence)
+			}
+		}
+	}
+	span, err := db.Span(t.Context(), traceID, spanID)
+	if err != nil || span.ResourceAttributes["service.instance.id"] != "payments-1" {
+		t.Fatalf("instance ID was not retained: %+v, %v", span, err)
+	}
+	for _, suffix := range []string{"", "-wal"} {
+		raw, err := os.ReadFile(db.path + suffix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, secret := range []string{message, stack, description} {
+			if bytes.Contains(raw, []byte(secret)) {
+				t.Fatalf("strict exception data reached database file %s", suffix)
+			}
+		}
+	}
+}
 
 func TestOfficialExporter(t *testing.T) {
 	db := openTestStore(t)

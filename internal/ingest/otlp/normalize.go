@@ -1,6 +1,8 @@
 package otlp
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"math"
 	"time"
@@ -21,7 +23,7 @@ const (
 
 var errBatchLimit = errors.New("trace batch exceeds the span or event limit")
 
-func normalize(req *collector.ExportTraceServiceRequest) ([]telemetry.Span, error) {
+func normalize(req *collector.ExportTraceServiceRequest, strict bool) ([]telemetry.Span, error) {
 	var spans []telemetry.Span
 	for _, resourceSpans := range req.GetResourceSpans() {
 		resource := textAttributes(resourceSpans.GetResource().GetAttributes(), resourceFields)
@@ -40,7 +42,7 @@ func normalize(req *collector.ExportTraceServiceRequest) ([]telemetry.Span, erro
 				Attributes: textAttributes(src.GetAttributes(), scopeFields),
 			}
 			for _, span := range scopeSpans.GetSpans() {
-				normalized, err := normalizeSpan(span, service, resource, scope)
+				normalized, err := normalizeSpan(span, service, resource, scope, strict)
 				if err != nil {
 					return nil, err
 				}
@@ -51,7 +53,7 @@ func normalize(req *collector.ExportTraceServiceRequest) ([]telemetry.Span, erro
 	return spans, nil
 }
 
-func normalizeSpan(src *trace.Span, service string, resource telemetry.Attributes, scope telemetry.Scope) (telemetry.Span, error) {
+func normalizeSpan(src *trace.Span, service string, resource telemetry.Attributes, scope telemetry.Scope, strict bool) (telemetry.Span, error) {
 	var span telemetry.Span
 	if len(src.GetTraceId()) != len(span.TraceID) || len(src.GetSpanId()) != len(span.ID) {
 		return span, errors.New("invalid trace or span ID length")
@@ -93,7 +95,9 @@ func normalizeSpan(src *trace.Span, service string, resource telemetry.Attribute
 	case trace.Status_STATUS_CODE_ERROR:
 		span.StatusCode = telemetry.StatusError
 	}
-	span.StatusDescription = privacy.Text(src.GetStatus().GetMessage(), 1024)
+	if !strict {
+		span.StatusDescription = privacy.Text(src.GetStatus().GetMessage(), 1024)
+	}
 	span.ResourceAttributes = resource
 	span.Scope = scope
 	span.Attributes = spanAttributes(src.GetAttributes())
@@ -104,7 +108,11 @@ func normalizeSpan(src *trace.Span, service string, resource telemetry.Attribute
 		}
 		attributes := telemetry.Attributes{}
 		if event.GetName() == "exception" {
-			attributes = textAttributes(event.GetAttributes(), exceptionFields)
+			if strict {
+				attributes = strictException(event.GetAttributes())
+			} else {
+				attributes = textAttributes(event.GetAttributes(), exceptionFields)
+			}
 		}
 		span.Events = append(span.Events, telemetry.Event{
 			Name:       privacy.Text(event.GetName(), labelSize),
@@ -124,7 +132,7 @@ func fromUnixNano(ns uint64) time.Time {
 }
 
 var resourceFields = map[string]int{
-	"service.name": labelSize, "service.namespace": labelSize, "service.version": labelSize,
+	"service.name": labelSize, "service.namespace": labelSize, "service.version": labelSize, "service.instance.id": labelSize,
 	"deployment.environment.name": labelSize, "deployment.environment": labelSize,
 	"telemetry.sdk.name": labelSize, "telemetry.sdk.language": labelSize, "telemetry.sdk.version": labelSize,
 }
@@ -140,6 +148,24 @@ var exceptionFields = map[string]int{
 var spanFields = map[string]int{
 	"http.request.method": labelSize, "http.method": labelSize, "http.route": labelSize,
 	"error.type": labelSize, "network.protocol.version": labelSize,
+}
+
+func strictException(src []*common.KeyValue) telemetry.Attributes {
+	attrs := make(telemetry.Attributes)
+	for _, attr := range src {
+		value, ok := attr.GetValue().GetValue().(*common.AnyValue_StringValue)
+		if !ok {
+			continue
+		}
+		switch attr.GetKey() {
+		case "exception.type":
+			attrs["exception.type"] = privacy.Text(value.StringValue, labelSize)
+		case "exception.message":
+			digest := sha256.Sum256([]byte(value.StringValue))
+			attrs["exception.message_hash"] = hex.EncodeToString(digest[:])
+		}
+	}
+	return attrs
 }
 
 func textAttributes(src []*common.KeyValue, allowlist map[string]int) telemetry.Attributes {

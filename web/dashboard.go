@@ -12,9 +12,12 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 
 	"geko/internal/api"
+	"geko/internal/config"
+	"geko/internal/ingest/otlp"
 	"geko/internal/investigation"
 	"geko/internal/storage"
 	"geko/internal/telemetry"
@@ -25,15 +28,28 @@ var files embed.FS
 
 type Reader interface {
 	api.Reader
+	HasTraces(context.Context) (bool, error)
 	Overview(context.Context, time.Time) (investigation.Overview, error)
 	Span(context.Context, telemetry.TraceID, telemetry.SpanID) (investigation.Span, error)
+	TraceEvidence(context.Context, telemetry.TraceID, *telemetry.SpanID, int) ([]investigation.Evidence, string, error)
 	Status(context.Context) (storage.Status, error)
+	ApplicationNames(context.Context) ([]string, error)
+	ServiceApplications(context.Context, string) ([]investigation.ServiceApplication, error)
+	SetServiceApplication(context.Context, string, string) error
+	AssignTraceApplication(context.Context, time.Time, time.Time, string, string) (int64, error)
+	DiscardAssignmentProgress(context.Context) error
 }
 
 type Settings struct {
-	ListenAddr string
-	DBPath     string
-	Version    string
+	ConfigSource        config.Source
+	ListenAddr          string
+	DBPath              string
+	Version             string
+	ReceiverDiagnostics func() otlp.Diagnostics
+	RetentionDays       int
+	MaxDBBytes          int64
+	OnFull              storage.FullPolicy
+	Redaction           string
 }
 
 type dashboard struct {
@@ -53,6 +69,7 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 		"duration": formatDuration, "timestamp": formatTimestamp, "classification": classification,
 		"size": formatSize, "evidenceLink": evidenceLink, "signal": signal,
 		"outcome": outcome, "outcomeClass": outcomeClass,
+		"serviceLabel": serviceLabel,
 		"attributes": func(label string, values telemetry.Attributes) any {
 			return struct {
 				Label  string
@@ -71,7 +88,10 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	mux.HandleFunc("GET /overview", d.local(d.overview))
 	mux.HandleFunc("GET /traces/{traceID}", d.local(d.trace))
 	mux.HandleFunc("GET /settings", d.local(d.status))
-	for _, name := range []string{"dashboard.css", "dashboard.js", "geko.svg"} {
+	mux.HandleFunc("GET /applications", d.local(d.applications))
+	protect := http.NewCrossOriginProtection()
+	mux.Handle("POST /applications", protect.Handler(d.local(d.changeApplications)))
+	for _, name := range []string{"dashboard.css", "dashboard.js", "geko.svg", "theme.js"} {
 		mux.HandleFunc("GET /assets/"+name, d.local(func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFileFS(w, r, files, "assets/"+name)
 		}))
@@ -138,6 +158,11 @@ type failureView struct {
 	Search, Service, Status, Range string
 	Refresh, First, Next           string
 	Filtered                       bool
+	HasTraces                      bool
+	Endpoint                       string
+	EvidenceService                string
+	Application                    string
+	Applications                   []string
 }
 
 func (d *dashboard) failures(w http.ResponseWriter, r *http.Request) {
@@ -148,6 +173,8 @@ func (d *dashboard) failures(w http.ResponseWriter, r *http.Request) {
 	}
 	view := failureView{
 		Search: params.Get("q"), Service: params.Get("service"), Status: params.Get("status"), Range: params.Get("range"),
+		EvidenceService: params.Get("evidence_service"),
+		Application:     params.Get("application"),
 	}
 	params.Del("limit")
 	refresh := maps.Clone(params)
@@ -169,14 +196,31 @@ func (d *dashboard) failures(w http.ResponseWriter, r *http.Request) {
 		d.problem(w, r, http.StatusBadRequest, "Invalid filters", err.Error())
 		return
 	}
-	view.Filtered = filter.Search != "" || filter.Service != "" || filter.HTTPStatus != 0 || filter.From != nil || filter.To != nil
+	view.Filtered = filter.Application != nil || filter.Search != "" || filter.Service != "" || filter.EvidenceService != "" || filter.HTTPStatus != 0 || filter.From != nil || filter.To != nil
 	d.withQuery(w, r, func(ctx context.Context) {
+		applications, err := d.store.ApplicationNames(ctx)
+		if err != nil {
+			d.unavailable(w, r, ctx)
+			return
+		}
+		view.Applications = applications
+		if filter.Application != nil && *filter.Application != "" && !slices.Contains(applications, *filter.Application) {
+			view.Applications = append(view.Applications, *filter.Application)
+		}
 		page, err := d.store.Failures(ctx, filter)
 		if err != nil {
 			d.unavailable(w, r, ctx)
 			return
 		}
 		view.Items = page.Items
+		if len(view.Items) == 0 {
+			view.HasTraces, err = d.store.HasTraces(ctx)
+			if err != nil {
+				d.unavailable(w, r, ctx)
+				return
+			}
+			view.Endpoint = "http://" + d.settings.ListenAddr + "/v1/traces"
+		}
 		params.Del("limit")
 		if filter.After != nil {
 			params.Del("cursor")
@@ -217,10 +261,16 @@ func (d *dashboard) status(w http.ResponseWriter, r *http.Request) {
 			d.unavailable(w, r, ctx)
 			return
 		}
+		var receiver *otlp.Diagnostics
+		if snapshot := d.settings.ReceiverDiagnostics; snapshot != nil {
+			value := snapshot()
+			receiver = &value
+		}
 		d.render(w, http.StatusOK, "settings", "Settings", struct {
 			Settings
-			Storage storage.Status
-		}{d.settings, status})
+			Storage  storage.Status
+			Receiver *otlp.Diagnostics
+		}{d.settings, status, receiver})
 	})
 }
 

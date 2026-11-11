@@ -16,7 +16,7 @@ func TestOpenMigrateAndReopen(t *testing.T) {
 	}
 	t.Cleanup(func() { db.Close() })
 	status, err := db.Check(t.Context())
-	if err != nil || status.SchemaVersion != 2 || status.SQLiteVersion == "" || status.Bytes <= 0 {
+	if err != nil || status.SchemaVersion != 5 || status.SQLiteVersion == "" || status.Bytes <= 0 {
 		t.Fatalf("Check() = %+v, %v", status, err)
 	}
 

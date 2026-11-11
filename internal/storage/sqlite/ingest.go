@@ -2,10 +2,14 @@ package sqlite
 
 import (
 	"context"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"geko/internal/storage"
 	"geko/internal/telemetry"
 )
 
@@ -31,12 +35,79 @@ func (s *Store) WriteSpans(ctx context.Context, observed time.Time, spans []tele
 	if len(spans) == 0 {
 		return nil
 	}
+	err := s.checkJournalCapacity(ctx)
+	if err == nil {
+		err = s.writeSpans(ctx, observed.UnixNano(), spans)
+	}
+	if errors.Is(err, storage.ErrCapacity) {
+		_, countErr := s.db.ExecContext(ctx, "UPDATE storage_counters SET rejected_exports = rejected_exports + 1 WHERE id = 1")
+		if countErr != nil {
+			return errors.Join(err, fmt.Errorf("record rejected export: %w", countErr))
+		}
+	}
+	return err
+}
+
+func (s *Store) writeSpans(ctx context.Context, observedNS int64, spans []telemetry.Span) error {
+	_, err := s.writeSpanBatch(ctx, observedNS, spans, "", 0)
+	if !errors.Is(err, storage.ErrCapacity) || s.onFull != storage.EvictOldest {
+		return err
+	}
+
+	ids := make([]string, 0, len(spans))
+	for _, span := range spans {
+		ids = append(ids, hex.EncodeToString(span.TraceID[:]))
+	}
+	protected, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+
+	// SQLITE_FULL can roll back the whole transaction. Retry from scratch so
+	// eviction and ingestion only commit together, even for an oversized export.
+	for limit := int64(1); ; limit *= 2 {
+		deleted, err := s.writeSpanBatch(ctx, observedNS, spans, string(protected), limit)
+		if !errors.Is(err, storage.ErrCapacity) || deleted < limit {
+			return err
+		}
+	}
+}
+
+func (s *Store) writeSpanBatch(ctx context.Context, observedNS int64, spans []telemetry.Span, protected string, limit int64) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return fmt.Errorf("begin trace batch: %w", err)
+		return 0, fmt.Errorf("begin trace batch: %w", err)
 	}
 	defer tx.Rollback()
 
+	if err := s.checkWriteCapacity(ctx, tx); err != nil {
+		return 0, err
+	}
+	var deleted int64
+	if limit > 0 {
+		query := fmt.Sprintf(deleteOldest, "AND lower(hex(trace_id)) NOT IN (SELECT value FROM json_each(?))")
+		result, err := tx.ExecContext(ctx, query, observedNS, protected, limit)
+		if err != nil {
+			return 0, fmt.Errorf("evict traces: %w", writeError(err))
+		}
+		deleted, err = result.RowsAffected()
+		if err != nil {
+			return 0, err
+		}
+		if deleted == 0 {
+			return 0, storage.ErrCapacity
+		}
+		if _, err := tx.ExecContext(ctx, "UPDATE storage_counters SET evicted_traces = evicted_traces + ? WHERE id = 1", deleted); err != nil {
+			return 0, fmt.Errorf("record evicted traces: %w", writeError(err))
+		}
+	}
+	if err := insertSpanBatch(ctx, tx, observedNS, spans); err != nil {
+		return deleted, err
+	}
+	return deleted, writeError(tx.Commit())
+}
+
+func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []telemetry.Span) error {
 	traceStmt, err := tx.PrepareContext(ctx, observeTrace)
 	if err != nil {
 		return fmt.Errorf("prepare trace write: %w", err)
@@ -48,12 +119,11 @@ func (s *Store) WriteSpans(ctx context.Context, observed time.Time, spans []tele
 	}
 	defer spanStmt.Close()
 
-	observedNS := observed.UnixNano()
 	seen := make(map[telemetry.TraceID]struct{})
 	for _, span := range spans {
 		if _, ok := seen[span.TraceID]; !ok {
 			if _, err := traceStmt.ExecContext(ctx, span.TraceID[:], observedNS, observedNS); err != nil {
-				return fmt.Errorf("update trace observation: %w", err)
+				return fmt.Errorf("update trace observation: %w", writeError(err))
 			}
 			seen[span.TraceID] = struct{}{}
 		}
@@ -72,11 +142,8 @@ func (s *Store) WriteSpans(ctx context.Context, observed time.Time, spans []tele
 			fields[0], span.Scope.Name, span.Scope.Version, fields[1], fields[2], fields[3],
 		)
 		if err != nil {
-			return fmt.Errorf("insert span: %w", err)
+			return fmt.Errorf("insert span: %w", writeError(err))
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit trace batch: %w", err)
 	}
 	return nil
 }

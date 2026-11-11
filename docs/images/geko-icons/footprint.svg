@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Geko Footprint</title>
+  <rect x="4" y="4" width="56" height="56" rx="15" fill="#26311f"/>
+  <g fill="none" stroke="#c2e878" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M23 47c0-7 7-10 9-16l1-11m-1 14-10-5-5-8m15 13 10-6 5-8m-22 22-9-4" stroke-width="5"/>
+  </g>
+  <g fill="#c2e878">
+    <circle cx="33" cy="17" r="4"/>
+    <circle cx="16" cy="20" r="4"/>
+    <circle cx="48" cy="19" r="4"/>
+    <circle cx="15" cy="38" r="3.8"/>
+  </g>
+</svg>

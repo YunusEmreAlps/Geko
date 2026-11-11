@@ -9,8 +9,10 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"geko/internal/storage"
 	"geko/internal/telemetry"
 
 	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -30,23 +32,79 @@ type spanWriter interface {
 	WriteSpans(ctx context.Context, observed time.Time, spans []telemetry.Span) error
 }
 
-type receiver struct {
-	store spanWriter
-	slots chan struct{}
+type Receiver struct {
+	store  spanWriter
+	slots  chan struct{}
+	strict bool
+
+	mu       sync.Mutex
+	accepted uint64
+	last     time.Time
+	rejected [rejectionCount]uint64
 }
 
-func NewHandler(store spanWriter) http.Handler {
-	return &receiver{store: store, slots: make(chan struct{}, maxConcurrent)}
+const (
+	unsupportedFormat = iota
+	invalidPayload
+	limitExceeded
+	receiverBusy
+	storageUnavailable
+	rejectionCount
+)
+
+type Rejection struct {
+	Reason string
+	Count  uint64
 }
 
-func (h *receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// Diagnostics describes nonempty successful exports and rejected requests
+// since this receiver started. It contains no data from request payloads.
+type Diagnostics struct {
+	AcceptedExports uint64
+	LastAccepted    time.Time
+	Rejections      []Rejection
+}
+
+func NewHandler(store spanWriter) *Receiver {
+	return NewHandlerWithRedaction(store, false)
+}
+
+func NewHandlerWithRedaction(store spanWriter, strict bool) *Receiver {
+	return &Receiver{store: store, slots: make(chan struct{}, maxConcurrent), strict: strict}
+}
+
+func (h *Receiver) Diagnostics() Diagnostics {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return Diagnostics{
+		AcceptedExports: h.accepted,
+		LastAccepted:    h.last,
+		Rejections: []Rejection{
+			{"Unsupported format", h.rejected[unsupportedFormat]},
+			{"Invalid payload", h.rejected[invalidPayload]},
+			{"Payload or batch limit exceeded", h.rejected[limitExceeded]},
+			{"Receiver busy", h.rejected[receiverBusy]},
+			{"Storage unavailable", h.rejected[storageUnavailable]},
+		},
+	}
+}
+
+func (h *Receiver) reject(reason int) {
+	h.mu.Lock()
+	h.rejected[reason]++
+	h.mu.Unlock()
+}
+
+func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	contentType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if contentType != protobufContentType {
+		h.reject(unsupportedFormat)
 		fail(w, http.StatusUnsupportedMediaType, codes.InvalidArgument, "expected application/x-protobuf")
 		return
 	}
 	encoding := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding")))
 	if encoding != "" && encoding != "identity" && encoding != "gzip" {
+		h.reject(unsupportedFormat)
 		fail(w, http.StatusUnsupportedMediaType, codes.InvalidArgument, "expected identity or gzip content encoding")
 		return
 	}
@@ -55,6 +113,7 @@ func (h *receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case h.slots <- struct{}{}:
 		defer func() { <-h.slots }()
 	default:
+		h.reject(receiverBusy)
 		unavailable(w, "trace receiver is busy")
 		return
 	}
@@ -63,23 +122,28 @@ func (h *receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
+			h.reject(limitExceeded)
 			fail(w, http.StatusRequestEntityTooLarge, codes.ResourceExhausted, "trace payload exceeds 4 MiB")
 		} else {
+			h.reject(invalidPayload)
 			fail(w, http.StatusBadRequest, codes.InvalidArgument, "cannot read trace payload")
 		}
 		return
 	}
 	var req collector.ExportTraceServiceRequest
 	if err := (proto.UnmarshalOptions{DiscardUnknown: true, RecursionLimit: 32}).Unmarshal(payload, &req); err != nil {
+		h.reject(invalidPayload)
 		fail(w, http.StatusBadRequest, codes.InvalidArgument, "invalid OTLP trace protobuf")
 		return
 	}
-	spans, err := normalize(&req)
+	spans, err := normalize(&req, h.strict)
 	switch {
 	case errors.Is(err, errBatchLimit):
+		h.reject(limitExceeded)
 		fail(w, http.StatusRequestEntityTooLarge, codes.ResourceExhausted, err.Error())
 		return
 	case err != nil:
+		h.reject(invalidPayload)
 		fail(w, http.StatusBadRequest, codes.InvalidArgument, err.Error())
 		return
 	}
@@ -88,9 +152,18 @@ func (h *receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), writeTimeout)
 		defer cancel()
 		if err := h.store.WriteSpans(ctx, time.Now(), spans); err != nil {
+			if errors.Is(err, storage.ErrCapacity) {
+				unavailable(w, "trace storage capacity reached")
+				return
+			}
+			h.reject(storageUnavailable)
 			unavailable(w, "trace storage unavailable")
 			return
 		}
+		h.mu.Lock()
+		h.accepted++
+		h.last = time.Now()
+		h.mu.Unlock()
 	}
 	respond(w, http.StatusOK, &collector.ExportTraceServiceResponse{})
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -68,6 +69,28 @@ func TestRejectInvalidExports(t *testing.T) {
 				t.Fatalf("export response = %d %q %v, want status %d with protobuf error", w.Code, w.Header().Get("Content-Type"), err, tc.want)
 			}
 		})
+	}
+	diagnostics := handler.Diagnostics()
+	if diagnostics.AcceptedExports != 0 || !diagnostics.LastAccepted.IsZero() ||
+		diagnostics.Rejections[unsupportedFormat].Count != 2 ||
+		diagnostics.Rejections[invalidPayload].Count != 3 ||
+		diagnostics.Rejections[limitExceeded].Count != 3 {
+		t.Fatalf("incorrect diagnostics for rejected exports: %+v", diagnostics)
+	}
+}
+
+func TestFailedWriteIsNotAnAcceptedExport(t *testing.T) {
+	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error {
+		return errors.New("storage fixture error")
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(encodeBatch(t, fixtureSpan())))
+	request.Header.Set("Content-Type", protobufContentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	diagnostics := handler.Diagnostics()
+	if response.Code != http.StatusServiceUnavailable || diagnostics.AcceptedExports != 0 ||
+		!diagnostics.LastAccepted.IsZero() || diagnostics.Rejections[storageUnavailable].Count != 1 {
+		t.Fatalf("write failure response = %d, diagnostics = %+v", response.Code, diagnostics)
 	}
 }
 

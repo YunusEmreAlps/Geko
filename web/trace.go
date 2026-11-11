@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"time"
@@ -22,6 +23,15 @@ type traceView struct {
 	Window              string
 	MissingSpan         bool
 	ServiceMap          serviceMapView
+	Evidence            []evidenceRow
+	EvidenceFirst       string
+	EvidenceNext        string
+}
+
+type evidenceRow struct {
+	investigation.Evidence
+	URL      string
+	Selected bool
 }
 
 type waterfallRow struct {
@@ -54,6 +64,15 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 	if rawSpanID != "" && !valid {
 		d.problem(w, r, http.StatusBadRequest, "Invalid span ID", "A span ID must contain 16 hexadecimal characters and be nonzero.")
 		return
+	}
+	var evidenceAfter *telemetry.SpanID
+	if raw := params.Get("evidence_after"); raw != "" {
+		anchor, ok := parseSpanID(raw)
+		if !ok {
+			d.problem(w, r, http.StatusBadRequest, "Invalid evidence page", "Open the trace again from the failures page.")
+			return
+		}
+		evidenceAfter = &anchor
 	}
 	d.withQuery(w, r, func(ctx context.Context) {
 		view := traceView{}
@@ -99,6 +118,32 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 			view.Selected = &page.Items[0]
 		}
 		view.Trace = summary
+		if summary.Evidence != nil {
+			evidence, next, err := d.store.TraceEvidence(ctx, id, evidenceAfter, 10)
+			if err != nil {
+				d.unavailable(w, r, ctx)
+				return
+			}
+			links := maps.Clone(params)
+			links.Del("limit")
+			for _, item := range evidence {
+				link := maps.Clone(links)
+				link.Del("cursor")
+				link.Set("span", item.SpanID)
+				view.Evidence = append(view.Evidence, evidenceRow{
+					Evidence: item, URL: route(path, link) + "#span-details",
+					Selected: view.Selected != nil && view.Selected.SpanID == item.SpanID,
+				})
+			}
+			if evidenceAfter != nil {
+				links.Del("evidence_after")
+				view.EvidenceFirst = route(path, links) + "#evidence"
+			}
+			if next != "" {
+				links.Set("evidence_after", next)
+				view.EvidenceNext = route(path, links) + "#evidence"
+			}
+		}
 		// The map is independent of the waterfall page and focused span.
 		_, mapPage, err := d.store.Trace(ctx, id, nil, investigation.MaxPageSize)
 		if err != nil {
@@ -114,21 +159,30 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 			}
 			mapSpans = append(mapSpans, mapPage.Items...)
 		}
-		view.ServiceMap = serviceMap(mapSpans, view.Selected, path)
+		mergeEnvironments := params.Get("environments") == "merged"
+		view.ServiceMap = serviceMap(mapSpans, view.Selected, path, mergeEnvironments)
+		toggle := maps.Clone(params)
+		toggle.Del("limit")
+		if mergeEnvironments {
+			toggle.Del("environments")
+		} else {
+			toggle.Set("environments", "merged")
+		}
+		view.ServiceMap.EnvironmentToggle = route(path, toggle) + "#service-map"
 		view.ServiceMap.Truncated = mapPage.Next != nil
-		view.Rows = waterfall(page.Items, summary.Window, view.Selected, path, cursor)
+		view.Rows = waterfall(page.Items, summary.Window, view.Selected, path, cursor, mergeEnvironments)
 		if summary.Window != nil {
 			ns := summary.Window.End.Sub(summary.Window.Start).Nanoseconds()
 			view.Window = formatDuration(&ns)
 		}
 		if view.Selected != nil && view.Selected.ParentID != "" {
-			view.Parent = spanLink(path, view.Selected.ParentID, nil)
+			view.Parent = spanLink(path, view.Selected.ParentID, nil, mergeEnvironments)
 		}
 		if cursor != nil {
-			view.First = path
+			view.First = traceRoute(path, url.Values{}, mergeEnvironments)
 		}
 		if page.Next != nil {
-			view.Next = route(path, url.Values{"cursor": {api.EncodeCursor(page.Next)}})
+			view.Next = traceRoute(path, url.Values{"cursor": {api.EncodeCursor(page.Next)}}, mergeEnvironments)
 		}
 		d.render(w, http.StatusOK, "trace", "Trace details", view)
 	})
@@ -155,12 +209,19 @@ func immediatelyBefore(span investigation.Span, id telemetry.SpanID) *investigat
 	return &investigation.Cursor{TimeNS: span.Start.UnixNano(), ID: id[:]}
 }
 
-func spanLink(path, span string, cursor *investigation.Cursor) string {
+func traceRoute(path string, params url.Values, mergeEnvironments bool) string {
+	if mergeEnvironments {
+		params.Set("environments", "merged")
+	}
+	return route(path, params)
+}
+
+func spanLink(path, span string, cursor *investigation.Cursor, mergeEnvironments bool) string {
 	params := url.Values{"span": {span}}
 	if cursor != nil {
 		params.Set("cursor", api.EncodeCursor(cursor))
 	}
-	return route(path, params) + "#span-details"
+	return traceRoute(path, params, mergeEnvironments) + "#span-details"
 }
 
 func evidenceLink(trace investigation.TraceSummary) string {
@@ -168,10 +229,10 @@ func evidenceLink(trace investigation.TraceSummary) string {
 	if trace.Evidence == nil {
 		return path
 	}
-	return spanLink(path, trace.Evidence.SpanID, nil)
+	return spanLink(path, trace.Evidence.SpanID, nil, false)
 }
 
-func waterfall(spans []investigation.Span, window *investigation.TraceWindow, selected *investigation.Span, path string, cursor *investigation.Cursor) []waterfallRow {
+func waterfall(spans []investigation.Span, window *investigation.TraceWindow, selected *investigation.Span, path string, cursor *investigation.Cursor, mergeEnvironments bool) []waterfallRow {
 	present := make(map[string]bool, len(spans))
 	children := make(map[string][]investigation.Span, len(spans))
 	for _, span := range spans {
@@ -188,7 +249,7 @@ func waterfall(spans []investigation.Span, window *investigation.TraceWindow, se
 		seen[span.SpanID] = true
 		x, width := barPosition(span, window)
 		rows = append(rows, waterfallRow{
-			Span: span, URL: spanLink(path, span.SpanID, cursor), Signal: signal(span), Depth: min(depth, 6),
+			Span: span, URL: spanLink(path, span.SpanID, cursor, mergeEnvironments), Signal: signal(span), Depth: min(depth, 6),
 			X: x, Width: width, Selected: selected != nil && span.SpanID == selected.SpanID,
 		})
 		for _, child := range children[span.SpanID] {

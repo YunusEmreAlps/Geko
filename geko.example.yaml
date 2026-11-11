@@ -4,3 +4,15 @@ listen_addr: "127.0.0.1:4318"
 # Uncomment to override the default database in your user configuration directory.
 # A relative path is resolved from this file's directory.
 # db_path: "data/geko.db"
+
+# Remove traces that have not been received again within this many days.
+retention_days: 7
+
+# Limit the main SQLite file. Its WAL and shared-memory files use extra space.
+max_db_mib: 256
+
+# Evict the oldest traces at capacity, or set reject to keep existing traces.
+on_full: evict_oldest
+
+# strict stores exception types and message hashes for new spans.
+redaction: best_effort

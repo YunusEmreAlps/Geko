@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{.Title}} · Geko</title>
   <link rel="icon" href="/assets/geko.svg" type="image/svg+xml">
+  <script src="/assets/theme.js"></script>
   <link rel="stylesheet" href="/assets/dashboard.css">
   <script defer src="/assets/dashboard.js"></script>
 </head>
@@ -29,6 +30,7 @@
     {{else if eq .Page "overview"}}{{template "overview" .Data}}
     {{else if eq .Page "trace"}}{{template "trace" .Data}}
     {{else if eq .Page "settings"}}{{template "settings" .Data}}
+    {{else if eq .Page "applications"}}{{template "applications" .Data}}
     {{else}}{{template "error" .Data}}{{end}}
   </main>
 </body>
