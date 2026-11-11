@@ -114,7 +114,7 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer func() { <-h.slots }()
 	default:
 		h.reject(receiverBusy)
-		unavailable(w, "trace receiver is busy")
+		unavailable(w, "trace receiver is busy", "1")
 		return
 	}
 
@@ -153,11 +153,11 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer cancel()
 		if err := h.store.WriteSpans(ctx, time.Now(), spans); err != nil {
 			if errors.Is(err, storage.ErrCapacity) {
-				unavailable(w, "trace storage capacity reached")
+				unavailable(w, "trace storage capacity reached", "30")
 				return
 			}
 			h.reject(storageUnavailable)
-			unavailable(w, "trace storage unavailable")
+			unavailable(w, "trace storage unavailable", "1")
 			return
 		}
 		h.mu.Lock()
@@ -190,8 +190,8 @@ func readPayload(w http.ResponseWriter, r *http.Request, encoding string) ([]byt
 	return payload, err
 }
 
-func unavailable(w http.ResponseWriter, message string) {
-	w.Header().Set("Retry-After", "1")
+func unavailable(w http.ResponseWriter, message, retryAfter string) {
+	w.Header().Set("Retry-After", retryAfter)
 	fail(w, http.StatusServiceUnavailable, codes.Unavailable, message)
 }
 

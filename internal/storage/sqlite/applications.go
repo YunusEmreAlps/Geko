@@ -15,7 +15,7 @@ func (s *Store) ApplicationNames(ctx context.Context) ([]string, error) {
         SELECT service_namespace AS name FROM spans WHERE service_namespace <> ''
         UNION SELECT application FROM service_applications
         UNION SELECT application FROM trace_applications
-        ORDER BY name LIMIT 200`)
+        ORDER BY name`)
 	if err != nil {
 		return nil, err
 	}

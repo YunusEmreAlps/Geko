@@ -173,6 +173,82 @@ func TestEvictionCommitsWithExportAndCountersSurviveRestart(t *testing.T) {
 	}
 }
 
+func TestLoweredCapacityEvictsWithoutGrowingDatabase(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "lowered-limit.db")
+	db, err := OpenWithLimit(ctx, path, 2<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	old := retentionSpan(1, strings.Repeat("x", 750<<10))
+	err = db.WriteSpans(ctx, now.Add(-time.Hour), []telemetry.Span{old})
+	if closeErr := db.Close(); err != nil || closeErr != nil {
+		t.Fatal(errors.Join(err, closeErr))
+	}
+
+	const loweredLimit = 256 << 10
+	db, err = OpenWithLimit(ctx, path, loweredLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	before, err := db.Status(ctx)
+	if err != nil || before.MainBytes <= loweredLimit {
+		t.Fatalf("fixture must exceed the lowered limit: %+v, %v", before, err)
+	}
+	incoming := retentionSpan(2, strings.Repeat("y", 600<<10))
+	if err := db.WriteSpans(ctx, now, []telemetry.Span{incoming}); err != nil {
+		t.Fatalf("export with lowered limit: %v", err)
+	}
+	if _, _, err := db.Trace(ctx, old.TraceID, nil, 10); !errors.Is(err, investigation.ErrTraceNotFound) {
+		t.Fatalf("old trace should be evicted: %v", err)
+	}
+	if _, _, err := db.Trace(ctx, incoming.TraceID, nil, 10); err != nil {
+		t.Fatalf("incoming trace lookup: %v", err)
+	}
+	var pageBytes int64
+	if err := db.read.QueryRowContext(ctx, "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()").Scan(&pageBytes); err != nil || pageBytes > before.MainBytes {
+		t.Fatalf("database grew beyond its existing size: %d > %d, %v", pageBytes, before.MainBytes, err)
+	}
+	after, err := db.Status(ctx)
+	if err != nil || after.EvictedTraces != 1 || after.RejectedExports != 0 {
+		t.Fatalf("capacity counters: %+v, %v", after, err)
+	}
+}
+
+func TestPruneSkipsSmallJournalWithoutExpiredTraces(t *testing.T) {
+	db := openTestStore(t)
+	ctx := t.Context()
+	now := time.Now()
+	if err := db.WriteSpans(ctx, now, []telemetry.Span{retentionSpan(1, "active")}); err != nil {
+		t.Fatal(err)
+	}
+	small, err := db.journalSize()
+	if err != nil || small == 0 || small >= maintenanceWALThreshold {
+		t.Fatalf("expected a small journal: %d, %v", small, err)
+	}
+	if err := db.Prune(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if size, err := db.journalSize(); err != nil || size != small {
+		t.Fatalf("no-op retention changed small journal: %d, %v", size, err)
+	}
+	large := retentionSpan(2, strings.Repeat("x", maintenanceWALThreshold))
+	if err := db.WriteSpans(ctx, now, []telemetry.Span{large}); err != nil {
+		t.Fatal(err)
+	}
+	if size, err := db.journalSize(); err != nil || size < maintenanceWALThreshold {
+		t.Fatalf("expected a large journal: %d, %v", size, err)
+	}
+	if err := db.Prune(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	if size, err := db.journalSize(); err != nil || size != 0 {
+		t.Fatalf("maintenance did not truncate the large journal: %d, %v", size, err)
+	}
+}
+
 func retentionSpan(id byte, name string) telemetry.Span {
 	return telemetry.Span{
 		TraceID: telemetry.TraceID{id}, ID: telemetry.SpanID{1}, Name: name,

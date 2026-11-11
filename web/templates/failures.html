@@ -4,7 +4,7 @@
   <div class="actions"><a class="button" href="/applications">Manage applications</a><a class="button" href="{{.Refresh}}" data-loading>Refresh list</a></div>
 </header>
 <form class="filters" action="/failures" method="get" data-loading>
-  <label>Search <input name="q" value="{{.Search}}" maxlength="256" placeholder="Trace ID, exception type, or hash"></label>
+  <label>Search <input name="q" value="{{.Search}}" maxlength="4096" placeholder="Trace ID or exception"></label>
   <label>Application
     <select name="application">
       <option value="">All applications</option>

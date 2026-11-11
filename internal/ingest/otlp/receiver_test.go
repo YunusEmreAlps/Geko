@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"geko/internal/storage"
 	"geko/internal/telemetry"
 
 	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -88,9 +89,22 @@ func TestFailedWriteIsNotAnAcceptedExport(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	diagnostics := handler.Diagnostics()
-	if response.Code != http.StatusServiceUnavailable || diagnostics.AcceptedExports != 0 ||
+	if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "1" || diagnostics.AcceptedExports != 0 ||
 		!diagnostics.LastAccepted.IsZero() || diagnostics.Rejections[storageUnavailable].Count != 1 {
 		t.Fatalf("write failure response = %d, diagnostics = %+v", response.Code, diagnostics)
+	}
+}
+
+func TestCapacityRejectionUsesLongerRetryDelay(t *testing.T) {
+	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error {
+		return storage.ErrCapacity
+	}))
+	request := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(encodeBatch(t, fixtureSpan())))
+	request.Header.Set("Content-Type", protobufContentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "30" {
+		t.Fatalf("capacity response = %d, Retry-After = %q", response.Code, response.Header().Get("Retry-After"))
 	}
 }
 

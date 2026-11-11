@@ -2,11 +2,19 @@
 package privacy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
 )
+
+// ExceptionMessageHash fingerprints the exact message bytes used for strict search.
+func ExceptionMessageHash(message string) string {
+	digest := sha256.Sum256([]byte(message))
+	return hex.EncodeToString(digest[:])
+}
 
 // Drop the whole field when it resembles a secret or payload. This also drops
 // multiline header values and credentials with quoting or embedded spaces.

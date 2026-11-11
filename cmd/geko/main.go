@@ -177,9 +177,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 
 	if cfg.RetentionDays > 0 {
 		retention := time.Duration(cfg.RetentionDays) * 24 * time.Hour
-		if err := db.Prune(ctx, time.Now().Add(-retention)); err != nil {
-			return err
-		}
+		pruneExpired(ctx, db, retention)
 		maintenance, cancel := context.WithCancel(ctx)
 		stopped := make(chan struct{})
 		go func() {
@@ -246,9 +244,13 @@ func prunePeriodically(ctx context.Context, db *sqlite.Store, retention time.Dur
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := db.Prune(ctx, time.Now().Add(-retention)); err != nil && ctx.Err() == nil {
-				log.Printf("trace retention: %v", err)
-			}
+			pruneExpired(ctx, db, retention)
 		}
+	}
+}
+
+func pruneExpired(ctx context.Context, db *sqlite.Store, retention time.Duration) {
+	if err := db.Prune(ctx, time.Now().Add(-retention)); err != nil && ctx.Err() == nil {
+		log.Printf("trace retention: %v", err)
 	}
 }

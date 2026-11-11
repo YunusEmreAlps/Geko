@@ -148,7 +148,9 @@ restores the service mapping or **Ungrouped**. A trace spanning two applications
 appears in both filters, and its detail page preserves the full trace.
 Historical updates commit in batches. Submit the same range, service, and
 application to resume an interrupted update. **Discard progress** leaves the
-changes from completed batches in place.
+changes from completed batches in place. If a trace receives a new span
+before its batch runs, its last receipt time may move outside the selected
+range and the trace may be skipped.
 
 ## Configuration
 
@@ -173,7 +175,10 @@ Geko expires traces based on their last receipt time at startup and once a
 minute. At capacity, `evict_oldest` can remove whole traces ordered by last
 receipt to make room for a new export. Traces in the incoming export are
 protected. If the export still cannot fit, Geko returns HTTP 503 and rolls
-back the attempted eviction. Settings shows the database’s cumulative counts
+back the attempted eviction. Capacity rejections include `Retry-After: 30`.
+If the configured limit is below the current file size, `evict_oldest`
+reuses existing pages and evicts traces as needed without growing the file.
+Settings shows the database’s cumulative counts
 of evicted traces and exports rejected at capacity.
 
 Deleted pages can be reused. SQLite’s WAL and shared-memory files can use
@@ -188,9 +193,12 @@ patterns and limits exception messages to 1,024 UTF-8 bytes. Allowed text
 can still contain sensitive data that does not match these patterns.
 With `redaction: strict`, new spans store the exception type and SHA-256 of
 the original message. Geko drops exception stack traces and status
-descriptions in this mode. Evidence search matches the type or full
-hexadecimal digest of the first exception event on each span. Previously
-stored spans retain their original fields. See the
+descriptions in this mode. Evidence search matches the type, exact original
+message, or full hexadecimal digest of the first exception event on each span.
+Search hashes the original query text, including case and whitespace.
+Search terms appear in the URL, so use the digest to keep the original
+message out of browser history. Previously stored spans retain their
+original fields. See the
 [storage and privacy notes](docs/architecture.md).
 
 ## CLI and local API
@@ -221,7 +229,7 @@ these filters.
 | `service` | Exact entry span service, or primary evidence service when a unique entry span is unavailable. |
 | `evidence_service` | Exact service on a span with evidence. |
 | `status` | HTTP status on the entry span. |
-| `q` | Trace ID prefix, substring in the entry or evidence operation, service, exception message or type, or full exception hash. ASCII matching ignores case. |
+| `q` | Up to 4,096 bytes. Trace ID prefix, substring in the entry or evidence operation, service, exception message or type, full exception hash, or exact original message in strict mode. Substring and hexadecimal comparisons ignore ASCII case. |
 | `from`, `to` | RFC3339 last receipt time, inclusive start and exclusive end. |
 
 ## Development

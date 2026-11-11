@@ -14,7 +14,10 @@ import (
 	sqlite3 "modernc.org/sqlite/lib"
 )
 
-const pruneBatchSize = 128
+const (
+	pruneBatchSize          = 128
+	maintenanceWALThreshold = 4 << 20
+)
 
 const deleteOldest = `DELETE FROM traces WHERE trace_id IN (
     SELECT trace_id FROM traces WHERE last_observed_ns < ? %s
@@ -23,6 +26,7 @@ const deleteOldest = `DELETE FROM traces WHERE trace_id IN (
 
 // Prune removes whole traces last observed before cutoff, in short transactions.
 func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
+	removed := false
 	for {
 		result, err := s.db.ExecContext(ctx, fmt.Sprintf(deleteOldest, ""), cutoff.UnixNano(), pruneBatchSize)
 		if err != nil {
@@ -32,11 +36,21 @@ func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
 		if err != nil {
 			return fmt.Errorf("count expired traces: %w", err)
 		}
+		removed = removed || deleted > 0
 		if deleted < pruneBatchSize {
 			break
 		}
 	}
 
+	if !removed {
+		size, err := s.journalSize()
+		if err != nil {
+			return err
+		}
+		if size < maintenanceWALThreshold {
+			return nil
+		}
+	}
 	_, err := s.truncateJournal(ctx)
 	if err != nil {
 		return fmt.Errorf("checkpoint trace storage: %w", err)
@@ -93,8 +107,9 @@ func (s *Store) checkWriteCapacity(ctx context.Context, tx *sql.Tx) error {
 	if err := tx.QueryRowContext(ctx, fmt.Sprintf("PRAGMA max_page_count = %d", maxPages)).Scan(&effective); err != nil {
 		return fmt.Errorf("set trace storage limit: %w", err)
 	}
-	if effective > maxPages {
-		// SQLite will not reduce the page limit below the existing file size.
+	// SQLite floors the limit at the existing page count. Evict mode can
+	// continue to reuse that space without growing the main database.
+	if effective > maxPages && s.onFull != storage.EvictOldest {
 		return storage.ErrCapacity
 	}
 
@@ -105,11 +120,11 @@ func (s *Store) checkJournalCapacity(ctx context.Context) error {
 	if s.maxBytes == 0 {
 		return nil
 	}
-	wal, err := os.Stat(s.path + "-wal")
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("measure trace journal: %w", err)
+	size, err := s.journalSize()
+	if err != nil {
+		return err
 	}
-	if err == nil && wal.Size() >= s.maxBytes {
+	if size >= s.maxBytes {
 		drained, err := s.truncateJournal(ctx)
 		if err != nil {
 			return err
@@ -119,6 +134,17 @@ func (s *Store) checkJournalCapacity(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) journalSize() (int64, error) {
+	info, err := os.Stat(s.path + "-wal")
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("measure trace journal: %w", err)
+	}
+	return info.Size(), nil
 }
 
 func writeError(err error) error {

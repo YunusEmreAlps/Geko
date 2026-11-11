@@ -58,8 +58,10 @@ Ingestion sets SQLite's page limit on the writer connection. The default
 capacity policy retries with the oldest eligible whole traces removed in the
 same transaction as the export. A failed retry rolls back both writes and
 eviction. The reject policy returns HTTP 503 at capacity. Both counters are
-kept in the database. Maintenance checkpoints the WAL, and a reader can
-prevent it from truncating. The main file can retain freed pages until an
+kept in the database. Retention attempts to truncate the WAL after deleting
+traces or when the WAL reaches 4 MiB. A reader can defer truncation. A failed
+startup retention pass is logged and retried during periodic maintenance.
+The main file can retain freed pages until an
 explicit `geko compact`. A transaction and sidecar files can use additional
 disk space beyond the main file limit.
 

@@ -141,7 +141,7 @@ func ParseFailureFilter(params url.Values) (investigation.FailureFilter, error) 
 		return filter, err
 	}
 	filter.Limit, filter.After = limit, cursor
-	filter.Service, filter.Search = params.Get("service"), strings.TrimSpace(params.Get("q"))
+	filter.Service, filter.Search = params.Get("service"), params.Get("q")
 	filter.EvidenceService = params.Get("evidence_service")
 	if value := params.Get("application"); value != "" {
 		name, grouped := strings.CutPrefix(value, "group:")
@@ -152,8 +152,11 @@ func ParseFailureFilter(params url.Values) (investigation.FailureFilter, error) 
 		}
 		filter.Application = &name
 	}
-	if len(filter.Service) > 256 || len(filter.EvidenceService) > 256 || len(filter.Search) > 256 {
-		return filter, errors.New("service, evidence_service and q must each be at most 256 bytes")
+	if len(filter.Service) > 256 || len(filter.EvidenceService) > 256 {
+		return filter, errors.New("service and evidence_service must each be at most 256 bytes")
+	}
+	if len(filter.Search) > 4096 {
+		return filter, errors.New("q must be at most 4096 bytes")
 	}
 	if value := params.Get("status"); value != "" {
 		code, err := strconv.Atoi(value)

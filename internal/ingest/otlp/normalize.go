@@ -1,8 +1,6 @@
 package otlp
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"math"
 	"time"
@@ -161,8 +159,7 @@ func strictException(src []*common.KeyValue) telemetry.Attributes {
 		case "exception.type":
 			attrs["exception.type"] = privacy.Text(value.StringValue, labelSize)
 		case "exception.message":
-			digest := sha256.Sum256([]byte(value.StringValue))
-			attrs["exception.message_hash"] = hex.EncodeToString(digest[:])
+			attrs["exception.message_hash"] = privacy.ExceptionMessageHash(value.StringValue)
 		}
 	}
 	return attrs

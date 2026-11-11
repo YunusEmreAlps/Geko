@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"geko/internal/investigation"
+	"geko/internal/privacy"
 	"geko/internal/telemetry"
 )
 
@@ -60,6 +61,14 @@ func (s *Store) Failures(ctx context.Context, f investigation.FailureFilter) (in
 	}
 	var query strings.Builder
 	var args []any
+	var searchText any
+	var messageHash string
+	if f.Search != "" {
+		if trimmed := strings.TrimSpace(f.Search); trimmed != "" {
+			searchText = trimmed
+		}
+		messageHash = privacy.ExceptionMessageHash(f.Search)
+	}
 	query.WriteString(traceSummarySelect + traceSummaryJoinStart)
 	if f.EvidenceService != "" || f.Search != "" {
 		query.WriteString(evidenceSourceJoin)
@@ -81,8 +90,8 @@ func (s *Store) Failures(ctx context.Context, f investigation.FailureFilter) (in
             instr(lower(source.service_name), lower(?)) > 0 OR
             instr(lower(candidate.exception_message), lower(?)) > 0 OR
             instr(lower(candidate.exception_type), lower(?)) > 0 OR
-            candidate.exception_hash = lower(?)) IS TRUE DESC, `)
-		args = append(args, f.Search, f.Search, f.Search, f.Search, f.Search)
+            candidate.exception_hash IN (lower(?), ?)) IS TRUE DESC, `)
+		args = append(args, searchText, searchText, searchText, searchText, searchText, messageHash)
 	}
 	query.WriteString(evidenceOrder + traceSummaryEnd + " WHERE t.has_evidence = 1")
 	if f.Application != nil {
@@ -132,8 +141,8 @@ func (s *Store) Failures(ctx context.Context, f investigation.FailureFilter) (in
             instr(lower(s.service_name), lower(?)) > 0 OR
             instr(lower(e.exception_message), lower(?)) > 0 OR
             instr(lower(e.exception_type), lower(?)) > 0 OR
-            e.exception_hash = lower(?))`)
-		args = append(args, f.Search, f.Search, f.Search, f.Search, f.Search, f.Search, f.Search, f.Search)
+            e.exception_hash IN (lower(?), ?))`)
+		args = append(args, searchText, searchText, searchText, searchText, searchText, searchText, searchText, searchText, messageHash)
 	}
 	if f.After != nil {
 		query.WriteString(" AND (t.last_observed_ns, t.trace_id) < (?, ?)")

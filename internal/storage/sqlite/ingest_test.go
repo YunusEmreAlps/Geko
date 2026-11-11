@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"geko/internal/api"
 	"geko/internal/ingest/otlp"
-	"geko/internal/investigation"
 	"geko/internal/telemetry"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -28,7 +29,7 @@ import (
 
 func TestStrictExceptionExportAndSearch(t *testing.T) {
 	db := openTestStore(t)
-	const message = "private customer reference 638a9"
+	message := " " + strings.Repeat("private reference ", 20) + "638a9 "
 	const stack = "private-stack-marker"
 	const description = "private-status-marker"
 	const kind = "PaymentTimeout"
@@ -62,8 +63,12 @@ func TestStrictExceptionExportAndSearch(t *testing.T) {
 	for _, query := range []struct {
 		search string
 		count  int
-	}{{kind, 1}, {strings.ToUpper(hash), 1}, {hash[:12], 0}, {message, 0}} {
-		page, err := db.Failures(t.Context(), investigation.FailureFilter{Search: query.search, Limit: 10})
+	}{{kind, 1}, {strings.ToUpper(hash), 1}, {hash[:12], 0}, {message, 1}, {strings.TrimSpace(message), 0}, {strings.ToUpper(message), 0}, {"private reference", 0}} {
+		filter, err := api.ParseFailureFilter(url.Values{"q": {query.search}, "limit": {"10"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		page, err := db.Failures(t.Context(), filter)
 		if err != nil || len(page.Items) != query.count {
 			t.Fatalf("search %q = %d results, %v", query.search, len(page.Items), err)
 		}

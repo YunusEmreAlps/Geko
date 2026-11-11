@@ -12,6 +12,21 @@ import (
 	"geko/internal/telemetry"
 )
 
+func TestApplicationNamesIncludesNamesBeyondTwoHundred(t *testing.T) {
+	db := openTestStore(t)
+	ctx := t.Context()
+	if _, err := db.db.ExecContext(ctx, `WITH RECURSIVE seq(n) AS (
+        VALUES (1) UNION ALL SELECT n + 1 FROM seq WHERE n < 201
+    ) INSERT INTO service_applications (service_name, application)
+    SELECT printf('service-%03d', n), printf('app-%03d', n) FROM seq`); err != nil {
+		t.Fatal(err)
+	}
+	names, err := db.ApplicationNames(ctx)
+	if err != nil || len(names) != 201 || names[200] != "app-201" {
+		t.Fatalf("application names count = %d, error = %v", len(names), err)
+	}
+}
+
 func TestHistoricalAssignmentResumesAcrossRestart(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "assign.db")
