@@ -11,8 +11,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"geko/internal/investigation"
-	"geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/storage"
 )
 
 func serviceLabel(application, service string) string {

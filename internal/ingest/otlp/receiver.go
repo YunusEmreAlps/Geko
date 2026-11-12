@@ -12,17 +12,20 @@ import (
 	"sync"
 	"time"
 
-	"geko/internal/storage"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 
 	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
 const (
 	protobufContentType = "application/x-protobuf"
+	jsonContentType     = "application/json"
 	maxPayloadBytes     = 4 << 20
 	maxConcurrent       = 4
 	writeTimeout        = 8 * time.Second
@@ -37,10 +40,11 @@ type Receiver struct {
 	slots  chan struct{}
 	strict bool
 
-	mu       sync.Mutex
-	accepted uint64
-	last     time.Time
-	rejected [rejectionCount]uint64
+	mu            sync.Mutex
+	accepted      uint64
+	rejectedSpans uint64
+	last          time.Time
+	rejected      [rejectionCount]uint64
 }
 
 const (
@@ -49,6 +53,7 @@ const (
 	limitExceeded
 	receiverBusy
 	storageUnavailable
+	forbiddenHost
 	rejectionCount
 )
 
@@ -61,6 +66,7 @@ type Rejection struct {
 // since this receiver started. It contains no data from request payloads.
 type Diagnostics struct {
 	AcceptedExports uint64
+	RejectedSpans   uint64
 	LastAccepted    time.Time
 	Rejections      []Rejection
 }
@@ -78,6 +84,7 @@ func (h *Receiver) Diagnostics() Diagnostics {
 	defer h.mu.Unlock()
 	return Diagnostics{
 		AcceptedExports: h.accepted,
+		RejectedSpans:   h.rejectedSpans,
 		LastAccepted:    h.last,
 		Rejections: []Rejection{
 			{"Unsupported format", h.rejected[unsupportedFormat]},
@@ -85,6 +92,7 @@ func (h *Receiver) Diagnostics() Diagnostics {
 			{"Payload or batch limit exceeded", h.rejected[limitExceeded]},
 			{"Receiver busy", h.rejected[receiverBusy]},
 			{"Storage unavailable", h.rejected[storageUnavailable]},
+			{"Non-loopback Host", h.rejected[forbiddenHost]},
 		},
 	}
 }
@@ -97,9 +105,22 @@ func (h *Receiver) reject(reason int) {
 
 func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	contentType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if contentType != protobufContentType {
+	responseType := protobufContentType
+	if contentType == jsonContentType {
+		responseType = jsonContentType
+	}
+	w.Header().Set("Content-Type", responseType)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+	if !api.LocalHost(r.Host) {
+		h.reject(forbiddenHost)
+		fail(w, http.StatusForbidden, codes.PermissionDenied, "trace receiver requires a loopback Host")
+		return
+	}
+	if contentType != protobufContentType && contentType != jsonContentType {
 		h.reject(unsupportedFormat)
-		fail(w, http.StatusUnsupportedMediaType, codes.InvalidArgument, "expected application/x-protobuf")
+		fail(w, http.StatusUnsupportedMediaType, codes.InvalidArgument, "expected application/x-protobuf or application/json")
 		return
 	}
 	encoding := strings.ToLower(strings.TrimSpace(r.Header.Get("Content-Encoding")))
@@ -131,12 +152,22 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req collector.ExportTraceServiceRequest
-	if err := (proto.UnmarshalOptions{DiscardUnknown: true, RecursionLimit: 32}).Unmarshal(payload, &req); err != nil {
-		h.reject(invalidPayload)
-		fail(w, http.StatusBadRequest, codes.InvalidArgument, "invalid OTLP trace protobuf")
+	if contentType == jsonContentType {
+		err = decodeJSON(payload, &req)
+	} else if err = checkWireBatch(payload); err == nil {
+		err = (proto.UnmarshalOptions{DiscardUnknown: true, RecursionLimit: 32}).Unmarshal(payload, &req)
+	}
+	if errors.Is(err, errBatchLimit) {
+		h.reject(limitExceeded)
+		fail(w, http.StatusRequestEntityTooLarge, codes.ResourceExhausted, err.Error())
 		return
 	}
-	spans, err := normalize(&req, h.strict)
+	if err != nil {
+		h.reject(invalidPayload)
+		fail(w, http.StatusBadRequest, codes.InvalidArgument, "invalid OTLP trace payload")
+		return
+	}
+	spans, rejected, err := normalize(&req, h.strict)
 	switch {
 	case errors.Is(err, errBatchLimit):
 		h.reject(limitExceeded)
@@ -162,10 +193,18 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		h.mu.Lock()
 		h.accepted++
+		h.rejectedSpans += uint64(rejected)
 		h.last = time.Now()
 		h.mu.Unlock()
 	}
-	respond(w, http.StatusOK, &collector.ExportTraceServiceResponse{})
+	response := &collector.ExportTraceServiceResponse{}
+	if rejected > 0 {
+		response.PartialSuccess = &collector.ExportTracePartialSuccess{
+			RejectedSpans: rejected,
+			ErrorMessage:  "invalid span fields or per-span limits",
+		}
+	}
+	respond(w, http.StatusOK, response)
 }
 
 func readPayload(w http.ResponseWriter, r *http.Request, encoding string) ([]byte, error) {
@@ -200,12 +239,18 @@ func fail(w http.ResponseWriter, httpCode int, code codes.Code, message string) 
 }
 
 func respond(w http.ResponseWriter, httpCode int, msg proto.Message) {
-	body, err := proto.Marshal(msg)
+	var body []byte
+	var err error
+	if w.Header().Get("Content-Type") == jsonContentType {
+		body, err = protojson.Marshal(msg)
+	} else {
+		body, err = proto.Marshal(msg)
+		w.Header().Set("Content-Type", protobufContentType)
+	}
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", protobufContentType)
 	w.WriteHeader(httpCode)
 	_, _ = w.Write(body)
 }

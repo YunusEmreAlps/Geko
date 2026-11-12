@@ -62,6 +62,8 @@ a.operation:hover { color: var(--accent); text-decoration: underline; }
 .loading { color: var(--accent); font-size: 12px; margin-top: 10px; }
 .filters { display: grid; grid-template-columns: minmax(165px, 2fr) repeat(3, minmax(110px, 1.2fr)) minmax(82px, .65fr) minmax(108px, .9fr) auto; align-items: end; gap: 12px; margin-bottom: 20px; }
 .filters label { min-width: 0; color: var(--muted); font-size: 11px; }
+.trace-lookup { align-items: end; margin-bottom: 20px; }
+.trace-lookup label { width: min(260px, 100%); color: var(--muted); font-size: 11px; }
 .application-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); align-items: end; gap: 12px; max-width: 920px; margin: 12px 0; }
 .application-form .actions { grid-column: 1 / -1; }
 .application-form label { min-width: 0; color: var(--muted); font-size: 12px; }

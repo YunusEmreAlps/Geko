@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/storage"
 
 	"go.yaml.in/yaml/v3"
 )

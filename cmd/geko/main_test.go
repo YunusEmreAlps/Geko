@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"geko/internal/config"
-	"geko/internal/investigation"
-	"geko/internal/storage/sqlite"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/config"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 
 	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
@@ -56,7 +56,7 @@ func TestDoctorReportsBusyListener(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "GEKO_LISTEN_ADDR") {
 		t.Fatalf("doctor error = %v, want a listener configuration hint", err)
 	}
-	if !strings.Contains(out.String(), "schema 5") {
+	if !strings.Contains(out.String(), "schema 6") {
 		t.Fatalf("doctor output %q does not include the database result", out.String())
 	}
 	if _, err := os.Stat("doctor.db"); err != nil {

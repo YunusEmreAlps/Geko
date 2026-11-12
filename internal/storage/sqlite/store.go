@@ -12,7 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	"geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/storage"
 
 	_ "modernc.org/sqlite"
 )
@@ -34,7 +34,10 @@ var maintenanceSchema string
 //go:embed migrations/005_exception_search.sql
 var exceptionSearchSchema string
 
-var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema}
+//go:embed migrations/006_evidence_insert.sql
+var evidenceInsertSchema string
+
+var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema}
 
 type Store struct {
 	db         *sql.DB

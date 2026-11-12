@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"geko/internal/investigation"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 func TestServiceMapObservedRelationships(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"geko/internal/investigation"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 func TestApplicationNamesIncludesNamesBeyondTwoHundred(t *testing.T) {

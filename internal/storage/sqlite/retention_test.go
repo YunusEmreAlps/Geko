@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"geko/internal/investigation"
-	"geko/internal/storage"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 func TestPruneExpiresWholeTracesAcrossRestart(t *testing.T) {

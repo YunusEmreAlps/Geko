@@ -43,11 +43,11 @@ The HTTP 500 response from `/failure` is intentional.
 | `/retry` | 200 | Successful request with exception evidence from the first payment attempt. |
 
 Each response includes its trace ID in the body and `X-Trace-ID` header. Wait
-about five seconds for batch export, then refresh
-[Failures](http://127.0.0.1:4318/failures). Filter by service
-`geko-go-checkout` or paste the trace ID into Search. Select the operation to
-inspect the recorded exception and stack trace. The retry trace retains HTTP
-200 as its request result even though its first child span failed.
+about five seconds for batch export, then use **Go to trace** on
+[Failures](http://127.0.0.1:4318/failures) to open any of the three traces by
+its ID. Filter Failures by `geko-go-checkout` to browse the failure and retry
+scenarios. The retry trace retains HTTP 200 as its request result even
+though its first child span failed.
 
 These are deliberately simulated payment operations, without outbound payment
 requests or real customer data. Durations reflect execution time, not simulated

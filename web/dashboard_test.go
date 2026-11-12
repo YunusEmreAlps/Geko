@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"geko/internal/config"
-	"geko/internal/storage/sqlite"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/config"
+	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 func TestDashboardInvestigation(t *testing.T) {
@@ -56,7 +56,7 @@ func TestDashboardInvestigation(t *testing.T) {
 	get("/assets/dashboard.css", http.StatusOK, ".waterfall")
 	get("/assets/dashboard.js", http.StatusOK, "clipboard.writeText")
 	get("/assets/theme.js", http.StatusOK, "geko.theme")
-	get("/settings", http.StatusOK, "schema 5", "SQLite sidecars", "127.0.0.1:4318", configPath,
+	get("/settings", http.StatusOK, "schema 6", "SQLite sidecars", "127.0.0.1:4318", configPath,
 		"Set by <code>GEKO_DB_PATH</code>", ">yaml</span>", ">default</span>", "Traces evicted at capacity")
 
 	start := time.Now().UTC().Add(-time.Minute)
@@ -68,6 +68,13 @@ func TestDashboardInvestigation(t *testing.T) {
 		t.Fatal(err)
 	}
 	get("/failures", http.StatusOK, "No failure evidence found")
+	successID := "02" + strings.Repeat("0", 30)
+	lookup := httptest.NewRecorder()
+	mux.ServeHTTP(lookup, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/traces?trace_id="+successID, nil))
+	if location := lookup.Header().Get("Location"); lookup.Code != http.StatusSeeOther || location != "/traces/"+successID {
+		t.Fatalf("successful trace lookup: %d %q", lookup.Code, location)
+	}
+	get("/traces/"+successID, http.StatusOK, "GET /health", "HTTP 200")
 	get("/failures?q=missing", http.StatusOK, "No matching traces")
 	traceID := telemetry.TraceID{1}
 	var root telemetry.SpanID

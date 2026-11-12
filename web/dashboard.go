@@ -15,12 +15,12 @@ import (
 	"slices"
 	"time"
 
-	"geko/internal/api"
-	"geko/internal/config"
-	"geko/internal/ingest/otlp"
-	"geko/internal/investigation"
-	"geko/internal/storage"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/config"
+	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 //go:embed templates/*.html assets/*
@@ -30,8 +30,7 @@ type Reader interface {
 	api.Reader
 	HasTraces(context.Context) (bool, error)
 	Overview(context.Context, time.Time) (investigation.Overview, error)
-	Span(context.Context, telemetry.TraceID, telemetry.SpanID) (investigation.Span, error)
-	TraceEvidence(context.Context, telemetry.TraceID, *telemetry.SpanID, int) ([]investigation.Evidence, string, error)
+	TraceDetails(context.Context, telemetry.TraceID, investigation.TraceDetailFilter) (investigation.TraceDetails, error)
 	Status(context.Context) (storage.Status, error)
 	ApplicationNames(context.Context) ([]string, error)
 	ServiceApplications(context.Context, string) ([]investigation.ServiceApplication, error)
@@ -86,6 +85,7 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	}))
 	mux.HandleFunc("GET /failures", d.local(d.failures))
 	mux.HandleFunc("GET /overview", d.local(d.overview))
+	mux.HandleFunc("GET /traces", d.local(d.findTrace))
 	mux.HandleFunc("GET /traces/{traceID}", d.local(d.trace))
 	mux.HandleFunc("GET /settings", d.local(d.status))
 	mux.HandleFunc("GET /applications", d.local(d.applications))

@@ -1,0 +1,22 @@
+{
+  "resourceSpans": [{
+    "resource": {
+      "attributes": [
+        {"key": "service.name", "value": {"stringValue": "@SERVICE@"}},
+        {"key": "service.namespace", "value": {"stringValue": "otlp-json-demo"}}
+      ]
+    },
+    "scopeSpans": [{
+      "spans": [{
+        "traceId": "@TRACE_ID@",
+        "spanId": "0100000000000000",
+        "name": "GET /inventory",
+        "kind": 2,
+        "startTimeUnixNano": "@START@",
+        "endTimeUnixNano": "@END@",
+        "attributes": [{"key": "http.response.status_code", "value": {"intValue": "503"}}],
+        "status": {"code": 2}
+      }]
+    }]
+  }]
+}

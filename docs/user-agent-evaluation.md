@@ -1,5 +1,12 @@
 # User agent evaluation
 
+The sections below record the original evaluation. Follow-up work added
+distinct empty states, receiver diagnostics, separate request and evidence
+service filters, paged evidence search, automatic retention, and capacity
+counters. The dashboard now opens successful traces by full ID and reads
+each trace page from one SQLite snapshot. These changes have automated
+coverage and have not been evaluated with human participants.
+
 Three profiles were assigned: a first-time Go developer, an experienced trace
 investigator, and a developer responsible for local operation and privacy.
 Two agents completed their reviews. The investigator agent identified a search

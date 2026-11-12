@@ -27,17 +27,29 @@ the recorded values so the investigation layer can account for clock skew.
 
 ## OTLP ingestion
 
-`internal/ingest/otlp` decodes OTLP/HTTP protobuf using the official generated
-OpenTelemetry types. The handler accepts at most four concurrent requests,
-limits wire and decompressed bodies to 4 MiB, and caps each request at 2,048 spans
-and each span at 32 events. Overload returns HTTP 503 with `Retry-After`. A batch
-with invalid span IDs or timestamps returns HTTP 400 before storage. A batch
-that exceeds a size or count limit returns HTTP 413.
+`internal/ingest/otlp` decodes OTLP/HTTP protobuf and JSON using the official
+generated OpenTelemetry types. The receiver checks the Host header before
+processing telemetry. The handler accepts at most four concurrent requests,
+limits wire and decompressed bodies to 4 MiB, and caps each request at 2,048
+resources, scopes, and spans before decoding. Protobuf preflight traverses the
+message schema and caps all nested messages at 131,072 (64 per span at the span
+limit), including resource/scope attributes, span attributes, events, links and
+nested AnyValue messages. JSON uses a streaming token preflight before allocating
+arrays, with at most 131,072 array entries and 1,048,576 values across the
+request, including unknown fields.
+Both preflights cap nesting at 32. Each span can carry up
+to 32 events. Overload returns HTTP 503 with `Retry-After`.
+A mixed batch stores its valid spans and returns HTTP 200 with OTLP
+`partial_success` and a rejected-span count. A batch with no valid spans
+returns an error. Invalid fields produce HTTP 400 and size or count
+violations produce HTTP 413.
 
 The receiver allows a defined set of service, scope, HTTP, and exception
 attributes and canonicalizes legacy HTTP method and status keys. Headers,
 cookies, body fields, raw URLs, and other attributes outside the allowlists
-are discarded. Text is bounded and redacted when it matches recognizable
+are discarded. The default allowlist includes database and RPC operation
+metadata and URL paths. Stack traces are limited to 32 KiB. Text is bounded
+and redacted when it matches recognizable
 credential or payload markers. Arbitrary exception messages, stack traces, and
 values of allowed attributes can still contain sensitive data without recognizable
 markers. Instrumentation should keep secrets out of telemetry.
@@ -83,6 +95,20 @@ Results select one evidence span per trace in priority order (exception,
 5xx, span error), then by recorded start time and span ID. Evidence is an observed
 signal, and the priority expresses which evidence to show first.
 
+Migration 006 replaces the insert trigger with a materialized one-row exception
+lookup. Each new span runs `json_each` once; existing evidence is preserved.
+
+Overview skips evidence lookup when a unique root already supplies its operation
+and service. `BenchmarkOverview200KFailures` tracks this path (about 2.28 s before
+and 1.62 s after on a Windows i7-8750H development machine; not a latency guarantee).
+Overview still scales with the number of matching failures, and application
+membership filters still derive membership from spans. Larger databases can
+exceed the query timeout. A future indexed trace/service membership projection
+must preserve cross-application membership, late root arrivals, ambiguous roots,
+and changes to historical assignments; a single application column on traces
+would not preserve those semantics. `BenchmarkApplicationFailureFilter` tracks
+the existing membership query cost.
+
 The request summary uses a unique observed parentless server span when available.
 Its HTTP outcome is `server_error` for 5xx, `non_5xx` for other recorded HTTP
 statuses, and `unknown` when the entry or status is absent or ambiguous. Geko
@@ -103,7 +129,8 @@ paths with the JSON API. Navigation and filters work without JavaScript.
 Telemetry fields are escaped by the HTML templating engine, and the loopback
 Host check and content security policy apply to all dashboard routes.
 
-Trace pages show up to 50 spans against a shared trace-wide time scale. A link
+Each trace page reads the header, waterfall, map, evidence, and focused span
+in a single read transaction. Trace pages show up to 50 spans against a shared trace-wide time scale. A link
 to an evidence or parent span can open its details even when the span is outside
 the initial page. Parent links across pages are preserved. Missing parents and
 cycles leave the affected rows visible. Settings reports live SQLite metadata,

@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"geko/internal/ingest/otlp"
-	"geko/internal/investigation"
-	"geko/internal/storage/sqlite"
+	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -32,7 +32,7 @@ func TestScenariosThroughGeko(t *testing.T) {
 		t.Fatal(err)
 	}
 	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", "geko-go-checkout"))))
-	handler := newHandler(provider.Tracer("geko/examples/go"))
+	handler := newHandler(provider.Tracer("github.com/YunusEmreAlps/geko/examples/go"))
 	ids := make(map[string]string)
 	for _, scenario := range []string{"success", "failure", "retry"} {
 		response := httptest.NewRecorder()

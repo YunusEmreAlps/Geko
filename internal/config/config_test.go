@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/storage"
 )
 
 func TestLoadDefaults(t *testing.T) {

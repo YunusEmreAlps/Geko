@@ -31,3 +31,44 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
       - run: go build ./cmd/geko
+
+  analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - run: go mod tidy -diff
+      - run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - run: go test -race ./...
+      - run: go test ./internal/privacy -run '^$' -fuzz '^FuzzText$' -fuzztime 10s
+      - run: go test ./internal/ingest/otlp -run '^$' -fuzz '^FuzzReceiver$' -fuzztime 10s
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          skip-lts-prepass: true
+      - name: Smoke test the Docker image and JSON exporters
+        env:
+          DOTNET_NOLOGO: '1'
+          DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        run: |
+          docker build -t geko:ci .
+          container=$(docker run -d --network host -e GEKO_LISTEN_ADDR=127.0.0.1:14318 geko:ci)
+          trap 'docker logs "$container"; docker rm -f "$container" >/dev/null' EXIT
+          base=http://127.0.0.1:14318
+          curl --fail --retry 10 --retry-connrefused --retry-delay 1 "$base/healthz"
+          export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT="$base/v1/traces"
+          verify_trace() {
+            local id
+            id=$("$@")
+            [[ "$id" =~ ^[a-f0-9]{32}$ ]]
+            curl --fail --silent --show-error "$base/api/v1/traces/$id" >/dev/null
+          }
+          verify_trace node examples/otlp-json/node.mjs
+          verify_trace python3 examples/otlp-json/python.py
+          verify_trace java examples/otlp-json/ExportTrace.java
+          verify_trace dotnet run --file examples/otlp-json/ExportTrace.cs

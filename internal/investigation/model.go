@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 var ErrTraceNotFound = errors.New("trace not found")
@@ -76,6 +76,24 @@ type TraceWindow struct {
 	Start     time.Time `json:"start"`
 	End       time.Time `json:"end"`
 	SpanCount int       `json:"span_count"`
+}
+
+const MapSpanLimit = 500
+
+type TraceDetailFilter struct {
+	After         *Cursor
+	Selected      *telemetry.SpanID
+	EvidenceAfter *telemetry.SpanID
+}
+
+type TraceDetails struct {
+	Summary      TraceSummary
+	Waterfall    Page[Span]
+	After        *Cursor
+	Selected     *Span
+	MapSpans     []Span
+	Evidence     []Evidence
+	EvidenceNext string
 }
 
 type Overview struct {

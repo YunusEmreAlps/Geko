@@ -36,7 +36,7 @@ func run() (result error) {
 	tracerFor := func(service string) trace.Tracer {
 		provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", "demo-"+service))))
 		providers = append(providers, provider)
-		return provider.Tracer("geko/synthetic-service-map")
+		return provider.Tracer("github.com/YunusEmreAlps/geko/synthetic-service-map")
 	}
 	frontend, checkout, catalog, payments, inventory := tracerFor("frontend"), tracerFor("checkout"), tracerFor("catalog"), tracerFor("payments"), tracerFor("inventory")
 	rootCtx, root := frontend.Start(ctx, "POST /checkout", trace.WithSpanKind(trace.SpanKindServer), trace.WithTimestamp(start), trace.WithAttributes(attribute.Int("http.response.status_code", 500)))

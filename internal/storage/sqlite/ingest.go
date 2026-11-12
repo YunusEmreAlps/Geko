@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"time"
 
-	"geko/internal/storage"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 const observeTrace = `

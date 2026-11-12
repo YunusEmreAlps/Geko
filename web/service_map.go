@@ -6,10 +6,8 @@ import (
 	"slices"
 	"strings"
 
-	"geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
 )
-
-const mapSpanLimit = 500
 
 type serviceMapView struct {
 	Nodes                                []serviceNode

@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/hex"
@@ -10,30 +11,37 @@ import (
 	"strings"
 	"time"
 
-	"geko/internal/investigation"
-	"geko/internal/privacy"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/privacy"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 // One unique, observed root server span can describe the request. The selected
 // evidence span is independently chosen by rank, recorded start and span ID.
 const traceSummaryQuery = traceSummarySelect + traceSummaryJoins
 const traceSummaryJoins = traceSummaryJoinStart + evidenceForTrace + " ORDER BY " + evidenceOrder + traceSummaryEnd
+const rootApplication = "coalesce(nullif(r.service_namespace, ''), ta.application, ra.application, '')"
+const evidenceApplication = "coalesce(nullif(s.service_namespace, ''), ta.application, sa.application, '')"
+const rootOrEvidenceApplication = "CASE WHEN r.span_id IS NOT NULL THEN " + rootApplication + " ELSE " + evidenceApplication + " END"
 
 const traceSummarySelect = `
 SELECT t.trace_id, t.first_observed_ns, t.last_observed_ns,
-       r.span_id, r.service_name, r.name, r.http_status, r.start_ns, r.end_ns, r.application,
-       s.span_id, s.service_name, s.name, s.http_status, s.start_ns, s.end_ns, s.application,
+       r.span_id, r.service_name, r.name, r.http_status, r.start_ns, r.end_ns,
+` + rootApplication + `,
+       s.span_id, s.service_name, s.name, s.http_status, s.start_ns, s.end_ns,
+` + evidenceApplication + `,
        e.rank, e.exception_message, e.exception_type, e.exception_hash
 `
 
 const traceSummaryJoinStart = `
 FROM traces t
-LEFT JOIN grouped_spans r ON r.trace_id = t.trace_id AND r.span_id = (
+LEFT JOIN spans r ON r.trace_id = t.trace_id AND r.span_id = (
     SELECT CASE WHEN count(*) = 1 THEN min(root.span_id) END
     FROM spans root
     WHERE root.trace_id = t.trace_id AND root.kind = 2 AND root.parent_span_id IS NULL
 )
+LEFT JOIN trace_applications ta ON ta.trace_id = t.trace_id
+LEFT JOIN service_applications ra ON ra.service_name = r.service_name
 LEFT JOIN span_evidence e ON e.trace_id = t.trace_id AND e.span_id = (
     SELECT candidate.span_id FROM span_evidence candidate
 `
@@ -44,7 +52,8 @@ const evidenceOrder = "candidate.rank, candidate.start_ns, candidate.span_id"
 const traceSummaryEnd = `
     LIMIT 1
 )
-LEFT JOIN grouped_spans s ON s.trace_id = e.trace_id AND s.span_id = e.span_id
+LEFT JOIN spans s ON s.trace_id = e.trace_id AND s.span_id = e.span_id
+LEFT JOIN service_applications sa ON sa.service_name = s.service_name
 `
 
 // HasTraces reports whether the local store contains any recorded traces.
@@ -111,7 +120,7 @@ func (s *Store) Failures(ctx context.Context, f investigation.FailureFilter) (in
         )) = ?`)
 		args = append(args, f.Service)
 		if f.Application != nil {
-			query.WriteString(` AND coalesce(r.application, (
+			query.WriteString(` AND coalesce(CASE WHEN r.span_id IS NOT NULL THEN ` + rootApplication + ` END, (
                 SELECT primary_span.application FROM span_evidence candidate
                 JOIN grouped_spans primary_span ON primary_span.trace_id = candidate.trace_id AND primary_span.span_id = candidate.span_id
                 WHERE candidate.trace_id = t.trace_id
@@ -184,30 +193,38 @@ func (s *Store) Trace(ctx context.Context, id telemetry.TraceID, after *investig
 		return summary, page, err
 	}
 	defer tx.Rollback()
-	summary, _, err = scanTraceSummary(tx.QueryRowContext(ctx, traceSummaryQuery+" WHERE t.trace_id = ?", id[:]))
-	if errors.Is(err, sql.ErrNoRows) {
-		return summary, page, investigation.ErrTraceNotFound
-	}
+	summary, err = traceSummary(ctx, tx, id)
 	if err != nil {
-		return summary, page, fmt.Errorf("read trace summary: %w", err)
-	}
-	var start, end sql.NullInt64
-	var count int
-	err = tx.QueryRowContext(ctx, `SELECT min(start_ns), max(max(start_ns, end_ns)), count(*)
-        FROM spans WHERE trace_id = ?`, id[:]).Scan(&start, &end, &count)
-	if err != nil {
-		return summary, page, fmt.Errorf("read trace window: %w", err)
-	}
-	if count != 0 {
-		summary.Window = &investigation.TraceWindow{
-			Start: time.Unix(0, start.Int64).UTC(), End: time.Unix(0, end.Int64).UTC(), SpanCount: count,
-		}
+		return summary, page, err
 	}
 	page, err = traceSpans(ctx, tx, id, after, limit)
 	if err != nil {
 		return summary, page, err
 	}
 	return summary, page, tx.Commit()
+}
+
+func traceSummary(ctx context.Context, tx *sql.Tx, id telemetry.TraceID) (investigation.TraceSummary, error) {
+	summary, _, err := scanTraceSummary(tx.QueryRowContext(ctx, traceSummaryQuery+" WHERE t.trace_id = ?", id[:]))
+	if errors.Is(err, sql.ErrNoRows) {
+		return summary, investigation.ErrTraceNotFound
+	}
+	if err != nil {
+		return summary, fmt.Errorf("read trace summary: %w", err)
+	}
+	var start, end sql.NullInt64
+	var count int
+	err = tx.QueryRowContext(ctx, `SELECT min(start_ns), max(max(start_ns, end_ns)), count(*)
+        FROM spans WHERE trace_id = ?`, id[:]).Scan(&start, &end, &count)
+	if err != nil {
+		return summary, fmt.Errorf("read trace window: %w", err)
+	}
+	if count != 0 {
+		summary.Window = &investigation.TraceWindow{
+			Start: time.Unix(0, start.Int64).UTC(), End: time.Unix(0, end.Int64).UTC(), SpanCount: count,
+		}
+	}
+	return summary, nil
 }
 
 const spanSelect = `SELECT span_id, service_name, name, http_status, start_ns, end_ns, application,
@@ -217,7 +234,7 @@ const spanSelect = `SELECT span_id, service_name, name, http_status, start_ns, e
 
 // TraceEvidence returns a page of evidence spans independently of the waterfall.
 // The next anchor is the last displayed span ID in evidence order.
-func (s *Store) TraceEvidence(ctx context.Context, id telemetry.TraceID, after *telemetry.SpanID, limit int) ([]investigation.Evidence, string, error) {
+func traceEvidence(ctx context.Context, tx *sql.Tx, id telemetry.TraceID, after *telemetry.SpanID, limit int) ([]investigation.Evidence, string, error) {
 	if limit < 1 || limit > investigation.MaxPageSize {
 		return nil, "", errors.New("invalid evidence page size")
 	}
@@ -236,7 +253,7 @@ func (s *Store) TraceEvidence(ctx context.Context, id telemetry.TraceID, after *
 	}
 	query += " ORDER BY " + evidenceOrder + " LIMIT ?"
 	args = append(args, limit+1)
-	rows, err := s.read.QueryContext(ctx, query, args...)
+	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, "", fmt.Errorf("query trace evidence: %w", err)
 	}
@@ -398,7 +415,9 @@ func scanSpan(row scanner) (investigation.Span, investigation.Cursor, error) {
 		{resource, &span.ResourceAttributes}, {scope, &span.Scope.Attributes},
 		{attributes, &span.Attributes}, {events, &span.Events},
 	} {
-		if err := json.Unmarshal(field.data, field.dest); err != nil {
+		decoder := json.NewDecoder(bytes.NewReader(field.data))
+		decoder.UseNumber()
+		if err := decoder.Decode(field.dest); err != nil {
 			return span, investigation.Cursor{}, fmt.Errorf("decode span metadata: %w", err)
 		}
 	}

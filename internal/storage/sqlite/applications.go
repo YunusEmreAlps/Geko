@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
 )
 
 func (s *Store) ApplicationNames(ctx context.Context) ([]string, error) {

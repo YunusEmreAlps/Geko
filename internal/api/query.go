@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"geko/internal/investigation"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 type Reader interface {
@@ -38,6 +38,7 @@ func (api *queryAPI) local(handler http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
 		// Reject DNS rebinding requests even when they reach the loopback socket.
 		if !LocalHost(r.Host) {
 			fail(w, http.StatusForbidden, "query API requires a loopback Host")

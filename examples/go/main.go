@@ -47,7 +47,7 @@ func run(ctx context.Context) (result error) {
 	if err != nil {
 		return fmt.Errorf("listen on example port: %w", err)
 	}
-	server := &http.Server{Handler: newHandler(provider.Tracer("geko/examples/go")), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
+	server := &http.Server{Handler: newHandler(provider.Tracer("github.com/YunusEmreAlps/geko/examples/go")), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
 	log.Print("Go example listening at http://127.0.0.1:8080 — /success, /failure, /retry")

@@ -1,4 +1,5 @@
 /bin/
+/dist/
 /geko
 /geko.exe
 /geko.yaml

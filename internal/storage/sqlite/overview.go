@@ -5,17 +5,22 @@ import (
 	"fmt"
 	"time"
 
-	"geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
 )
+
+// Overview uses evidence only as a fallback when no unique root exists.
+// Unlike a trace detail, it does not need both spans for the same trace.
+const overviewJoins = traceSummaryJoinStart + evidenceForTrace +
+	" AND r.span_id IS NULL ORDER BY " + evidenceOrder + traceSummaryEnd
 
 func (s *Store) Overview(ctx context.Context, since time.Time) (investigation.Overview, error) {
 	var result investigation.Overview
 	rows, err := s.read.QueryContext(ctx, `
 WITH operations AS MATERIALIZED (
     SELECT coalesce(r.service_name, s.service_name) AS service,
-           coalesce(r.application, s.application) AS application,
+           `+rootOrEvidenceApplication+` AS application,
            coalesce(r.name, s.name) AS operation, count(*) AS count
-    `+traceSummaryJoins+`
+    `+overviewJoins+`
     WHERE t.has_evidence = 1 AND t.last_observed_ns >= ?
     GROUP BY 1, 2, 3
 )

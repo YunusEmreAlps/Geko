@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"geko/internal/storage/sqlite"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 func TestApplicationGrouping(t *testing.T) {

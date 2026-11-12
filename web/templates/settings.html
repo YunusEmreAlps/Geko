@@ -19,10 +19,11 @@
   <dl class="properties">
     <div><dt>Listener</dt><dd><code>{{.ListenAddr}}</code>{{template "settings-source" .ConfigSource.ListenAddr}}</dd></div>
     <div><dt>Trace endpoint</dt><dd><code>http://{{.ListenAddr}}/v1/traces</code></dd></div>
-    <div><dt>Protocol</dt><dd>OTLP/HTTP protobuf</dd></div>
+    <div><dt>Protocol</dt><dd>OTLP/HTTP protobuf and JSON</dd></div>
     <div><dt>Receiver status</dt><dd><span class="pill non_5xx">Running</span></dd></div>
     {{with .Receiver}}
     <div><dt>Accepted exports with spans</dt><dd>{{.AcceptedExports}}</dd></div>
+    <div><dt>Spans rejected in partially accepted exports</dt><dd>{{.RejectedSpans}}</dd></div>
     <div><dt>Last accepted export</dt><dd>{{if .LastAccepted.IsZero}}None this session{{else}}{{timestamp .LastAccepted}}{{end}}</dd></div>
     {{range .Rejections}}<div><dt>{{.Reason}}</dt><dd>{{.Count}} rejected</dd></div>{{end}}
     {{end}}

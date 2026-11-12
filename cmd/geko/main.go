@@ -15,11 +15,11 @@ import (
 	"syscall"
 	"time"
 
-	"geko/internal/api"
-	"geko/internal/config"
-	"geko/internal/ingest/otlp"
-	"geko/internal/storage/sqlite"
-	"geko/web"
+	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/config"
+	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
+	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
+	"github.com/YunusEmreAlps/geko/web"
 )
 
 var version = "dev" // Set for release builds with -ldflags "-X main.version=v0.1.0".
@@ -162,18 +162,18 @@ func listen(ctx context.Context, addr string) (net.Listener, error) {
 }
 
 func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
-	listener, err := listen(ctx, cfg.ListenAddr)
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
-
 	maxBytes := int64(cfg.MaxDBMiB) << 20
 	db, err := sqlite.OpenWithPolicy(ctx, cfg.DBPath, maxBytes, cfg.OnFull)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
+
+	listener, err := listen(ctx, cfg.ListenAddr)
+	if err != nil {
+		return err
+	}
+	defer listener.Close()
 
 	if cfg.RetentionDays > 0 {
 		retention := time.Duration(cfg.RetentionDays) * 24 * time.Hour
@@ -207,7 +207,12 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 	server := &http.Server{
-		Handler:           mux,
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+			mux.ServeHTTP(w, r)
+		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      20 * time.Second,

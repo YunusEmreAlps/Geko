@@ -1,52 +1,46 @@
 <div align="center">
   <img src="web/assets/geko.svg" alt="Geko" width="72" height="72">
   <h1>Geko</h1>
-  <p><strong>A local dashboard for investigating backend failures from OpenTelemetry traces.</strong></p>
+  <p><strong>Find the failure. Follow the trace.</strong></p>
+  <p>A local, failure-first dashboard for OpenTelemetry traces. One Go binary, SQLite storage, no Docker or external services required.</p>
+  <p>
+    <a href="https://github.com/YunusEmreAlps/geko/actions/workflows/ci.yml"><img src="https://github.com/YunusEmreAlps/geko/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+    <a href="https://github.com/YunusEmreAlps/geko/releases"><img src="https://img.shields.io/github/v/release/YunusEmreAlps/geko?include_prereleases&sort=semver" alt="Release"></a>
+    <a href="go.mod"><img src="https://img.shields.io/github/go-mod/go-version/YunusEmreAlps/geko" alt="Go version"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
+  </p>
   <p>
     <a href="#quick-start">Quick start</a> ·
-    <a href="#geko-jaeger-and-zipkin">Compare tracing tools</a> ·
-    <a href="#inspect-a-failure">Inspect a failure</a> ·
-    <a href="#group-multiple-applications">Group applications</a> ·
+    <a href="#connect-your-application">Connect your app</a> ·
+    <a href="#investigate-a-failure">Investigate</a> ·
     <a href="#configuration">Configuration</a> ·
+    <a href="#how-geko-compares">Compare</a> ·
     <a href="docs/architecture.md">Architecture</a>
   </p>
 </div>
 
 ![Geko Failures dashboard showing errors from a reporting API and an online store](docs/images/failures.jpg)
 
-*The screenshots use synthetic traces from a reporting API that runs as a single
-service and an online store with separate order, inventory, and payment services.*
+*Screenshots use synthetic traces from a single-service reporting API and an
+online store with separate order, inventory, and payment services.*
 
-Geko runs as a Go process with a built-in dashboard and local SQLite storage.
-Point an OpenTelemetry trace exporter at Geko to see the request outcome, the
-spans that recorded error evidence, and the observed calls between services.
+## Why Geko
 
-| Task | Where to start |
-| --- | --- |
-| Find an exception for a request | Filter **Failures** by application, service, HTTP status, time, or search text. |
-| Inspect what happened inside a request | Open the evidence span, then use the service map and waterfall to follow the recorded calls. |
-| Keep several projects in one dashboard | Select an application, map namespace-free services, or assign historical traces by time. |
-| Check whether data is arriving | Open **Settings → Receiver** for the effective endpoint, last accepted export, and rejection counts. |
-
-## Geko, Jaeger, and Zipkin
-
-All three collect and display distributed traces. Geko starts the investigation
-with a list of requests whose spans recorded error evidence.
-
-| Tool | Investigation workflow | Deployment and storage |
-| --- | --- | --- |
-| **Geko** | Filter **Failures** by application, entry service, evidence service, or HTTP status. Open the matching evidence span and follow calls in the trace’s service map. | One loopback-only process receives OTLP/HTTP protobuf and persists spans to a local SQLite database with configurable retention and a main database size limit. |
-| **Jaeger** | Search and inspect traces, visualize span timing, and explore service dependencies. [Features](https://www.jaegertracing.io/docs/2.23/features/) | Supports an all-in-one process and separate collector and query roles. Deployments can scale with external storage. [Architecture](https://www.jaegertracing.io/docs/2.23/architecture/) |
-| **Zipkin** | Look up a trace by ID or search by service, operation, tags, and duration. Its dependency diagram aggregates calls across traces. [Zipkin overview](https://zipkin.io/) | Supports in-memory storage and persistent backends such as Cassandra and Elasticsearch. [Architecture](https://zipkin.io/pages/architecture.html) |
-
-For example, a Storefront checkout can return HTTP 200 after retrying a failed
-payment attempt. Geko shows the successful request outcome alongside the
-payment span’s recorded exception. Select `Storefront` under **Application**
-and enter `payments` under **Evidence service** to find the trace.
+- **Starts with what broke.** The first screen lists requests whose spans
+  recorded an exception, an HTTP 5xx, or an error status, not every trace you sent.
+- **Keeps outcome and evidence apart.** A checkout that returns HTTP 200 after a
+  retried payment timeout still shows the payment exception next to the
+  successful response.
+- **Runs entirely on your machine.** A single process receives OTLP/HTTP,
+  stores spans in SQLite with retention and a size limit, and serves the
+  dashboard on a loopback-only address.
+- **Is careful with data.** An attribute allowlist drops headers, cookies,
+  bodies, and full URLs before anything is stored. A `strict` mode keeps only
+  exception types and message hashes.
 
 ## Quick start
 
-Use Go 1.26 or later. From the repository root, start Geko in a terminal.
+Requires Go 1.26.11 or later. Start Geko:
 
 ```sh
 git clone https://github.com/YunusEmreAlps/geko.git
@@ -54,192 +48,246 @@ cd geko
 go run ./cmd/geko serve
 ```
 
-Open [http://127.0.0.1:4318](http://127.0.0.1:4318). In a second terminal, run the
-synthetic trace demo from the repository root. The demo sends data to Geko
-directly and does not open another listener.
+Open <http://127.0.0.1:4318>. In a second terminal, send a synthetic
+multi-service trace from the repository root:
+
+```sh
+# bash / zsh
+OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces go run ./examples/service-map
+```
 
 ```powershell
+# PowerShell
 $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'http://127.0.0.1:4318/v1/traces'
 go run ./examples/service-map
 ```
 
-On bash or zsh, run the same demo with the endpoint set for that command.
+Refresh **Failures** and open **POST /checkout**. More examples:
 
-```sh
-OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces go run ./examples/service-map
-```
+| Example | What it sends |
+| --- | --- |
+| [Go checkout](examples/go/README.md) | Real HTTP requests through the OpenTelemetry SDK, with success, failure, and retry routes. |
+| [OTLP/HTTP JSON](examples/otlp-json/README.md) | A synthetic HTTP 503 trace from Node.js, Python, Java, or .NET, using only the standard library. |
+| [Service map](examples/service-map/README.md) | One synthetic trace across five services, for exploring the map and waterfall. |
 
-Refresh **Failures** and open **POST /checkout**. To generate traces from real
-HTTP requests, try the [Go checkout example](examples/go/README.md). It includes
-success, failure, and retry routes.
+## Install
+
+| Method | Command |
+| --- | --- |
+| Release binary | Download the archive for your platform from [GitHub Releases](https://github.com/YunusEmreAlps/geko/releases), extract it, and run `./geko serve` (`.\geko.exe serve` on Windows). |
+| Go | `go install github.com/YunusEmreAlps/geko/cmd/geko@latest`, then `geko serve`. Replace `latest` with a tag to pin a version. |
+| Docker | `docker build -t geko .` then `docker run --rm --network host -v geko-data:/data geko` |
+
+Geko only listens on a loopback address, so Docker needs host networking:
+native on Linux, or enabled in Docker Desktop settings. Port publishing with
+`-p` does not work.
 
 ## Connect your application
 
-Your application can keep serving traffic on port 8080 while Geko listens on
-4318. In the process that starts your instrumented application, configure its
-OpenTelemetry exporter to send traces to Geko.
+Point your OpenTelemetry trace exporter at Geko. Your application keeps its
+own port; Geko listens on 4318.
+
+```sh
+# bash / zsh
+export OTEL_SERVICE_NAME=orders-api
+export OTEL_EXPORTER_OTLP_TRACES_PROTOCOL=http/protobuf
+export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
+```
 
 ```powershell
+# PowerShell
 $env:OTEL_SERVICE_NAME = 'orders-api'
 $env:OTEL_EXPORTER_OTLP_TRACES_PROTOCOL = 'http/protobuf'
 $env:OTEL_EXPORTER_OTLP_TRACES_ENDPOINT = 'http://127.0.0.1:4318/v1/traces'
 ```
 
-For bash or zsh, use `export NAME=value`. If Geko uses a different port,
-copy the **Trace endpoint** from **Settings → Receiver**. Geko accepts both
-uncompressed and gzip-compressed OTLP/HTTP protobuf traces. Your application
-needs OpenTelemetry instrumentation and an exporter configured to read these
-settings or their equivalent in code.
+Send a request to your application, then open **Settings → Receiver**. It shows
+the effective trace endpoint, the last accepted export, and rejection counts by
+reason.
 
-Send a request to your application, then check **Settings → Receiver**. An
-accepted export confirms that Geko received and stored a batch with spans.
-**Failures** shows only traces with recorded error evidence. Its empty states
-distinguish an empty database, stored traces without failure evidence, and a
-filter with no results.
+> [!IMPORTANT]
+> Geko receives **OTLP over HTTP only**, as protobuf (`http/protobuf`) or JSON
+> (`http/json`), uncompressed or gzip. It does not accept OTLP/gRPC. Some SDKs
+> default to gRPC on port 4317, so set the protocol explicitly as shown above.
 
-## Inspect a failure
+| Limit | Value | What happens |
+| --- | --- | --- |
+| Request body | 4 MiB, before and after gzip | HTTP 413 |
+| Spans per request | 2,048 | HTTP 413. SDK defaults (512) fit; lower a Collector's batch size if needed. |
+| Invalid spans in a batch | Dropped individually | Valid spans are stored. The response reports `partial_success` and Settings counts them. |
+| Concurrent exports | 4 | HTTP 503 with `Retry-After` |
 
-1. Find an operation in **Failures**. **Request service** filters the entry
-   service. **Evidence service** filters the service whose span recorded an error.
-2. Open the operation to jump to the matching evidence span. **Observed evidence**
-   lists spans with an exception event, HTTP 5xx, or an explicit error status.
-3. Follow the **Service map** to inspect calls in this trace. Expand **Span
-   waterfall** to compare start times and durations. **Span details** shows
-   captured attributes, events, and stack traces when available.
+If another process such as a local OpenTelemetry Collector already uses port
+4318, set a different [`listen_addr`](#configuration) and copy the new trace
+endpoint from **Settings → Receiver**.
 
-In the store example, `POST /checkout` returns HTTP 503. The service map shows
-calls to inventory and payments. Open `payment.authorize` to see the recorded
-gateway timeout.
+## Investigate a failure
+
+1. **Find it.** Filter **Failures** by application, request (entry) service,
+   evidence service, HTTP status, time range, or search text. **Overview**
+   summarizes the last 24 hours. To open any stored trace, including a
+   successful one, paste its ID into **Go to trace**.
+2. **Open the evidence.** Selecting an operation jumps to the evidence span.
+   **Observed evidence** lists every span with an exception event, an HTTP 5xx,
+   or an explicit error status.
+3. **Follow the calls.** The **Service map** shows the parent–child calls
+   observed in this trace, and the **Span waterfall** compares start times and
+   durations. **Span details** shows the stored attributes, events, and stack
+   traces.
+
+In the store example, `POST /checkout` returns HTTP 503. The map shows calls to
+inventory and payments; open `payment.authorize` to see the gateway timeout.
 
 ![Online store checkout trace with payment timeout evidence, a service map, and selected span details](docs/images/trace.jpg)
 
-An HTTP 200 response can appear beside a child exception. Geko keeps the
-request outcome and the recorded evidence separate. The service map shows
-observed parent–child relationships for up to 500 spans and marks partial
-results. It groups instances by application, namespace, service name, and
-deployment environment. Select **Merge environments** to combine environments
-for the same service. The span details list instance IDs observed for the
-selected node. Evidence and waterfall pages can reach spans beyond the map limit.
+The map groups instances by application, namespace, service name, and
+deployment environment. **Merge environments** combines environments of the
+same service. It reads up to 500 spans and marks partial results; the evidence
+list and waterfall page through the whole trace.
 
 ## Group multiple applications
 
-The reporting API and the online store can send traces to the same Geko
-endpoint, even if both APIs use port 8080 in their own environments. Set
-`service.namespace` to `Reporting` and `Storefront` respectively so each
-application has its own filter, even when both use `service.name=api`.
+Several applications can share one Geko, even when each one names its service
+`api`. Set `service.namespace` per application, for example through
+`OTEL_RESOURCE_ATTRIBUTES=service.namespace=Storefront`, and each namespace
+becomes an **Application** filter.
 
-| Scenario | How to group it |
+For spans exported without a namespace, open **Failures → Manage applications**:
+
+| Situation | What to do |
 | --- | --- |
-| The store adds a `payments` service | Give it `service.name=payments` and `service.namespace=Storefront`. Select **Storefront** in **Failures** to see it alongside the store’s `api` and other services. |
-| A legacy `report-importer` exports spans without a namespace | In **Failures → Manage applications**, map the exact service name `report-importer` to `Reporting`. The rule applies to past and future spans without a namespace. |
-| Both APIs previously exported spans as `api` without a namespace | If you know that only one app’s traces arrived during a specific window, use **Assign historical traces** with that UTC range and narrow it to `api`. The range uses when Geko last received each trace. |
-
-If traces from both APIs arrived in the same window under the same service
-name, keep that window unassigned unless you can narrow it further. For future
-exports, add `service.namespace=Reporting` or `service.namespace=Storefront`
-to each application’s existing `OTEL_RESOURCE_ATTRIBUTES` and set
-`OTEL_SERVICE_NAME` per service.
+| A legacy `report-importer` service never sets a namespace | Map the exact service name to `Reporting`. The rule applies to past and future spans without a namespace. |
+| Two apps both exported `api` without a namespace, and you know which one was active during a time window | Use **Assign historical traces** with that UTC range, narrowed to `api`. The range matches when Geko last received each trace. |
 
 ![Applications screen with a legacy service mapping and UTC fields for assigning historical traces](docs/images/applications.jpg)
 
-An explicit namespace takes priority. For spans without one, a historical trace
-assignment takes priority over a service mapping. Clearing the assignment
-restores the service mapping or **Ungrouped**. A trace spanning two applications
-appears in both filters, and its detail page preserves the full trace.
-Historical updates commit in batches. Submit the same range, service, and
-application to resume an interrupted update. **Discard progress** leaves the
-changes from completed batches in place. If a trace receives a new span
-before its batch runs, its last receipt time may move outside the selected
-range and the trace may be skipped.
+<details>
+<summary>Precedence and edge cases</summary>
+
+- An explicit `service.namespace` always wins. Without one, a historical trace
+  assignment wins over a service mapping. Clearing the assignment restores the
+  mapping, or **Ungrouped**.
+- A trace that spans two applications appears under both filters. Its detail
+  page always shows the full trace.
+- If both apps sent traces under the same service name in the same window,
+  leave that window unassigned unless you can narrow it further.
+- Historical assignments commit in batches. To resume an interrupted update,
+  submit the same range, service, and application. **Discard progress** keeps
+  the batches that already completed.
+- If a trace receives a new span before its batch runs, its last receipt time
+  can move outside the range, and the trace is skipped.
+
+</details>
 
 ## Configuration
 
 Copy [`geko.example.yaml`](geko.example.yaml) to `geko.yaml` in the working
-directory or set `GEKO_CONFIG` to the path of an existing YAML file. Nonempty
-environment variables take precedence over YAML. Restart Geko to apply changes.
-**Settings** shows the loaded file and whether each value came from the
-default, YAML, or an environment variable.
+directory, or set `GEKO_CONFIG` to a YAML file. Nonempty environment variables
+override YAML. Restart Geko to apply changes. **Settings** shows each value's
+source: default, YAML, or environment.
 
-| YAML key | Environment override | Default |
+| YAML key | Environment variable | Default |
 | --- | --- | --- |
-| `listen_addr` | `GEKO_LISTEN_ADDR` | `127.0.0.1:4318`. Use a loopback IP and port, such as `[::1]:4318`. |
-| `db_path` | `GEKO_DB_PATH` | `geko/geko.db` under the OS user configuration directory. |
-| `retention_days` | `GEKO_RETENTION_DAYS` | 7 days, configurable from 1 to 3650. |
-| `max_db_mib` | `GEKO_MAX_DB_MIB` | 256 MiB for the main SQLite file, configurable from 8 to 65536. |
-| `on_full` | `GEKO_ON_FULL` | `evict_oldest`. Set `reject` to keep stored traces and return HTTP 503 at capacity. |
-| `redaction` | `GEKO_REDACTION` | `best_effort`. Set `strict` to store exception types and message hashes for new spans. |
+| `listen_addr` | `GEKO_LISTEN_ADDR` | `127.0.0.1:4318`. Must be a loopback IP and port, such as `[::1]:4318`. |
+| `db_path` | `GEKO_DB_PATH` | `geko/geko.db` in the OS user configuration directory |
+| `retention_days` | `GEKO_RETENTION_DAYS` | `7` (1–3650) |
+| `max_db_mib` | `GEKO_MAX_DB_MIB` | `256` MiB for the main SQLite file (8–65536) |
+| `on_full` | `GEKO_ON_FULL` | `evict_oldest`, or `reject` to keep stored traces and return HTTP 503 |
+| `redaction` | `GEKO_REDACTION` | `best_effort`, or `strict` |
 
-Relative YAML database paths are resolved from the YAML file's directory.
-Relative `GEKO_DB_PATH` values are resolved from the working directory.
-Geko expires traces based on their last receipt time at startup and once a
-minute. At capacity, `evict_oldest` can remove whole traces ordered by last
-receipt to make room for a new export. Traces in the incoming export are
-protected. If the export still cannot fit, Geko returns HTTP 503 and rolls
-back the attempted eviction. Capacity rejections include `Retry-After: 30`.
-If the configured limit is below the current file size, `evict_oldest`
-reuses existing pages and evicts traces as needed without growing the file.
-Settings shows the database’s cumulative counts
-of evicted traces and exports rejected at capacity.
+A relative `db_path` in YAML resolves from the YAML file's directory. A
+relative `GEKO_DB_PATH` resolves from the working directory.
 
-Deleted pages can be reused. SQLite’s WAL and shared-memory files can use
-additional space. Stop the server and run `geko compact` to reclaim free space
-from the main file. `geko doctor` shows the main file, WAL, SHM, and reusable
-page sizes separately.
+### Retention and capacity
 
-Geko uses **best-effort redaction** before storing or indexing telemetry. An
-allowlist drops headers, cookies, request and response bodies, and raw URLs.
-Geko redacts allowed text that matches recognizable credential or payload
-patterns and limits exception messages to 1,024 UTF-8 bytes. Allowed text
-can still contain sensitive data that does not match these patterns.
-With `redaction: strict`, new spans store the exception type and SHA-256 of
-the original message. Geko drops exception stack traces and status
-descriptions in this mode. Evidence search matches the type, exact original
-message, or full hexadecimal digest of the first exception event on each span.
-Search hashes the original query text, including case and whitespace.
-Search terms appear in the URL, so use the digest to keep the original
-message out of browser history. Previously stored spans retain their
-original fields. See the
-[storage and privacy notes](docs/architecture.md).
+- Geko expires whole traces by last receipt time, at startup and every minute.
+- At the size limit, `evict_oldest` removes the oldest whole traces in the same
+  transaction as the new export. Traces in the incoming export are protected.
+  If the export still doesn't fit, nothing is evicted and Geko returns HTTP 503
+  with `Retry-After: 30`. `reject` returns that response right away.
+- If you lower the limit below the current file size, `evict_oldest` reuses
+  existing pages and evicts traces as needed without growing the file.
+- The WAL and shared-memory files use space beyond the limit. Stop the server
+  and run `geko compact` to shrink the main file. `geko doctor` reports each
+  file's size and the reusable pages.
+
+### Privacy
+
+Telemetry is filtered before it is stored or indexed.
+
+- **`best_effort` (default):** an allowlist keeps service, scope, HTTP method,
+  route, `url.path`, and `db.*`/`rpc.*` operation attributes. Headers, cookies,
+  request and response bodies, full URLs, and custom attributes are dropped.
+  Text that matches recognizable credential or payload patterns is redacted.
+  Exception messages are limited to 1,024 bytes and stack traces to 32 KiB.
+  Text that doesn't match a pattern can still contain sensitive data, so keep
+  secrets out of your telemetry.
+- **`strict`:** new spans store only the exception type and a SHA-256 hash of
+  the message. Stack traces, status descriptions, and the extra `url`, `db`,
+  and `rpc` attributes are dropped. Search matches the type, the exact original
+  message, or the full hex digest. Search terms appear in the URL, so search by
+  digest to keep a message out of browser history.
+
+A mode change applies only to new spans. See
+[Architecture](docs/architecture.md) for details.
 
 ## CLI and local API
 
-```sh
-go build -o bin/geko ./cmd/geko
-./bin/geko doctor
-./bin/geko serve
-```
-
-On Windows, build with `go build -o bin/geko.exe ./cmd/geko` and run
-`.\bin\geko.exe`. Use `geko version` for build information. Run `geko doctor`
-before `serve` to check SQLite integrity, storage size, and listener availability.
-`GET /healthz` returns HTTP 204 once the listener is ready.
-
-| Endpoint | Response |
+| Command | Purpose |
 | --- | --- |
-| `GET /api/v1/failures` | A page of traces with observed failure evidence. |
-| `GET /api/v1/traces/{trace_id}` | The trace summary and a page of spans after best-effort redaction or strict exception filtering. |
+| `geko serve` | Start the receiver and dashboard. `GET /healthz` returns 204 once it is listening. |
+| `geko doctor` | Check SQLite integrity, storage sizes, and listener availability. |
+| `geko compact` | Reclaim free space from the main database file (stop the server first). |
+| `geko version` | Print build information. |
 
-Both query endpoints accept `limit` from 1 to 100 (default 50). Pass the
-returned `next_cursor` as `cursor` to continue. The failure endpoint accepts
-these filters.
+The dashboard's data is also available as JSON on the same loopback address:
 
-| Parameter | Match |
+| Endpoint | Returns |
 | --- | --- |
-| `application` | `group:<name>` for traces containing that application's spans, or `ungrouped` for traces containing ungrouped spans. A combined service filter matches the selected application. |
-| `service` | Exact entry span service, or primary evidence service when a unique entry span is unavailable. |
-| `evidence_service` | Exact service on a span with evidence. |
-| `status` | HTTP status on the entry span. |
-| `q` | Up to 4,096 bytes. Trace ID prefix, substring in the entry or evidence operation, service, exception message or type, full exception hash, or exact original message in strict mode. Substring and hexadecimal comparisons ignore ASCII case. |
-| `from`, `to` | RFC3339 last receipt time, inclusive start and exclusive end. |
+| `GET /api/v1/failures` | A page of traces with failure evidence |
+| `GET /api/v1/traces/{trace_id}` | A trace summary and a page of its spans |
+
+Both endpoints accept `limit` (1–100, default 50) and `cursor`. Pass the
+`next_cursor` from a response as `cursor` to continue. `/api/v1/failures`
+accepts these filters:
+
+| Parameter | Matches |
+| --- | --- |
+| `application` | `group:<name>` for traces containing that application's spans, or `ungrouped` |
+| `service` | The entry span's service, or the primary evidence service when there is no single entry span |
+| `evidence_service` | The service of any span with evidence |
+| `status` | The entry span's HTTP status |
+| `q` | Up to 4,096 bytes: a trace ID prefix, or a case-insensitive substring of the operation, service, or exception message or type. Also a full exception hash, or the exact original message in strict mode. |
+| `from`, `to` | Last receipt time, in RFC 3339. `from` is inclusive and `to` is exclusive. |
+
+## How Geko compares
+
+| Tool | Best for | Deployment |
+| --- | --- | --- |
+| **Geko** | Starting from failure evidence on a developer machine: filter failures, open the evidence span, follow the trace's calls. | Single binary, loopback-only, SQLite with retention and a size limit. Traces only. |
+| [Jaeger](https://www.jaegertracing.io/docs/2.23/features/) | Searching and inspecting traces and service dependencies at any scale. | All-in-one or separate collector and query roles with external storage. |
+| [Zipkin](https://zipkin.io/) | Looking up traces by ID, service, operation, tags, and duration, with an aggregate dependency diagram. | In-memory or persistent backends such as Cassandra and Elasticsearch. |
+| [OpenTelemetry Desktop Viewer](https://github.com/CtrlSpice/otel-desktop-viewer) | A local telemetry UI with SQL access. | Local CLI with a browser UI. |
+| [otel-tui](https://github.com/ymtdzzz/otel-tui) | Browsing telemetry in a terminal UI. | Local terminal tool. |
+| [Aspire Dashboard](https://aspire.dev/dashboard/standalone/) | Logs, traces, and metrics in one local dashboard. | Standalone container. |
 
 ## Development
 
 ```sh
 go test ./...
 go vet ./...
-go test ./internal/storage/sqlite -run '^$' -bench BenchmarkApplicationFailureFilter
+go test ./internal/ingest/otlp -run '^$' -fuzz '^FuzzReceiver$' -fuzztime 30s
+go test ./internal/storage/sqlite -run '^$' -bench .
 ```
 
-See [Architecture](docs/architecture.md) for ingestion, privacy filtering,
-SQLite, and evidence selection. The [service map demo](examples/service-map/README.md)
-and [Go checkout example](examples/go/README.md) describe the scenarios they send.
+CI also runs staticcheck, govulncheck, race tests, `go mod tidy -diff`, and a
+Docker smoke test with the JSON exporters. Pushing a `v*` tag builds
+checksummed archives for Linux, macOS, and Windows on amd64 and arm64. Run
+`goreleaser release --snapshot --clean` for a local snapshot.
+
+See [Architecture](docs/architecture.md) for ingestion, storage, privacy
+filtering, and evidence selection.
+
+## License
+
+[MIT](LICENSE)

@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"geko/internal/api"
-	"geko/internal/ingest/otlp"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -53,7 +53,7 @@ func TestStrictExceptionExportAndSearch(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(payload))
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/v1/traces", bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/x-protobuf")
 	response := httptest.NewRecorder()
 	otlp.NewHandlerWithRedaction(db, true).ServeHTTP(response, req)
@@ -176,7 +176,7 @@ func TestOTLPPersistsOutOfOrderSpansWithoutSecrets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		req := httptest.NewRequest(http.MethodPost, "/v1/traces", bytes.NewReader(body))
+		req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/v1/traces", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/x-protobuf")
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, req)

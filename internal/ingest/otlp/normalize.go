@@ -5,8 +5,8 @@ import (
 	"math"
 	"time"
 
-	"geko/internal/privacy"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/privacy"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 
 	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
@@ -19,10 +19,13 @@ const (
 	labelSize = 256
 )
 
-var errBatchLimit = errors.New("trace batch exceeds the span or event limit")
+var errBatchLimit = errors.New("trace batch exceeds a resource, scope, span, or event limit")
 
-func normalize(req *collector.ExportTraceServiceRequest, strict bool) ([]telemetry.Span, error) {
+func normalize(req *collector.ExportTraceServiceRequest, strict bool) ([]telemetry.Span, int64, error) {
 	var spans []telemetry.Span
+	var rejected int64
+	var firstError error
+	var total int
 	for _, resourceSpans := range req.GetResourceSpans() {
 		resource := textAttributes(resourceSpans.GetResource().GetAttributes(), resourceFields)
 		service, _ := resource["service.name"].(string)
@@ -30,9 +33,10 @@ func normalize(req *collector.ExportTraceServiceRequest, strict bool) ([]telemet
 			service = "unknown_service"
 		}
 		for _, scopeSpans := range resourceSpans.GetScopeSpans() {
-			if len(scopeSpans.GetSpans()) > maxSpans-len(spans) {
-				return nil, errBatchLimit
+			if len(scopeSpans.GetSpans()) > maxSpans-total {
+				return nil, 0, errBatchLimit
 			}
+			total += len(scopeSpans.GetSpans())
 			src := scopeSpans.GetScope()
 			scope := telemetry.Scope{
 				Name:       privacy.Text(src.GetName(), labelSize),
@@ -42,13 +46,20 @@ func normalize(req *collector.ExportTraceServiceRequest, strict bool) ([]telemet
 			for _, span := range scopeSpans.GetSpans() {
 				normalized, err := normalizeSpan(span, service, resource, scope, strict)
 				if err != nil {
-					return nil, err
+					rejected++
+					if firstError == nil {
+						firstError = err
+					}
+					continue
 				}
 				spans = append(spans, normalized)
 			}
 		}
 	}
-	return spans, nil
+	if len(spans) == 0 && rejected > 0 {
+		return nil, rejected, firstError
+	}
+	return spans, rejected, nil
 }
 
 func normalizeSpan(src *trace.Span, service string, resource telemetry.Attributes, scope telemetry.Scope, strict bool) (telemetry.Span, error) {
@@ -98,7 +109,7 @@ func normalizeSpan(src *trace.Span, service string, resource telemetry.Attribute
 	}
 	span.ResourceAttributes = resource
 	span.Scope = scope
-	span.Attributes = spanAttributes(src.GetAttributes())
+	span.Attributes = spanAttributes(src.GetAttributes(), strict)
 	span.Events = make([]telemetry.Event, 0, len(src.GetEvents()))
 	for _, event := range src.GetEvents() {
 		if !validTime(event.GetTimeUnixNano()) {
@@ -140,12 +151,19 @@ var scopeFields = map[string]int{
 }
 
 var exceptionFields = map[string]int{
-	"exception.type": labelSize, "exception.message": 1024, "exception.stacktrace": 4096,
+	"exception.type": labelSize, "exception.message": 1024, "exception.stacktrace": 32 << 10,
 }
 
 var spanFields = map[string]int{
 	"http.request.method": labelSize, "http.method": labelSize, "http.route": labelSize,
 	"error.type": labelSize, "network.protocol.version": labelSize,
+}
+
+var localSpanFields = map[string]int{
+	"url.path":  1024,
+	"db.system": labelSize, "db.system.name": labelSize, "db.namespace": labelSize,
+	"db.operation": labelSize, "db.operation.name": labelSize, "db.collection.name": labelSize,
+	"rpc.system": labelSize, "rpc.system.name": labelSize, "rpc.service": labelSize, "rpc.method": labelSize,
 }
 
 func strictException(src []*common.KeyValue) telemetry.Attributes {
@@ -165,21 +183,30 @@ func strictException(src []*common.KeyValue) telemetry.Attributes {
 	return attrs
 }
 
-func textAttributes(src []*common.KeyValue, allowlist map[string]int) telemetry.Attributes {
+func textAttributes(src []*common.KeyValue, allowlists ...map[string]int) telemetry.Attributes {
 	attrs := make(telemetry.Attributes)
 	for _, attr := range src {
 		key := attr.GetKey()
-		if limit, ok := allowlist[key]; ok {
-			if value, ok := attr.GetValue().GetValue().(*common.AnyValue_StringValue); ok {
+		value, ok := attr.GetValue().GetValue().(*common.AnyValue_StringValue)
+		if !ok {
+			continue
+		}
+		for _, allowlist := range allowlists {
+			if limit, ok := allowlist[key]; ok {
 				attrs[key] = privacy.Text(value.StringValue, limit)
+				break
 			}
 		}
 	}
 	return attrs
 }
 
-func spanAttributes(src []*common.KeyValue) telemetry.Attributes {
-	attrs := textAttributes(src, spanFields)
+func spanAttributes(src []*common.KeyValue, strict bool) telemetry.Attributes {
+	fields := []map[string]int{spanFields}
+	if !strict {
+		fields = append(fields, localSpanFields)
+	}
+	attrs := textAttributes(src, fields...)
 	if _, exists := attrs["http.request.method"]; !exists {
 		if legacy, exists := attrs["http.method"]; exists {
 			attrs["http.request.method"] = legacy

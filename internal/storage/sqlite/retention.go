@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/storage"
 
 	driver "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"

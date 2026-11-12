@@ -8,11 +8,12 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
-	"geko/internal/api"
-	"geko/internal/investigation"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
 type traceView struct {
@@ -42,6 +43,15 @@ type waterfallRow struct {
 	Selected    bool
 }
 
+func (d *dashboard) findTrace(w http.ResponseWriter, r *http.Request) {
+	id, err := api.ParseTraceID(strings.TrimSpace(r.URL.Query().Get("trace_id")))
+	if err != nil {
+		d.problem(w, r, http.StatusBadRequest, "Invalid trace ID", err.Error())
+		return
+	}
+	http.Redirect(w, r, "/traces/"+hex.EncodeToString(id[:]), http.StatusSeeOther)
+}
+
 func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 	id, err := api.ParseTraceID(r.PathValue("traceID"))
 	if err != nil {
@@ -54,7 +64,7 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params.Set("limit", "50")
-	limit, cursor, err := api.ParsePagination(params, len(telemetry.SpanID{}))
+	_, cursor, err := api.ParsePagination(params, len(telemetry.SpanID{}))
 	if err != nil {
 		d.problem(w, r, http.StatusBadRequest, "Invalid trace page", err.Error())
 		return
@@ -76,7 +86,11 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 	}
 	d.withQuery(w, r, func(ctx context.Context) {
 		view := traceView{}
-		summary, page, err := d.store.Trace(ctx, id, cursor, limit)
+		filter := investigation.TraceDetailFilter{After: cursor, EvidenceAfter: evidenceAfter}
+		if rawSpanID != "" {
+			filter.Selected = &spanID
+		}
+		details, err := d.store.TraceDetails(ctx, id, filter)
 		if errors.Is(err, investigation.ErrTraceNotFound) {
 			d.problem(w, r, http.StatusNotFound, "Trace not found", "This trace is unavailable in the local database.")
 			return
@@ -85,48 +99,15 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 			d.unavailable(w, r, ctx)
 			return
 		}
+		summary, page, cursor := details.Summary, details.Waterfall, details.After
 		path := "/traces/" + summary.TraceID
-		if rawSpanID != "" {
-			selectedID := hex.EncodeToString(spanID[:])
-			for i := range page.Items {
-				if page.Items[i].SpanID == selectedID {
-					view.Selected = &page.Items[i]
-					break
-				}
-			}
-			if view.Selected == nil {
-				selected, err := d.store.Span(ctx, id, spanID)
-				switch {
-				case errors.Is(err, investigation.ErrSpanNotFound):
-					view.MissingSpan = true
-				case err != nil:
-					d.unavailable(w, r, ctx)
-					return
-				default:
-					view.Selected = &selected
-					if cursor == nil {
-						cursor = immediatelyBefore(selected, spanID)
-						summary, page, err = d.store.Trace(ctx, id, cursor, limit)
-						if err != nil {
-							d.unavailable(w, r, ctx)
-							return
-						}
-					}
-				}
-			}
-		} else if len(page.Items) != 0 {
-			view.Selected = &page.Items[0]
-		}
+		view.Selected = details.Selected
+		view.MissingSpan = filter.Selected != nil && view.Selected == nil
 		view.Trace = summary
 		if summary.Evidence != nil {
-			evidence, next, err := d.store.TraceEvidence(ctx, id, evidenceAfter, 10)
-			if err != nil {
-				d.unavailable(w, r, ctx)
-				return
-			}
 			links := maps.Clone(params)
 			links.Del("limit")
-			for _, item := range evidence {
+			for _, item := range details.Evidence {
 				link := maps.Clone(links)
 				link.Del("cursor")
 				link.Set("span", item.SpanID)
@@ -139,28 +120,13 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 				links.Del("evidence_after")
 				view.EvidenceFirst = route(path, links) + "#evidence"
 			}
-			if next != "" {
-				links.Set("evidence_after", next)
+			if details.EvidenceNext != "" {
+				links.Set("evidence_after", details.EvidenceNext)
 				view.EvidenceNext = route(path, links) + "#evidence"
 			}
 		}
-		// The map is independent of the waterfall page and focused span.
-		_, mapPage, err := d.store.Trace(ctx, id, nil, investigation.MaxPageSize)
-		if err != nil {
-			d.unavailable(w, r, ctx)
-			return
-		}
-		mapSpans := mapPage.Items
-		for mapPage.Next != nil && len(mapSpans) < mapSpanLimit {
-			_, mapPage, err = d.store.Trace(ctx, id, mapPage.Next, investigation.MaxPageSize)
-			if err != nil {
-				d.unavailable(w, r, ctx)
-				return
-			}
-			mapSpans = append(mapSpans, mapPage.Items...)
-		}
 		mergeEnvironments := params.Get("environments") == "merged"
-		view.ServiceMap = serviceMap(mapSpans, view.Selected, path, mergeEnvironments)
+		view.ServiceMap = serviceMap(details.MapSpans, view.Selected, path, mergeEnvironments)
 		toggle := maps.Clone(params)
 		toggle.Del("limit")
 		if mergeEnvironments {
@@ -169,7 +135,7 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 			toggle.Set("environments", "merged")
 		}
 		view.ServiceMap.EnvironmentToggle = route(path, toggle) + "#service-map"
-		view.ServiceMap.Truncated = mapPage.Next != nil
+		view.ServiceMap.Truncated = summary.Window != nil && summary.Window.SpanCount > len(details.MapSpans)
 		view.Rows = waterfall(page.Items, summary.Window, view.Selected, path, cursor, mergeEnvironments)
 		if summary.Window != nil {
 			ns := summary.Window.End.Sub(summary.Window.Start).Nanoseconds()
@@ -195,18 +161,6 @@ func parseSpanID(raw string) (telemetry.SpanID, bool) {
 	}
 	_, err := hex.Decode(id[:], []byte(raw))
 	return id, err == nil && id != (telemetry.SpanID{})
-}
-
-// Span IDs sort bytewise. The previous possible ID at the same timestamp makes
-// the selected span the first row returned by the exclusive cursor.
-func immediatelyBefore(span investigation.Span, id telemetry.SpanID) *investigation.Cursor {
-	for i := len(id) - 1; i >= 0; i-- {
-		id[i]--
-		if id[i] != 255 {
-			break
-		}
-	}
-	return &investigation.Cursor{TimeNS: span.Start.UnixNano(), ID: id[:]}
 }
 
 func traceRoute(path string, params url.Values, mergeEnvironments bool) string {

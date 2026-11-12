@@ -25,11 +25,15 @@
   </label>
   <div class="actions"><button class="button primary" type="submit">Apply</button>{{if .Filtered}}<a href="/failures">Reset</a>{{end}}</div>
 </form>
+<form class="trace-lookup actions" action="/traces" method="get" data-loading>
+  <label>Trace ID <input name="trace_id" required maxlength="32" pattern="[0-9A-Fa-f]{32}" spellcheck="false" placeholder="32 hexadecimal characters"></label>
+  <button class="button" type="submit">Go to trace</button>
+</form>
 {{if .Items}}{{template "failure-table" .Items}}
 {{else if not .HasTraces}}
 <section class="empty">
   <h2>No traces received yet</h2>
-  <p>Send OTLP/HTTP protobuf traces to <code>{{.Endpoint}}</code>.</p>
+  <p>Send OTLP/HTTP traces to <code>{{.Endpoint}}</code>.</p>
   <p>To try the Go example, set <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code> to that URL and run <code>go run ./examples/go</code> from the repository. Open <a href="http://127.0.0.1:8080/failure">the demo failure</a>, wait a few seconds, then refresh this list.</p>
   <a class="button" href="/settings#receiver">Check receiver diagnostics</a>
 </section>

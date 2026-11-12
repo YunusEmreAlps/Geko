@@ -5,12 +5,66 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
-	"geko/internal/investigation"
-	"geko/internal/telemetry"
+	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
+
+func TestTraceSummaryUsesIndexedSpanLookups(t *testing.T) {
+	store := openTestStore(t)
+	traceID := telemetry.TraceID{1}
+	rows, err := store.read.QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+traceSummaryQuery+" WHERE t.trace_id = ?", traceID[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		if err := rows.Scan(&id, &parent, &unused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	steps := strings.Join(plan, "\n")
+	if strings.Contains(steps, "MATERIALIZE") || !strings.Contains(steps, "SEARCH r USING PRIMARY KEY") || !strings.Contains(steps, "SEARCH s USING PRIMARY KEY") {
+		t.Fatalf("trace summary must look up both spans by primary key:\n%s", steps)
+	}
+}
+
+func BenchmarkTraceSummary200KSpans(b *testing.B) {
+	ctx := b.Context()
+	store, err := Open(ctx, filepath.Join(b.TempDir(), "traces.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.db.ExecContext(ctx, `WITH RECURSIVE sequence(n) AS (
+        VALUES (1) UNION ALL SELECT n+1 FROM sequence WHERE n < 200000
+    ) INSERT INTO traces (trace_id, first_observed_ns, last_observed_ns)
+      SELECT unhex(printf('%032x', n)), n, n FROM sequence`); err != nil {
+		b.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO spans
+        (trace_id, span_id, service_name, name, kind, start_ns, end_ns, status_code)
+      SELECT trace_id, x'0000000000000001', 'api', 'checkout', 2, 1, 2, 2 FROM traces`); err != nil {
+		b.Fatal(err)
+	}
+	id := telemetry.TraceID{15: 1}
+	for b.Loop() {
+		summary, _, err := store.Trace(ctx, id, nil, 50)
+		if err != nil || summary.EntrySpan == nil || summary.Evidence == nil {
+			b.Fatalf("trace summary = %+v, %v", summary, err)
+		}
+	}
+}
 
 func BenchmarkApplicationFailureFilter(b *testing.B) {
 	for _, size := range []int{10_000, 100_000} {
