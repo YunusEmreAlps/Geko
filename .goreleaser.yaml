@@ -21,6 +21,12 @@ archives:
     files:
       - LICENSE
       - README.md
+      - docs/agents.md
+      - docs/architecture.md
+      - docs/configuration.md
+      - docs/connect.md
+      - docs/investigate.md
+      - docs/server.md
       - geko.example.yaml
 
 checksum:

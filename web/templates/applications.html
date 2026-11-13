@@ -7,14 +7,14 @@
 <section class="section first">
   <h2>Service mappings</h2>
   <p class="muted">Map an exact service name to an application for past and future spans without a namespace.</p>
-  <form class="application-form" action="/applications" method="post">
+  {{if not .ReadOnly}}<form class="application-form" action="/applications" method="post">
     <label>Service name <input name="service" required maxlength="256" placeholder="orders-api"></label>
     <label>Application name <input name="application" required maxlength="256" placeholder="Kavun"></label>
     <div class="actions">
       <button class="button primary" name="action" value="mapping">Save mapping</button>
       <button class="button" name="action" value="mapping-remove" formnovalidate>Remove mapping</button>
     </div>
-  </form>
+  </form>{{end}}
   {{if .Rules}}
   <dl class="properties">
     {{range .Rules}}<div><dt>{{.Service}}</dt><dd>{{.Application}}</dd></div>{{end}}
@@ -25,7 +25,7 @@
     {{if .Next}}<a class="button" href="{{.Next}}" rel="next">Next mappings</a>{{end}}
   </nav>{{end}}
 </section>
-<section class="section">
+{{if not .ReadOnly}}<section class="section">
   <h2>Assign historical traces</h2>
   <p class="muted">Matches traces by when Geko last received them (UTC, end exclusive). Applies to spans without a namespace and takes precedence over service mappings. If interrupted, submit the same inputs to resume.</p>
   <form class="application-form" action="/applications" method="post">
@@ -39,5 +39,5 @@
       <button class="button" name="action" value="assign-discard" formnovalidate title="Keeps changes from completed batches.">Discard progress</button>
     </div>
   </form>
-</section>
+</section>{{end}}
 {{end}}

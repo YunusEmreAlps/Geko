@@ -55,11 +55,11 @@
 <section class="summary-card" aria-labelledby="group-summary">
   <div class="section-head">
     <h2 id="group-summary">Observed failure summary {{template "group-state" .}}</h2>
-    <form class="group-actions" action="/groups/state" method="post">
+    {{if $.CanTriage}}<form class="group-actions" action="/groups/state" method="post">
       <input type="hidden" name="group" value="{{$.Group}}"><input type="hidden" name="return" value="{{$.Refresh}}">
       {{if eq .State "resolved" "muted"}}<button class="button small" name="state" value="open">{{if eq .State "muted"}}Unmute{{else}}Reopen{{end}}</button>
       {{else}}<input name="version" maxlength="256" placeholder="Fixed in version (optional)" aria-label="Fixed in service.version (optional)" title="With a version, only traces reporting that service.version reopen the group. Older instances still rolling out don't."><button class="button small" name="state" value="resolved" title="Hide this group until a new matching trace arrives">Resolve</button><button class="button small ghost" name="state" value="muted" title="Hide this group and never notify for it">Mute</button>{{end}}
-    </form>
+    </form>{{end}}
   </div>
   <p><strong>{{if .ExceptionType}}{{.ExceptionType}}{{else}}{{classification .Classification}}{{end}}</strong> on <code>{{.Operation}}</code> in {{serviceLabel .Application .Service}}{{if .Environment}} ({{.Environment}}){{end}}{{if .HTTPStatus}} · evidence HTTP {{.HTTPStatus}}{{end}}</p>
   <dl class="facts">

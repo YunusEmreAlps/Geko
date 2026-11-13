@@ -48,7 +48,7 @@
     <div><dt>Webhook</dt><dd>Not configured <span class="subtle">Set <code>GEKO_WEBHOOK_URL</code> to a Slack, Discord, ntfy or JSON webhook</span></dd></div>
     {{end}}
   </dl>
-  {{if .Notifications}}<form action="/settings/notifications/test" method="post" data-loading><button class="button" type="submit">Send test notification</button></form>{{end}}
+  {{if and .Notifications (not .ReadOnly)}}<form action="/settings/notifications/test" method="post" data-loading><button class="button" type="submit">Send test notification</button></form>{{end}}
 </section>
 <section class="section">
   <h2>Storage</h2>

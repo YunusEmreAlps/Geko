@@ -27,7 +27,7 @@ func TestBrowserSessions(t *testing.T) {
 	}
 	defer store.Close()
 	mux := http.NewServeMux()
-	if err := Register(mux, store, Settings{AccessToken: true, SignIn: token.SignIn, SignOut: token.SignOut}); err != nil {
+	if err := Register(mux, store, Settings{AccessToken: true, SignIn: token.SignIn, SignOut: token.SignOut, Tokens: token}); err != nil {
 		t.Fatal(err)
 	}
 	handler := token.Protect(mux)
@@ -86,8 +86,14 @@ func TestBrowserSessions(t *testing.T) {
 	if w := do(http.MethodPost, "/groups/state", url.Values{"group": {"x"}}, viewer); w.Code != http.StatusForbidden {
 		t.Fatalf("read session change = %d", w.Code)
 	}
+	if w := do(http.MethodGet, "/applications", nil, viewer); w.Code != http.StatusOK || strings.Contains(w.Body.String(), `action="/applications"`) {
+		t.Fatalf("read session sees changes it can't make: %d", w.Code)
+	}
 
 	_, owner := signIn(admin, "/settings")
+	if w := do(http.MethodGet, "/applications", nil, owner); !strings.Contains(w.Body.String(), `action="/applications" method="post"`) {
+		t.Fatal("full session lost the mapping form")
+	}
 	if w := do(http.MethodPost, "/groups/state", url.Values{"group": {"invalid"}, "state": {"resolved"}}, owner); w.Code != http.StatusBadRequest {
 		t.Fatalf("full session change reached the handler with %d", w.Code)
 	}

@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"errors"
+	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,7 +15,11 @@ import (
 
 // TestRunHelperProcess is the command that geko run starts in TestRunCommand.
 func TestRunHelperProcess(t *testing.T) {
-	if os.Getenv("GEKO_RUN_HELPER") != "1" {
+	switch os.Getenv("GEKO_RUN_HELPER") {
+	case "quiet":
+		os.Exit(0)
+	case "1":
+	default:
 		t.Skip("helper process")
 	}
 	body := `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},
@@ -62,6 +68,73 @@ func TestRunCommand(t *testing.T) {
 	}
 	if err := runCommand(t.Context(), []string{filepath.Join(dir, "missing-command")}, &stdout, &stderr); err == nil || errors.As(err, &code) {
 		t.Fatalf("missing command = %v", err)
+	}
+}
+
+func TestRunReportsMissingExports(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := listener.Addr().String()
+	listener.Close()
+	t.Setenv("GEKO_CONFIG", "")
+	t.Setenv("GEKO_ACCESS_TOKEN", "")
+	t.Setenv("GEKO_LISTEN_ADDR", addr)
+	t.Setenv("GEKO_DB_PATH", filepath.Join(dir, "run.db"))
+	t.Setenv("GEKO_RUN_HELPER", "quiet")
+	var stderr bytes.Buffer
+	if err := runCommand(t.Context(), []string{os.Args[0], "-test.run=^TestRunHelperProcess$"}, io.Discard, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "received no exports") {
+		t.Fatalf("summary = %s", stderr.String())
+	}
+}
+
+func TestRunWarnsWhenGekoRequiresAToken(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+	t.Chdir(t.TempDir())
+	t.Setenv("GEKO_CONFIG", "")
+	t.Setenv("GEKO_ACCESS_TOKEN", "")
+	t.Setenv("GEKO_LISTEN_ADDR", strings.TrimPrefix(server.URL, "http://"))
+	t.Setenv("GEKO_RUN_HELPER", "quiet")
+	var stderr bytes.Buffer
+	if err := runCommand(t.Context(), []string{os.Args[0], "-test.run=^TestRunHelperProcess$"}, io.Discard, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	output := stderr.String()
+	if !strings.Contains(output, "exports will be rejected") || !strings.Contains(output, "could not summarize the run") ||
+		strings.Contains(output, "no failure evidence") {
+		t.Fatalf("output = %s", output)
+	}
+}
+
+func TestReadReceiverCounts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer secret" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		io.WriteString(w, "# TYPE geko_receiver_accepted_exports_total counter\ngeko_receiver_accepted_exports_total 7\n"+
+			"geko_receiver_rejected_requests_total{reason=\"invalid_payload\"} 2\ngeko_receiver_rejected_requests_total{reason=\"capacity\"} 1\n")
+	}))
+	defer server.Close()
+	counts, err := readReceiverCounts(t.Context(), server.URL, "secret")
+	if err != nil || counts != (receiverCounts{accepted: 7, rejected: 3}) {
+		t.Fatalf("counts = %+v, %v", counts, err)
+	}
+	if _, err := readReceiverCounts(t.Context(), server.URL, ""); !errors.Is(err, errTokenRequired) {
+		t.Fatalf("missing token = %v", err)
 	}
 }
 

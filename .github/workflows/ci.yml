@@ -115,7 +115,7 @@ jobs:
           echo "::add-mask::$token"
           export GEKO_ACCESS_TOKEN="$token"
           container=$(docker run -d -p 127.0.0.1:14319:4318 \
-            -e GEKO_ACCESS_TOKEN -e GEKO_LISTEN_ADDR=0.0.0.0:4318 geko:ci)
+            -e GEKO_ACCESS_TOKEN -e GEKO_LISTEN_ADDR=0.0.0.0:4318 -e GEKO_ALLOW_PLAINTEXT=true geko:ci)
           trap 'docker logs "$container"; docker rm -f "$container" >/dev/null' EXIT
           base=http://127.0.0.1:14319
           curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 \

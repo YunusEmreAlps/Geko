@@ -41,7 +41,8 @@ func (d *dashboard) applications(w http.ResponseWriter, r *http.Request) {
 			HasPrevious bool
 			Saved       bool
 			Changed     *int64
-		}{Rules: rules, HasPrevious: after != "", Saved: params.Get("saved") == "1"}
+			ReadOnly    bool
+		}{Rules: rules, HasPrevious: after != "", Saved: params.Get("saved") == "1", ReadOnly: d.readOnly(r)}
 		if len(rules) > 25 {
 			view.Rules = rules[:25]
 			view.Next = route("/applications", url.Values{"after": {rules[24].Service}})

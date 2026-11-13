@@ -115,6 +115,8 @@ func TestWatchTokenFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// A change made before the watcher starts must still be applied.
+	writeTokens(t, path, "access: "+fileAccess+"\nread:\n  agent: "+fileRead+"\n")
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
 	go func() {
@@ -132,13 +134,19 @@ func TestWatchTokenFile(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	writeTokens(t, path, "access: "+fileAccess+"\nread:\n  agent: "+fileRead+"\n")
 	waitFor(func() bool { return token.allows(fileRead, ScopeRead) })
+	session := token.state.sessions.create(true)
 	// An invalid file keeps the tokens in use.
 	writeTokens(t, path, "access: short\n")
 	time.Sleep(100 * time.Millisecond)
 	if !token.matches(fileAccess) {
 		t.Fatal("invalid file replaced the tokens")
+	}
+	// Restoring the same tokens is not a rotation and keeps sessions.
+	writeTokens(t, path, "access: "+fileAccess+"\nread:\n  agent: "+fileRead+"\n")
+	time.Sleep(100 * time.Millisecond)
+	if _, ok := token.state.sessions.lookup(session); !ok {
+		t.Fatal("unchanged tokens ended a session")
 	}
 	writeTokens(t, path, "access: "+rotated+"\n")
 	waitFor(func() bool { return token.matches(rotated) && !token.matches(fileAccess) })

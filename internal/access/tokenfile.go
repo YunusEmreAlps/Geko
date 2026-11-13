@@ -92,10 +92,9 @@ func parseTokenFile(data []byte, path string) (Token, error) {
 // WatchTokenFile reloads token whenever the file's content changes, until ctx
 // ends. An invalid file is reported and the previous tokens stay in use.
 func WatchTokenFile(ctx context.Context, path string, token Token, interval time.Duration) {
+	// Start without a digest: the file may have changed since token was loaded.
+	// Reloading identical tokens keeps sessions.
 	var last [sha256.Size]byte
-	if data, err := readTokenFile(path); err == nil {
-		last = sha256.Sum256(data)
-	}
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -115,13 +114,16 @@ func WatchTokenFile(ctx context.Context, path string, token Token, interval time
 		}
 		last = sum
 		next, err := parseTokenFile(data, path)
+		changed := false
 		if err == nil {
-			err = token.Reload(next)
+			changed, err = token.reload(next)
 		}
 		if err != nil {
 			log.Printf("tokens: %v; keeping the current tokens", err)
 			continue
 		}
-		log.Printf("tokens: reloaded %s", path)
+		if changed {
+			log.Printf("tokens: reloaded %s", path)
+		}
 	}
 }

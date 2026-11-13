@@ -192,15 +192,21 @@ func (t Token) Names(scope Scope) []string {
 // be turned on or off at runtime. Changed credentials sign out every browser,
 // so a rotated token also ends sessions started with the old one.
 func (t Token) Reload(next Token) error {
+	_, err := t.reload(next)
+	return err
+}
+
+func (t Token) reload(next Token) (changed bool, err error) {
 	if t.state == nil || next.state == nil {
-		return errors.New("an access token is required before and after a reload")
+		return false, errors.New("an access token is required before and after a reload")
 	}
 	replacement := next.current()
 	previous := t.state.credentials.Swap(replacement)
 	if !slices.Equal(previous.scoped, replacement.scoped) || previous.digest != replacement.digest {
 		t.state.sessions.clear()
+		return true, nil
 	}
-	return nil
+	return false, nil
 }
 
 func (t Token) matches(value string) bool {

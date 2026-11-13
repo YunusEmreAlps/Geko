@@ -209,8 +209,14 @@ func (d *dashboard) unavailable(w http.ResponseWriter, r *http.Request, ctx cont
 	d.problem(w, r, http.StatusInternalServerError, "Could not load telemetry", "Check the local database with geko doctor and try again.")
 }
 
+// readOnly reports whether the request used a read token, so pages hide
+// actions that would be refused.
+func (d *dashboard) readOnly(r *http.Request) bool {
+	return d.settings.Tokens.Enabled() && !access.FullAccess(r.Context())
+}
+
 type failureView struct {
-	CanRestore                        bool
+	CanRestore, CanTriage             bool
 	AllTraces                         bool
 	Path, AllTracesURL, Reset         string
 	Groups                            []failureGroupView
@@ -253,7 +259,8 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 		}
 	}
 	view := failureView{
-		CanRestore: allTraces && d.settings.RestoreTrace != nil,
+		CanRestore: allTraces && d.settings.RestoreTrace != nil && !d.readOnly(r),
+		CanTriage:  !d.readOnly(r),
 		AllTraces:  allTraces, Path: path, Reset: path,
 		Mode: params.Get("view"), Group: params.Get("group"), GroupState: params.Get("state"),
 		Search: params.Get("q"), Service: params.Get("service"), Status: params.Get("status"), Range: params.Get("range"),
@@ -440,7 +447,8 @@ func (d *dashboard) status(w http.ResponseWriter, r *http.Request) {
 			Receiver      *otlp.Diagnostics
 			TraceEndpoint string
 			Notification  string
-		}{d.currentSettings(), status, receiver, d.traceEndpoint(r.Host), r.URL.Query().Get("notification")})
+			ReadOnly      bool
+		}{d.currentSettings(), status, receiver, d.traceEndpoint(r.Host), r.URL.Query().Get("notification"), d.readOnly(r)})
 	})
 }
 
