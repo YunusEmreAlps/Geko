@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
@@ -40,7 +41,7 @@ func (api *queryAPI) local(handler http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
 		// Reject DNS rebinding requests even when they reach the loopback socket.
-		if !LocalHost(r.Host) {
+		if !LocalHost(r.Host) && !access.Authenticated(r.Context()) {
 			fail(w, http.StatusForbidden, "query API requires a loopback Host")
 			return
 		}
@@ -142,6 +143,12 @@ func ParseFailureFilter(params url.Values) (investigation.FailureFilter, error) 
 		return filter, err
 	}
 	filter.Limit, filter.After = limit, cursor
+	if token := params.Get("group"); token != "" {
+		filter.GroupKey, err = investigation.DecodeGroupKey(token)
+		if err != nil {
+			return filter, err
+		}
+	}
 	filter.Service, filter.Search = params.Get("service"), params.Get("q")
 	filter.EvidenceService = params.Get("evidence_service")
 	if value := params.Get("application"); value != "" {

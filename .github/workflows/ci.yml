@@ -32,6 +32,43 @@ jobs:
       - run: go test ./...
       - run: go build ./cmd/geko
 
+  release-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build release archives without publishing
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean
+      - name: Verify checksums and run the Linux release binary
+        shell: bash
+        run: |
+          cd dist
+          sha256sum --check checksums.txt
+          for target in linux darwin windows; do
+            for arch in amd64 arm64; do
+              extension=tar.gz
+              if [[ "$target" == windows ]]; then extension=zip; fi
+              compgen -G "geko_*_${target}_${arch}.$extension" >/dev/null
+            done
+          done
+          archive=(geko_*_linux_amd64.tar.gz)
+          version=${archive[0]#geko_}
+          version=${version%_linux_amd64.tar.gz}
+          unpacked=$(mktemp -d)
+          trap 'rm -r -- "$unpacked"' EXIT
+          tar -xzf "${archive[0]}" -C "$unpacked"
+          reported=$("$unpacked/geko" version)
+          [[ "$reported" == "Geko $version (linux/amd64, "* ]]
+
   analysis:
     runs-on: ubuntu-latest
     steps:
@@ -72,3 +109,23 @@ jobs:
           verify_trace python3 examples/otlp-json/python.py
           verify_trace java examples/otlp-json/ExportTrace.java
           verify_trace dotnet run --file examples/otlp-json/ExportTrace.cs
+      - name: Smoke test token-protected Docker bridge networking
+        run: |
+          token=$(openssl rand -hex 32)
+          echo "::add-mask::$token"
+          export GEKO_ACCESS_TOKEN="$token"
+          container=$(docker run -d -p 127.0.0.1:14319:4318 \
+            -e GEKO_ACCESS_TOKEN -e GEKO_LISTEN_ADDR=0.0.0.0:4318 geko:ci)
+          trap 'docker logs "$container"; docker rm -f "$container" >/dev/null' EXIT
+          base=http://127.0.0.1:14319
+          curl --fail --silent --show-error --retry 10 --retry-all-errors --retry-delay 1 \
+            -H "Authorization: Bearer $token" "$base/healthz"
+          [[ "$(curl --silent -o /dev/null -w '%{http_code}' "$base/settings")" == 401 ]]
+          curl --fail --silent --show-error -u "geko:$token" "$base/settings" >/dev/null
+          id=01000000000000000000000000000000
+          payload=$(sed "s/@TRACE_ID@/$id/g; s/@SERVICE@/docker-ci/g; s/@START@/1/g; s/@END@/2/g" examples/otlp-json/trace.json)
+          [[ "$(curl --silent -o /dev/null -w '%{http_code}' -H 'Content-Type: application/json' \
+            --data-binary "$payload" "$base/v1/traces")" == 401 ]]
+          curl --fail --silent --show-error -H "Authorization: Bearer $token" \
+            -H 'Content-Type: application/json' --data-binary "$payload" "$base/v1/traces" >/dev/null
+          curl --fail --silent --show-error -H "Authorization: Bearer $token" "$base/api/v1/traces/$id" >/dev/null

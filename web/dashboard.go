@@ -8,13 +8,19 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"maps"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
@@ -27,6 +33,12 @@ import (
 var files embed.FS
 
 type Reader interface {
+	VersionComparisons(context.Context, investigation.RegressionFilter) ([]investigation.VersionComparison, error)
+	CompareTrace(context.Context, telemetry.TraceID) (investigation.TraceSummary, *investigation.TraceSummary, error)
+	VisitTraceSpans(context.Context, telemetry.TraceID, func(investigation.Span) error) error
+	Traces(context.Context, investigation.FailureFilter) (investigation.Page[investigation.TraceSummary], error)
+	Revision() uint64
+	FailureGroups(context.Context, investigation.FailureFilter, *investigation.GroupCursor) (investigation.FailureGroups, error)
 	api.Reader
 	HasTraces(context.Context) (bool, error)
 	Overview(context.Context, time.Time) (investigation.Overview, error)
@@ -40,18 +52,22 @@ type Reader interface {
 }
 
 type Settings struct {
-	ConfigSource        config.Source
-	ListenAddr          string
-	DBPath              string
-	Version             string
-	ReceiverDiagnostics func() otlp.Diagnostics
-	RetentionDays       int
-	MaxDBBytes          int64
-	OnFull              storage.FullPolicy
-	Redaction           string
+	RestoreTrace            func(context.Context, io.Reader, func(context.Context, telemetry.TraceID) (bool, error)) (telemetry.TraceID, error)
+	Shutdown                <-chan struct{}
+	DashboardAddr, GRPCAddr string
+	ConfigSource            config.Source
+	ListenAddr              string
+	DBPath                  string
+	Version                 string
+	ReceiverDiagnostics     func() otlp.Diagnostics
+	RetentionDays           int
+	MaxDBBytes              int64
+	OnFull                  storage.FullPolicy
+	Redaction               string
 }
 
 type dashboard struct {
+	streams   chan struct{}
 	store     Reader
 	settings  Settings
 	templates *template.Template
@@ -65,7 +81,8 @@ type screen struct {
 
 func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	t, err := template.New("dashboard").Funcs(template.FuncMap{
-		"duration": formatDuration, "timestamp": formatTimestamp, "classification": classification,
+		"sourceLinks": sourceLinks,
+		"duration":    formatDuration, "timestamp": formatTimestamp, "classification": classification,
 		"size": formatSize, "evidenceLink": evidenceLink, "signal": signal,
 		"outcome": outcome, "outcomeClass": outcomeClass,
 		"serviceLabel": serviceLabel,
@@ -79,19 +96,28 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	if err != nil {
 		return fmt.Errorf("load dashboard templates: %w", err)
 	}
-	d := &dashboard{store: store, settings: settings, templates: t, slots: make(chan struct{}, 4)}
+	d := &dashboard{store: store, settings: settings, templates: t, slots: make(chan struct{}, 4), streams: make(chan struct{}, 16)}
+	mux.HandleFunc("GET /events/failures", d.local(d.failureEvents))
 	mux.HandleFunc("GET /{$}", d.local(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/failures", http.StatusSeeOther)
 	}))
 	mux.HandleFunc("GET /failures", d.local(d.failures))
 	mux.HandleFunc("GET /overview", d.local(d.overview))
-	mux.HandleFunc("GET /traces", d.local(d.findTrace))
+	mux.HandleFunc("GET /regressions", d.local(d.regressions))
+	mux.HandleFunc("GET /traces", d.local(func(w http.ResponseWriter, r *http.Request) {
+		d.traceList(w, r, true)
+	}))
 	mux.HandleFunc("GET /traces/{traceID}", d.local(d.trace))
+	mux.HandleFunc("GET /traces/{traceID}/compare", d.local(d.compareTrace))
+	mux.HandleFunc("GET /traces/{traceID}/otlp.json", d.local(d.downloadTrace))
 	mux.HandleFunc("GET /settings", d.local(d.status))
 	mux.HandleFunc("GET /applications", d.local(d.applications))
 	protect := http.NewCrossOriginProtection()
+	if settings.RestoreTrace != nil {
+		mux.Handle("POST /traces/import", protect.Handler(d.local(d.restoreTrace)))
+	}
 	mux.Handle("POST /applications", protect.Handler(d.local(d.changeApplications)))
-	for _, name := range []string{"dashboard.css", "dashboard.js", "geko.svg", "theme.js"} {
+	for _, name := range []string{"dashboard.css", "dashboard.js", "geko.svg", "theme.js", "live.js"} {
 		mux.HandleFunc("GET /assets/"+name, d.local(func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFileFS(w, r, files, "assets/"+name)
 		}))
@@ -104,8 +130,8 @@ func (d *dashboard) local(handler http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
-		if !api.LocalHost(r.Host) {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
+		if !api.LocalHost(r.Host) && !access.Authenticated(r.Context()) {
 			http.Error(w, "Dashboard requires a loopback Host", http.StatusForbidden)
 			return
 		}
@@ -154,32 +180,89 @@ func (d *dashboard) unavailable(w http.ResponseWriter, r *http.Request, ctx cont
 }
 
 type failureView struct {
-	Items                          []investigation.TraceSummary
-	Search, Service, Status, Range string
-	Refresh, First, Next           string
-	Filtered                       bool
-	HasTraces                      bool
-	Endpoint                       string
-	EvidenceService                string
-	Application                    string
-	Applications                   []string
+	CanRestore                        bool
+	AllTraces                         bool
+	Path, AllTracesURL, Reset         string
+	Groups                            []failureGroupView
+	GroupSummary                      *investigation.FailureGroup
+	Mode, Group, GroupsURL, TracesURL string
+	Live                              bool
+	Items                             []investigation.TraceSummary
+	Search, Service, Status, Range    string
+	Refresh, First, Next              string
+	Filtered                          bool
+	HasTraces                         bool
+	Endpoint                          string
+	EvidenceService                   string
+	Application                       string
+	Applications                      []string
 }
 
 func (d *dashboard) failures(w http.ResponseWriter, r *http.Request) {
+	d.traceList(w, r, false)
+}
+
+func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces bool) {
 	params, err := url.ParseQuery(r.URL.RawQuery)
 	if err != nil {
 		d.problem(w, r, http.StatusBadRequest, "Invalid filters", "Reset the filters and try again.")
 		return
 	}
+	path, pageName, title := "/failures", "failures", "Failures"
+	if allTraces {
+		if params.Has("trace_id") {
+			d.findTrace(w, r)
+			return
+		}
+		path, pageName, title = "/traces", "traces", "All traces"
+		if params.Get("view") != "" || params.Get("group") != "" || params.Get("group_cursor") != "" {
+			d.problem(w, r, http.StatusBadRequest, "Invalid trace filters", "Open error groups from the Failures page.")
+			return
+		}
+	}
 	view := failureView{
+		CanRestore: allTraces && d.settings.RestoreTrace != nil,
+		AllTraces:  allTraces, Path: path, Reset: path,
+		Mode: params.Get("view"), Group: params.Get("group"),
 		Search: params.Get("q"), Service: params.Get("service"), Status: params.Get("status"), Range: params.Get("range"),
 		EvidenceService: params.Get("evidence_service"),
 		Application:     params.Get("application"),
 	}
+	if view.Mode != "" && view.Mode != "groups" {
+		d.problem(w, r, http.StatusBadRequest, "Invalid view", "Choose traces or error groups.")
+		return
+	}
+	if view.Mode == "groups" && params.Get("cursor") != "" {
+		d.problem(w, r, http.StatusBadRequest, "Invalid cursor", "Reset group pagination.")
+		return
+	}
+	groupAfter, err := investigation.DecodeGroupCursor(params.Get("group_cursor"))
+	if err != nil {
+		d.problem(w, r, http.StatusBadRequest, "Invalid cursor", err.Error())
+		return
+	}
+	if view.Mode != "groups" && groupAfter != nil {
+		d.problem(w, r, http.StatusBadRequest, "Invalid cursor", "Reset trace pagination.")
+		return
+	}
+	toggle := maps.Clone(params)
+	toggle.Del("cursor")
+	toggle.Del("group_cursor")
+	toggle.Del("group")
+	toggle.Del("view")
+	view.TracesURL = route("/failures", toggle)
+	view.AllTracesURL = route("/traces", toggle)
+	toggle.Set("view", "groups")
+	view.GroupsURL = route("/failures", toggle)
+	view.Live = params.Get("cursor") == "" && groupAfter == nil
 	params.Del("limit")
 	refresh := maps.Clone(params)
 	refresh.Del("cursor")
-	view.Refresh = route("/failures", refresh)
+	refresh.Del("group_cursor")
+	view.Refresh = route(path, refresh)
+	if view.Mode == "groups" {
+		view.Reset = "/failures?view=groups"
+	}
 	if view.Range != "" {
 		period, ok := map[string]time.Duration{"1h": time.Hour, "24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour}[view.Range]
 		if !ok {
@@ -196,7 +279,7 @@ func (d *dashboard) failures(w http.ResponseWriter, r *http.Request) {
 		d.problem(w, r, http.StatusBadRequest, "Invalid filters", err.Error())
 		return
 	}
-	view.Filtered = filter.Application != nil || filter.Search != "" || filter.Service != "" || filter.EvidenceService != "" || filter.HTTPStatus != 0 || filter.From != nil || filter.To != nil
+	view.Filtered = filter.GroupKey != "" || filter.Application != nil || filter.Search != "" || filter.Service != "" || filter.EvidenceService != "" || filter.HTTPStatus != 0 || filter.From != nil || filter.To != nil
 	d.withQuery(w, r, func(ctx context.Context) {
 		applications, err := d.store.ApplicationNames(ctx)
 		if err != nil {
@@ -207,30 +290,68 @@ func (d *dashboard) failures(w http.ResponseWriter, r *http.Request) {
 		if filter.Application != nil && *filter.Application != "" && !slices.Contains(applications, *filter.Application) {
 			view.Applications = append(view.Applications, *filter.Application)
 		}
-		page, err := d.store.Failures(ctx, filter)
+		var page investigation.Page[investigation.TraceSummary]
+		if view.Mode == "groups" {
+			groups, groupErr := d.store.FailureGroups(ctx, filter, groupAfter)
+			if groupErr != nil {
+				d.unavailable(w, r, ctx)
+				return
+			}
+			for _, group := range groups.Items {
+				links := maps.Clone(params)
+				links.Del("view")
+				links.Del("group_cursor")
+				links.Del("limit")
+				links.Set("group", investigation.EncodeGroupKey(group.Key))
+				view.Groups = append(view.Groups, failureGroupView{group, route("/failures", links)})
+			}
+			links := maps.Clone(params)
+			links.Del("group_cursor")
+			links.Del("limit")
+			if groupAfter != nil {
+				view.First = route("/failures", links)
+			}
+			if groups.Next != nil {
+				links.Set("group_cursor", investigation.EncodeGroupCursor(groups.Next))
+				view.Next = route("/failures", links)
+			}
+		} else if allTraces {
+			page, err = d.store.Traces(ctx, filter)
+		} else {
+			page, err = d.store.Failures(ctx, filter)
+			if err == nil && filter.GroupKey != "" && len(page.Items) > 0 {
+				summaryFilter := filter
+				summaryFilter.After, summaryFilter.Limit = nil, 1
+				var groups investigation.FailureGroups
+				groups, err = d.store.FailureGroups(ctx, summaryFilter, nil)
+				if err == nil && len(groups.Items) > 0 {
+					view.GroupSummary = &groups.Items[0]
+				}
+			}
+		}
 		if err != nil {
 			d.unavailable(w, r, ctx)
 			return
 		}
 		view.Items = page.Items
-		if len(view.Items) == 0 {
+		if len(view.Items) == 0 && len(view.Groups) == 0 {
 			view.HasTraces, err = d.store.HasTraces(ctx)
 			if err != nil {
 				d.unavailable(w, r, ctx)
 				return
 			}
-			view.Endpoint = "http://" + d.settings.ListenAddr + "/v1/traces"
+			view.Endpoint = traceEndpoint(d.settings.ListenAddr, r.Host)
 		}
 		params.Del("limit")
 		if filter.After != nil {
 			params.Del("cursor")
-			view.First = route("/failures", params)
+			view.First = route(path, params)
 		}
 		if page.Next != nil {
 			params.Set("cursor", api.EncodeCursor(page.Next))
-			view.Next = route("/failures", params)
+			view.Next = route(path, params)
 		}
-		d.render(w, http.StatusOK, "failures", "Failures", view)
+		d.render(w, http.StatusOK, pageName, title, view)
 	})
 }
 
@@ -268,10 +389,28 @@ func (d *dashboard) status(w http.ResponseWriter, r *http.Request) {
 		}
 		d.render(w, http.StatusOK, "settings", "Settings", struct {
 			Settings
-			Storage  storage.Status
-			Receiver *otlp.Diagnostics
-		}{d.settings, status, receiver})
+			Storage       storage.Status
+			Receiver      *otlp.Diagnostics
+			TraceEndpoint string
+		}{d.settings, status, receiver, traceEndpoint(d.settings.ListenAddr, r.Host)})
 	})
+}
+
+// traceEndpoint returns a URL exporters can use. A wildcard listener such as
+// 0.0.0.0 or [::] is reached through the host name the dashboard was opened with.
+func traceEndpoint(listenAddr, requestHost string) string {
+	address, err := netip.ParseAddrPort(listenAddr)
+	if err != nil || !address.Addr().IsUnspecified() {
+		return "http://" + listenAddr + "/v1/traces"
+	}
+	host := requestHost
+	if name, _, err := net.SplitHostPort(requestHost); err == nil {
+		host = name
+	}
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(int(address.Port()))) + "/v1/traces"
 }
 
 func route(path string, params url.Values) string {

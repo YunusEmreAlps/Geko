@@ -10,8 +10,7 @@ import (
 
 // Overview uses evidence only as a fallback when no unique root exists.
 // Unlike a trace detail, it does not need both spans for the same trace.
-const overviewJoins = traceSummaryJoinStart + evidenceForTrace +
-	" AND r.span_id IS NULL ORDER BY " + evidenceOrder + traceSummaryEnd
+const overviewJoins = traceSummaryJoinStart + "CASE WHEN r.span_id IS NULL THEN t.evidence_span_id END" + traceSummaryEnd
 
 func (s *Store) Overview(ctx context.Context, since time.Time) (investigation.Overview, error) {
 	var result investigation.Overview

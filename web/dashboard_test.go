@@ -56,7 +56,7 @@ func TestDashboardInvestigation(t *testing.T) {
 	get("/assets/dashboard.css", http.StatusOK, ".waterfall")
 	get("/assets/dashboard.js", http.StatusOK, "clipboard.writeText")
 	get("/assets/theme.js", http.StatusOK, "geko.theme")
-	get("/settings", http.StatusOK, "schema 6", "SQLite sidecars", "127.0.0.1:4318", configPath,
+	get("/settings", http.StatusOK, "schema 8", "SQLite sidecars", "127.0.0.1:4318", configPath,
 		"Set by <code>GEKO_DB_PATH</code>", ">yaml</span>", ">default</span>", "Traces evicted at capacity")
 
 	start := time.Now().UTC().Add(-time.Minute)
@@ -68,6 +68,10 @@ func TestDashboardInvestigation(t *testing.T) {
 		t.Fatal(err)
 	}
 	get("/failures", http.StatusOK, "No failure evidence found")
+	get("/traces", http.StatusOK, "All traces", "GET /health", "HTTP 200", "None recorded")
+	get("/traces?service=healthy&status=200", http.StatusOK, "GET /health")
+	get("/traces?q=missing", http.StatusOK, "No matching traces")
+	get("/traces?trace_id=", http.StatusBadRequest, "Invalid trace ID")
 	successID := "02" + strings.Repeat("0", 30)
 	lookup := httptest.NewRecorder()
 	mux.ServeHTTP(lookup, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/traces?trace_id="+successID, nil))
@@ -111,7 +115,7 @@ func TestDashboardInvestigation(t *testing.T) {
 	evidence.EndTime = evidence.StartTime.Add(-time.Millisecond)
 	evidence.Events = []telemetry.Event{{
 		Name: "exception", Time: evidence.StartTime,
-		Attributes: telemetry.Attributes{"exception.message": "<script>alert(1)</script>", "exception.stacktrace": "payments.go:12"},
+		Attributes: telemetry.Attributes{"exception.message": "<script>alert(1)</script>", "exception.stacktrace": "/app/payments.go:12"},
 	}}
 	if err := store.WriteSpans(t.Context(), time.Now(), spans); err != nil {
 		t.Fatal(err)
@@ -132,7 +136,20 @@ func TestDashboardInvestigation(t *testing.T) {
 	anchor := hex.EncodeToString(spans[9].ID[:])
 	get(tracePath, http.StatusOK, "Next spans", "checkout span", "reserve stock", path+"#span-details", "evidence_after="+anchor, "Partial map")
 	get(tracePath+"?evidence_after="+anchor, http.StatusOK, "First evidence", "status evidence")
-	get(path, http.StatusOK, "Span waterfall", "Span details", "aria-current=\"true\"", "payments.go:12", "Unavailable", "First spans")
+	get(path, http.StatusOK, "Span waterfall", "Span details", "aria-current=\"true\"", "payments.go:12", "Unavailable", "First spans", "Open source in VS Code", "vscode://file/app/payments.go:12")
 	get(tracePath+"?span=0909090909090909", http.StatusOK, "Span unavailable")
 	get("/traces/"+strings.Repeat("a", 32), http.StatusNotFound, "Trace not found")
+}
+
+func TestTraceEndpointForWildcardListeners(t *testing.T) {
+	for _, tc := range []struct{ listen, host, want string }{
+		{"127.0.0.1:4318", "127.0.0.1:4318", "http://127.0.0.1:4318/v1/traces"},
+		{"0.0.0.0:4318", "geko.internal:8080", "http://geko.internal:4318/v1/traces"},
+		{"[::]:4318", "[2001:db8::1]:8080", "http://[2001:db8::1]:4318/v1/traces"},
+		{"[::]:4318", "", "http://127.0.0.1:4318/v1/traces"},
+	} {
+		if got := traceEndpoint(tc.listen, tc.host); got != tc.want {
+			t.Errorf("traceEndpoint(%q, %q) = %q, want %q", tc.listen, tc.host, got, tc.want)
+		}
+	}
 }

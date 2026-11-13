@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
@@ -113,7 +114,7 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
-	if !api.LocalHost(r.Host) {
+	if !api.LocalHost(r.Host) && !access.Authenticated(r.Context()) {
 		h.reject(forbiddenHost)
 		fail(w, http.StatusForbidden, codes.PermissionDenied, "trace receiver requires a loopback Host")
 		return
@@ -167,29 +168,51 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, codes.InvalidArgument, "invalid OTLP trace payload")
 		return
 	}
-	spans, rejected, err := normalize(&req, h.strict)
+	response, err := h.export(r.Context(), &req)
 	switch {
 	case errors.Is(err, errBatchLimit):
-		h.reject(limitExceeded)
 		fail(w, http.StatusRequestEntityTooLarge, codes.ResourceExhausted, err.Error())
-		return
+	case errors.Is(err, storage.ErrCapacity):
+		unavailable(w, "trace storage capacity reached", "30")
+	case errors.Is(err, errStorage):
+		unavailable(w, "trace storage unavailable", "1")
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		unavailable(w, "export cancelled by the client", "1")
 	case err != nil:
-		h.reject(invalidPayload)
 		fail(w, http.StatusBadRequest, codes.InvalidArgument, err.Error())
-		return
+	default:
+		respond(w, http.StatusOK, response)
 	}
+}
 
+var errStorage = errors.New("trace storage unavailable")
+
+// export shares normalization, persistence and diagnostics across transports.
+// Callers hold one admission slot through decoding and persistence.
+func (h *Receiver) export(ctx context.Context, req *collector.ExportTraceServiceRequest) (*collector.ExportTraceServiceResponse, error) {
+	spans, rejected, err := normalize(req, h.strict)
+	if err != nil {
+		if errors.Is(err, errBatchLimit) {
+			h.reject(limitExceeded)
+		} else {
+			h.reject(invalidPayload)
+		}
+		return nil, err
+	}
 	if len(spans) != 0 {
-		ctx, cancel := context.WithTimeout(r.Context(), writeTimeout)
+		client := ctx
+		ctx, cancel := context.WithTimeout(ctx, writeTimeout)
 		defer cancel()
 		if err := h.store.WriteSpans(ctx, time.Now(), spans); err != nil {
 			if errors.Is(err, storage.ErrCapacity) {
-				unavailable(w, "trace storage capacity reached", "30")
-				return
+				return nil, err
+			}
+			// An exporter that disconnects or gives up is not a storage failure.
+			if clientErr := client.Err(); clientErr != nil {
+				return nil, clientErr
 			}
 			h.reject(storageUnavailable)
-			unavailable(w, "trace storage unavailable", "1")
-			return
+			return nil, errors.Join(errStorage, err)
 		}
 		h.mu.Lock()
 		h.accepted++
@@ -200,11 +223,10 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	response := &collector.ExportTraceServiceResponse{}
 	if rejected > 0 {
 		response.PartialSuccess = &collector.ExportTracePartialSuccess{
-			RejectedSpans: rejected,
-			ErrorMessage:  "invalid span fields or per-span limits",
+			RejectedSpans: rejected, ErrorMessage: "invalid span fields or per-span limits",
 		}
 	}
-	respond(w, http.StatusOK, response)
+	return response, nil
 }
 
 func readPayload(w http.ResponseWriter, r *http.Request, encoding string) ([]byte, error) {

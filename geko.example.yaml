@@ -1,5 +1,12 @@
-# Geko accepts a loopback IP and a nonzero TCP port.
+# Use a loopback IP and a nonzero TCP port. For non-loopback listeners,
+# set GEKO_ACCESS_TOKEN in the environment.
 listen_addr: "127.0.0.1:4318"
+
+# Optional separate dashboard and query API listener. Empty shares listen_addr.
+# dashboard_addr: "127.0.0.1:8081"
+
+# Optional OTLP/gRPC receiver. Empty disables gRPC; no new port opens by default.
+# grpc_addr: "127.0.0.1:4317"
 
 # Uncomment to override the default database in your user configuration directory.
 # A relative path is resolved from this file's directory.

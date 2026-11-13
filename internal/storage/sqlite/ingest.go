@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
@@ -30,14 +29,28 @@ INSERT INTO spans (
 ON CONFLICT (trace_id, span_id) DO NOTHING
 `
 
-// WriteSpans stores a batch of normalized spans in a single transaction.
-func (s *Store) WriteSpans(ctx context.Context, observed time.Time, spans []telemetry.Span) error {
-	if len(spans) == 0 {
-		return nil
-	}
+// The namespace comes from the stored span so it matches its generated column.
+const projectServices = `
+INSERT INTO trace_services (trace_id, namespace, service_name, span_count)
+SELECT trace_id, service_namespace, service_name, ? FROM spans WHERE trace_id = ? AND span_id = ?
+ON CONFLICT (trace_id, namespace, service_name) DO UPDATE SET span_count = span_count + excluded.span_count
+`
+
+type serviceProjection struct {
+	trace     telemetry.TraceID
+	namespace string
+	service   string
+}
+
+type projectedSpans struct {
+	sample telemetry.SpanID
+	count  int
+}
+
+func (s *Store) writeExport(ctx context.Context, observedNS int64, spans []telemetry.Span) error {
 	err := s.checkJournalCapacity(ctx)
 	if err == nil {
-		err = s.writeSpans(ctx, observed.UnixNano(), spans)
+		err = s.writeSpans(ctx, observedNS, spans)
 	}
 	if errors.Is(err, storage.ErrCapacity) {
 		_, countErr := s.db.ExecContext(ctx, "UPDATE storage_counters SET rejected_exports = rejected_exports + 1 WHERE id = 1")
@@ -45,7 +58,7 @@ func (s *Store) WriteSpans(ctx context.Context, observed time.Time, spans []tele
 			return errors.Join(err, fmt.Errorf("record rejected export: %w", countErr))
 		}
 	}
-	return err
+	return s.changed(err)
 }
 
 func (s *Store) writeSpans(ctx context.Context, observedNS int64, spans []telemetry.Span) error {
@@ -118,8 +131,14 @@ func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []
 		return fmt.Errorf("prepare span write: %w", err)
 	}
 	defer spanStmt.Close()
+	projectStmt, err := tx.PrepareContext(ctx, projectServices)
+	if err != nil {
+		return fmt.Errorf("prepare trace service write: %w", err)
+	}
+	defer projectStmt.Close()
 
 	seen := make(map[telemetry.TraceID]struct{})
+	services := make(map[serviceProjection]projectedSpans)
 	for _, span := range spans {
 		if _, ok := seen[span.TraceID]; !ok {
 			if _, err := traceStmt.ExecContext(ctx, span.TraceID[:], observedNS, observedNS); err != nil {
@@ -136,13 +155,31 @@ func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []
 		if span.ParentID != (telemetry.SpanID{}) {
 			parent = span.ParentID[:]
 		}
-		_, err = spanStmt.ExecContext(ctx,
+		result, err := spanStmt.ExecContext(ctx,
 			span.TraceID[:], span.ID[:], parent, span.ServiceName, span.Name, span.Kind,
 			span.StartTime.UnixNano(), span.EndTime.UnixNano(), span.StatusCode, span.StatusDescription,
 			fields[0], span.Scope.Name, span.Scope.Version, fields[1], fields[2], fields[3],
 		)
 		if err != nil {
 			return fmt.Errorf("insert span: %w", writeError(err))
+		}
+		// A retransmitted span is ignored and must not be counted again.
+		if inserted, err := result.RowsAffected(); err != nil {
+			return fmt.Errorf("insert span: %w", err)
+		} else if inserted == 1 {
+			namespace, _ := span.ResourceAttributes["service.namespace"].(string)
+			key := serviceProjection{span.TraceID, namespace, span.ServiceName}
+			projection, ok := services[key]
+			if !ok {
+				projection.sample = span.ID
+			}
+			projection.count++
+			services[key] = projection
+		}
+	}
+	for key, projection := range services {
+		if _, err := projectStmt.ExecContext(ctx, projection.count, key.trace[:], projection.sample[:]); err != nil {
+			return fmt.Errorf("update trace services: %w", writeError(err))
 		}
 	}
 	return nil

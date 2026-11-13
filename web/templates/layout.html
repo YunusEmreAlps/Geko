@@ -8,6 +8,7 @@
   <script src="/assets/theme.js"></script>
   <link rel="stylesheet" href="/assets/dashboard.css">
   <script defer src="/assets/dashboard.js"></script>
+  {{if or (eq .Page "failures") (eq .Page "traces")}}<script defer src="/assets/live.js"></script>{{end}}
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
@@ -20,15 +21,18 @@
       <span class="nav-label">Workspace</span>
       <a href="/overview"{{if eq .Page "overview"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="12" y="3" width="5" height="5" rx="1"/><rect x="3" y="12" width="5" height="5" rx="1"/><rect x="12" y="12" width="5" height="5" rx="1"/></svg>Overview</a>
       <a href="/failures"{{if or (eq .Page "failures") (eq .Page "trace")}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h4l2-6 4 12 2-6h4"/></svg>Failures</a>
+      <a href="/traces"{{if eq .Page "traces"}} aria-current="page"{{end}}>All traces</a>
       <a href="/settings"{{if eq .Page "settings"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3v14M10 3v14M16 3v14"/><path d="M2 7h4M8 13h4M14 6h4" stroke-width="3"/></svg>Settings</a>
     </nav>
     <div class="sidebar-foot"><span class="local-dot"></span> Local instance</div>
   </aside>
   <main id="main" tabindex="-1">
     <p class="loading" role="status" hidden>Loading telemetry…</p>
-    {{if eq .Page "failures"}}{{template "failures" .Data}}
+    {{if or (eq .Page "failures") (eq .Page "traces")}}{{template "failures" .Data}}
     {{else if eq .Page "overview"}}{{template "overview" .Data}}
+    {{else if eq .Page "regressions"}}{{template "regressions" .Data}}
     {{else if eq .Page "trace"}}{{template "trace" .Data}}
+    {{else if eq .Page "compare"}}{{template "compare" .Data}}
     {{else if eq .Page "settings"}}{{template "settings" .Data}}
     {{else if eq .Page "applications"}}{{template "applications" .Data}}
     {{else}}{{template "error" .Data}}{{end}}

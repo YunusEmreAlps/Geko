@@ -19,7 +19,7 @@ import (
 // One unique, observed root server span can describe the request. The selected
 // evidence span is independently chosen by rank, recorded start and span ID.
 const traceSummaryQuery = traceSummarySelect + traceSummaryJoins
-const traceSummaryJoins = traceSummaryJoinStart + evidenceForTrace + " ORDER BY " + evidenceOrder + traceSummaryEnd
+const traceSummaryJoins = traceSummaryJoinStart + "t.evidence_span_id" + traceSummaryEnd
 const rootApplication = "coalesce(nullif(r.service_namespace, ''), ta.application, ra.application, '')"
 const evidenceApplication = "coalesce(nullif(s.service_namespace, ''), ta.application, sa.application, '')"
 const rootOrEvidenceApplication = "CASE WHEN r.span_id IS NOT NULL THEN " + rootApplication + " ELSE " + evidenceApplication + " END"
@@ -35,23 +35,15 @@ SELECT t.trace_id, t.first_observed_ns, t.last_observed_ns,
 
 const traceSummaryJoinStart = `
 FROM traces t
-LEFT JOIN spans r ON r.trace_id = t.trace_id AND r.span_id = (
-    SELECT CASE WHEN count(*) = 1 THEN min(root.span_id) END
-    FROM spans root
-    WHERE root.trace_id = t.trace_id AND root.kind = 2 AND root.parent_span_id IS NULL
-)
+LEFT JOIN spans r ON r.trace_id = t.trace_id AND r.span_id = t.entry_span_id
 LEFT JOIN trace_applications ta ON ta.trace_id = t.trace_id
 LEFT JOIN service_applications ra ON ra.service_name = r.service_name
-LEFT JOIN span_evidence e ON e.trace_id = t.trace_id AND e.span_id = (
-    SELECT candidate.span_id FROM span_evidence candidate
-`
+LEFT JOIN span_evidence e ON e.trace_id = t.trace_id AND e.span_id = `
 
 const evidenceSourceJoin = " JOIN grouped_spans source ON source.trace_id = candidate.trace_id AND source.span_id = candidate.span_id "
 const evidenceForTrace = " WHERE candidate.trace_id = t.trace_id"
 const evidenceOrder = "candidate.rank, candidate.start_ns, candidate.span_id"
 const traceSummaryEnd = `
-    LIMIT 1
-)
 LEFT JOIN spans s ON s.trace_id = e.trace_id AND s.span_id = e.span_id
 LEFT JOIN service_applications sa ON sa.service_name = s.service_name
 `
@@ -64,10 +56,51 @@ func (s *Store) HasTraces(ctx context.Context) (bool, error) {
 }
 
 func (s *Store) Failures(ctx context.Context, f investigation.FailureFilter) (investigation.Page[investigation.TraceSummary], error) {
+	return s.traceList(ctx, f, true)
+}
+
+func (s *Store) Traces(ctx context.Context, f investigation.FailureFilter) (investigation.Page[investigation.TraceSummary], error) {
+	return s.traceList(ctx, f, false)
+}
+
+func (s *Store) traceList(ctx context.Context, f investigation.FailureFilter, failuresOnly bool) (investigation.Page[investigation.TraceSummary], error) {
 	page := investigation.Page[investigation.TraceSummary]{Items: []investigation.TraceSummary{}}
 	if f.Limit < 1 || f.Limit > investigation.MaxPageSize {
-		return page, errors.New("invalid failure page size")
+		return page, errors.New("invalid trace page size")
 	}
+	base, args := traceListQuery(f, failuresOnly)
+	var query strings.Builder
+	query.WriteString(traceSummarySelect + base)
+	if f.After != nil {
+		query.WriteString(" AND (t.last_observed_ns, t.trace_id) < (?, ?)")
+		args = append(args, f.After.TimeNS, f.After.ID)
+	}
+	query.WriteString(" ORDER BY t.last_observed_ns DESC, t.trace_id DESC LIMIT ?")
+	args = append(args, f.Limit+1)
+
+	rows, err := s.read.QueryContext(ctx, query.String(), args...)
+	if err != nil {
+		return page, fmt.Errorf("query traces: %w", err)
+	}
+	defer rows.Close()
+	var last investigation.Cursor
+	for rows.Next() {
+		if len(page.Items) == f.Limit {
+			page.Next = &last
+			break
+		}
+		summary, cursor, err := scanTraceSummary(rows)
+		if err != nil {
+			return page, fmt.Errorf("read trace: %w", err)
+		}
+		last = cursor
+		page.Items = append(page.Items, summary)
+	}
+	return page, rows.Err()
+}
+
+// traceListQuery shares filter semantics across trace and group views.
+func traceListQuery(f investigation.FailureFilter, failuresOnly bool) (string, []any) {
 	var query strings.Builder
 	var args []any
 	var searchText any
@@ -78,54 +111,55 @@ func (s *Store) Failures(ctx context.Context, f investigation.FailureFilter) (in
 		}
 		messageHash = privacy.ExceptionMessageHash(f.Search)
 	}
-	query.WriteString(traceSummarySelect + traceSummaryJoinStart)
-	if f.EvidenceService != "" || f.Search != "" {
-		query.WriteString(evidenceSourceJoin)
-	}
-	query.WriteString(evidenceForTrace)
-	if f.EvidenceService != "" {
-		query.WriteString(" AND source.service_name = ?")
-		args = append(args, f.EvidenceService)
-		if f.Application != nil {
-			query.WriteString(" AND source.application = ?")
-			args = append(args, *f.Application)
+	query.WriteString(traceSummaryJoinStart)
+	if f.EvidenceService == "" && f.Search == "" {
+		query.WriteString("t.evidence_span_id")
+	} else {
+		query.WriteString("(SELECT candidate.span_id FROM span_evidence candidate" + evidenceSourceJoin)
+		query.WriteString(evidenceForTrace)
+		if f.EvidenceService != "" {
+			query.WriteString(" AND source.service_name = ?")
+			args = append(args, f.EvidenceService)
+			if f.Application != nil {
+				query.WriteString(" AND source.application = ?")
+				args = append(args, *f.Application)
+			}
 		}
-	}
-	query.WriteString(" ORDER BY ")
-	if f.Search != "" {
-		// Select a matching evidence span ahead of the normal ranking so links
-		// from search results open the evidence that the user actually found.
-		query.WriteString(`(instr(lower(source.name), lower(?)) > 0 OR
+		query.WriteString(" ORDER BY ")
+		if f.Search != "" {
+			// Select a matching evidence span ahead of the normal ranking so links
+			// from search results open the evidence that the user actually found.
+			query.WriteString(`(instr(lower(source.name), lower(?)) > 0 OR
             instr(lower(source.service_name), lower(?)) > 0 OR
             instr(lower(candidate.exception_message), lower(?)) > 0 OR
             instr(lower(candidate.exception_type), lower(?)) > 0 OR
             candidate.exception_hash IN (lower(?), ?)) IS TRUE DESC, `)
-		args = append(args, searchText, searchText, searchText, searchText, searchText, messageHash)
+			args = append(args, searchText, searchText, searchText, searchText, searchText, messageHash)
+		}
+		query.WriteString(evidenceOrder + " LIMIT 1)")
 	}
-	query.WriteString(evidenceOrder + traceSummaryEnd + " WHERE t.has_evidence = 1")
+	query.WriteString(traceSummaryEnd)
+	if f.Service != "" {
+		query.WriteString(` LEFT JOIN spans primary_span ON primary_span.trace_id = t.trace_id AND primary_span.span_id = t.evidence_span_id
+  LEFT JOIN service_applications pa ON pa.service_name = primary_span.service_name`)
+	}
+	query.WriteString(" WHERE 1 = 1")
+	if failuresOnly {
+		query.WriteString(" AND t.has_evidence = 1")
+	}
 	if f.Application != nil {
-		query.WriteString(" AND EXISTS (SELECT 1 FROM grouped_spans member WHERE member.trace_id = t.trace_id AND member.application = ?)")
+		query.WriteString(" AND EXISTS (SELECT 1 FROM trace_services member LEFT JOIN service_applications ma ON ma.service_name = member.service_name WHERE member.trace_id = t.trace_id AND coalesce(nullif(member.namespace, ''), ta.application, ma.application, '') = ?)")
 		args = append(args, *f.Application)
 	}
 	if f.EvidenceService != "" {
 		query.WriteString(" AND e.span_id IS NOT NULL")
 	}
 	if f.Service != "" {
-		// Keep the documented entry/primary evidence service semantics.
-		query.WriteString(` AND coalesce(r.service_name, (
-            SELECT primary_span.service_name FROM span_evidence candidate
-            JOIN spans primary_span ON primary_span.trace_id = candidate.trace_id AND primary_span.span_id = candidate.span_id
-            WHERE candidate.trace_id = t.trace_id
-            ORDER BY ` + evidenceOrder + ` LIMIT 1
-        )) = ?`)
+		query.WriteString(` AND coalesce(r.service_name, primary_span.service_name) = ?`)
 		args = append(args, f.Service)
 		if f.Application != nil {
-			query.WriteString(` AND coalesce(CASE WHEN r.span_id IS NOT NULL THEN ` + rootApplication + ` END, (
-                SELECT primary_span.application FROM span_evidence candidate
-                JOIN grouped_spans primary_span ON primary_span.trace_id = candidate.trace_id AND primary_span.span_id = candidate.span_id
-                WHERE candidate.trace_id = t.trace_id
-                ORDER BY ` + evidenceOrder + ` LIMIT 1
-            )) = ?`)
+			query.WriteString(` AND CASE WHEN r.span_id IS NOT NULL THEN ` + rootApplication + `
+                ELSE coalesce(nullif(primary_span.service_namespace, ''), ta.application, pa.application, '') END = ?`)
 			args = append(args, *f.Application)
 		}
 	}
@@ -153,32 +187,11 @@ func (s *Store) Failures(ctx context.Context, f investigation.FailureFilter) (in
             e.exception_hash IN (lower(?), ?))`)
 		args = append(args, searchText, searchText, searchText, searchText, searchText, searchText, searchText, searchText, messageHash)
 	}
-	if f.After != nil {
-		query.WriteString(" AND (t.last_observed_ns, t.trace_id) < (?, ?)")
-		args = append(args, f.After.TimeNS, f.After.ID)
+	if f.GroupKey != "" {
+		query.WriteString(" AND " + failureGroupKey + " = ?")
+		args = append(args, f.GroupKey)
 	}
-	query.WriteString(" ORDER BY t.last_observed_ns DESC, t.trace_id DESC LIMIT ?")
-	args = append(args, f.Limit+1)
-
-	rows, err := s.read.QueryContext(ctx, query.String(), args...)
-	if err != nil {
-		return page, fmt.Errorf("query failures: %w", err)
-	}
-	defer rows.Close()
-	var last investigation.Cursor
-	for rows.Next() {
-		if len(page.Items) == f.Limit {
-			page.Next = &last
-			break
-		}
-		summary, cursor, err := scanTraceSummary(rows)
-		if err != nil {
-			return page, fmt.Errorf("read failure: %w", err)
-		}
-		last = cursor
-		page.Items = append(page.Items, summary)
-	}
-	return page, rows.Err()
+	return query.String(), args
 }
 
 func (s *Store) Trace(ctx context.Context, id telemetry.TraceID, after *investigation.Cursor, limit int) (investigation.TraceSummary, investigation.Page[investigation.Span], error) {
@@ -231,6 +244,33 @@ const spanSelect = `SELECT span_id, service_name, name, http_status, start_ns, e
         parent_span_id, kind, status_code, status_description,
         resource_attributes, scope_name, scope_version, scope_attributes, attributes, events
         FROM grouped_spans WHERE trace_id = ?`
+
+// VisitTraceSpans reads a single snapshot without retaining the entire trace in memory.
+func (s *Store) VisitTraceSpans(ctx context.Context, id telemetry.TraceID, visit func(investigation.Span) error) error {
+	rows, err := s.read.QueryContext(ctx, spanSelect+" ORDER BY start_ns, span_id", id[:])
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		span, _, err := scanSpan(rows)
+		if err != nil {
+			return err
+		}
+		found = true
+		if err := visit(span); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !found {
+		return investigation.ErrTraceNotFound
+	}
+	return nil
+}
 
 // TraceEvidence returns a page of evidence spans independently of the waterfall.
 // The next anchor is the last displayed span ID in evidence order.

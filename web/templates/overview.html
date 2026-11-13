@@ -1,7 +1,7 @@
 {{define "overview"}}
 <header class="page-head">
   <div><h1>Overview</h1><p>Observed failure evidence across local traces in the last 24 hours.</p></div>
-  <a class="button" href="/failures?range=24h">Browse failures <span aria-hidden="true">→</span></a>
+  <div class="actions"><a class="button" href="/regressions">Compare versions</a><a class="button" href="/failures?range=24h">Browse failures <span aria-hidden="true">→</span></a></div>
 </header>
 <dl class="metrics">
   <div><dt>Traces with evidence</dt><dd>{{.TraceCount}}</dd></div>

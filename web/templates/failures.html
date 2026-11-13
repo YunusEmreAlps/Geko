@@ -1,9 +1,20 @@
 {{define "failures"}}
 <header class="page-head">
-  <div><h1>Failures</h1><p>Find traces with recorded errors. A request can succeed even when one of its spans records an error.</p></div>
+  {{if .AllTraces}}<div><h1>All traces</h1><p>Browse recorded requests in order of most recent receipt.</p></div>
+  {{else}}<div><h1>Failures</h1><p>Find traces with recorded errors. A request can succeed even when one of its spans records an error.</p></div>{{end}}
   <div class="actions"><a class="button" href="/applications">Manage applications</a><a class="button" href="{{.Refresh}}" data-loading>Refresh list</a></div>
 </header>
-<form class="filters" action="/failures" method="get" data-loading>
+<nav class="actions failure-views" aria-label="Failure view">
+  <a class="button" href="{{.AllTracesURL}}"{{if .AllTraces}} aria-current="page"{{end}}>All traces</a>
+  <a class="button" href="{{.TracesURL}}"{{if and (not .AllTraces) (ne .Mode "groups")}} aria-current="page"{{end}}>Failures</a>
+  <a class="button" href="{{.GroupsURL}}"{{if eq .Mode "groups"}} aria-current="page"{{end}}>Error groups</a>
+  {{if .Live}}<button class="button" type="button" data-live-toggle hidden>Pause live updates</button><span class="subtle" role="status" data-live-status></span><button class="button" type="button" data-live-refresh hidden>Refresh results</button>{{else}}<span class="subtle">Live updates are available on the first page.</span>{{end}}
+</nav>
+{{if eq .Mode "groups"}}<p class="subtle group-explainer">Recurring failures by service, environment and operation. Each trace contributes its primary evidence once. Select a group to inspect its traces.</p>{{end}}
+{{if .Group}}<p class="subtle">Showing traces in the selected error group. <a href="{{.GroupsURL}}">Back to groups</a></p>{{end}}
+<form class="filters" action="{{.Path}}" method="get" data-loading>
+  {{if .Mode}}<input type="hidden" name="view" value="{{.Mode}}">{{end}}
+  {{if .Group}}<input type="hidden" name="group" value="{{.Group}}">{{end}}
   <label>Search <input name="q" value="{{.Search}}" maxlength="4096" placeholder="Trace ID or exception"></label>
   <label>Application
     <select name="application">
@@ -23,13 +34,34 @@
       <option value="7d"{{if eq .Range "7d"}} selected{{end}}>Last 7 days</option>
     </select>
   </label>
-  <div class="actions"><button class="button primary" type="submit">Apply</button>{{if .Filtered}}<a href="/failures">Reset</a>{{end}}</div>
+  <div class="actions"><button class="button primary" type="submit">Apply</button>{{if .Filtered}}<a href="{{.Reset}}">Reset</a>{{end}}</div>
 </form>
 <form class="trace-lookup actions" action="/traces" method="get" data-loading>
   <label>Trace ID <input name="trace_id" required maxlength="32" pattern="[0-9A-Fa-f]{32}" spellcheck="false" placeholder="32 hexadecimal characters"></label>
   <button class="button" type="submit">Go to trace</button>
 </form>
-{{if .Items}}{{template "failure-table" .Items}}
+{{if .CanRestore}}
+<details class="section">
+  <summary>Restore trace from OTLP JSON</summary>
+  <form class="trace-lookup actions" action="/traces/import" method="post" enctype="multipart/form-data" data-loading>
+    <label>OTLP JSON file <input type="file" name="trace_file" accept=".json,application/json" required></label>
+    <button class="button" type="submit">Restore trace</button>
+  </form>
+  <p class="subtle">One trace per file, up to 4 MiB and 2,048 spans.</p>
+</details>
+{{end}}
+<section id="failure-results"{{if .Live}} data-live-url="{{.Refresh}}"{{end}}>
+{{with .GroupSummary}}
+<section class="section" aria-labelledby="group-summary">
+  <h2 id="group-summary">Observed failure summary</h2>
+  <p><strong>{{if .ExceptionType}}{{.ExceptionType}}{{else}}{{classification .Classification}}{{end}}</strong> on <code>{{.Operation}}</code> in {{serviceLabel .Application .Service}}{{if .Environment}} ({{.Environment}}){{end}}{{if .HTTPStatus}} · evidence HTTP {{.HTTPStatus}}{{end}}.</p>
+  <p>{{.Count}} matching {{if eq .Count 1}}trace{{else}}traces{{end}}. First received {{timestamp .FirstObserved}} · last received {{timestamp .LastObserved}}.</p>
+  <p>Request HTTP outcomes · {{.Outcomes.HTTP2xx}} 2xx · {{.Outcomes.HTTP5xx}} 5xx · {{.Outcomes.HTTPOther}} other HTTP · {{.Outcomes.HTTPUnknown}} unknown.</p>
+  <p><a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Open the latest evidence span</a></p>
+</section>
+{{end}}
+{{if .Groups}}{{template "group-table" .Groups}}
+{{else if .Items}}{{template "failure-table" .Items}}
 {{else if not .HasTraces}}
 <section class="empty">
   <h2>No traces received yet</h2>
@@ -37,21 +69,34 @@
   <p>To try the Go example, set <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code> to that URL and run <code>go run ./examples/go</code> from the repository. Open <a href="http://127.0.0.1:8080/failure">the demo failure</a>, wait a few seconds, then refresh this list.</p>
   <a class="button" href="/settings#receiver">Check receiver diagnostics</a>
 </section>
-{{else if or .Filtered .First}}
-<section class="empty"><h2>No matching traces</h2><p>Try a broader time range or remove a filter.</p><a class="button" href="/failures">Clear filters</a></section>
+{{else if or .AllTraces .Filtered .First}}
+<section class="empty"><h2>No matching traces</h2><p>Try a broader time range or remove a filter.</p><a class="button" href="{{.Reset}}">Clear filters</a></section>
 {{else}}
 <section class="empty"><h2>No failure evidence found</h2><p>Geko has stored traces. None contain observed failure evidence.</p><a class="button" href="/settings#receiver">Check receiver diagnostics</a></section>
 {{end}}
 {{if or .First .Next}}
-<nav class="pagination" aria-label="Failure pages">
+<nav class="pagination" aria-label="Result pages">
   {{if .First}}<a class="button" href="{{.First}}" data-loading>First page</a>{{end}}
   {{if .Next}}<a class="button" href="{{.Next}}" rel="next" data-loading>Next page <span aria-hidden="true">→</span></a>{{end}}
 </nav>
 {{end}}
+</section>
+{{end}}
+
+{{define "group-table"}}
+<div class="table-wrap" tabindex="0" role="region" aria-label="Error groups">
+<table class="group-table"><thead><tr><th scope="col">Error / Operation</th><th scope="col">Service / Environment</th><th scope="col">Traces</th><th scope="col">First received</th><th scope="col">Last received</th></tr></thead><tbody>
+{{range .}}<tr>
+  <td><a class="operation" href="{{.TracesURL}}">{{if .ExceptionType}}{{.ExceptionType}}{{else}}{{classification .Classification}}{{end}}</a><span class="subtle">{{.Operation}}{{if .HTTPStatus}} · HTTP {{.HTTPStatus}}{{end}}</span><a class="subtle" href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Latest example</a></td>
+  <td>{{serviceLabel .Application .Service}}<span class="subtle">{{if .Namespace}}{{.Namespace}} · {{end}}{{or .Environment "Environment unspecified"}}</span></td>
+  <td><a href="{{.TracesURL}}">{{.Count}}</a></td>
+  <td class="time">{{timestamp .FirstObserved}}</td><td class="time">{{timestamp .LastObserved}}</td>
+</tr>{{end}}</tbody></table>
+</div>
 {{end}}
 
 {{define "failure-table"}}
-<div class="table-wrap" tabindex="0" role="region" aria-label="Trace failures">
+<div class="table-wrap" tabindex="0" role="region" aria-label="Trace results">
   <table class="failure-table">
     <thead><tr><th scope="col">Operation</th><th scope="col">Request result</th><th scope="col">Observed evidence</th><th scope="col">Last observed</th></tr></thead>
     <tbody>
@@ -69,7 +114,7 @@
           {{with .Evidence}}
             <span class="evidence-label">{{classification .Classification}}</span>
             <span class="subtle">{{serviceLabel .Application .Service}}{{if .ExceptionMessage}} · {{.ExceptionMessage}}{{else if .ExceptionType}} · {{.ExceptionType}}{{end}}</span>
-          {{end}}
+          {{else}}<span class="subtle">None recorded</span>{{end}}
         </td>
         <td class="time"><time datetime="{{.LastObserved.Format "2006-01-02T15:04:05Z07:00"}}">{{timestamp .LastObserved}}</time></td>
       </tr>

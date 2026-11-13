@@ -1,6 +1,7 @@
 package otlp
 
 import (
+	"encoding/hex"
 	"errors"
 	"math"
 	"time"
@@ -120,7 +121,7 @@ func normalizeSpan(src *trace.Span, service string, resource telemetry.Attribute
 			if strict {
 				attributes = strictException(event.GetAttributes())
 			} else {
-				attributes = textAttributes(event.GetAttributes(), exceptionFields)
+				attributes = exceptionAttributes(event.GetAttributes())
 			}
 		}
 		span.Events = append(span.Events, telemetry.Event{
@@ -167,20 +168,41 @@ var localSpanFields = map[string]int{
 }
 
 func strictException(src []*common.KeyValue) telemetry.Attributes {
-	attrs := make(telemetry.Attributes)
+	attrs := textAttributes(src, map[string]int{"exception.type": labelSize})
+	preserveExceptionHash(src, attrs)
 	for _, attr := range src {
 		value, ok := attr.GetValue().GetValue().(*common.AnyValue_StringValue)
 		if !ok {
 			continue
 		}
 		switch attr.GetKey() {
-		case "exception.type":
-			attrs["exception.type"] = privacy.Text(value.StringValue, labelSize)
 		case "exception.message":
 			attrs["exception.message_hash"] = privacy.ExceptionMessageHash(value.StringValue)
 		}
 	}
 	return attrs
+}
+
+func exceptionAttributes(src []*common.KeyValue) telemetry.Attributes {
+	attrs := textAttributes(src, exceptionFields)
+	if _, hasMessage := attrs["exception.message"]; !hasMessage {
+		preserveExceptionHash(src, attrs)
+	}
+	return attrs
+}
+
+func preserveExceptionHash(src []*common.KeyValue, attrs telemetry.Attributes) {
+	for _, attr := range src {
+		if attr.GetKey() != "exception.message_hash" {
+			continue
+		}
+		hash := attr.GetValue().GetStringValue()
+		if len(hash) == 64 {
+			if decoded, err := hex.DecodeString(hash); err == nil {
+				attrs["exception.message_hash"] = hex.EncodeToString(decoded)
+			}
+		}
+	}
 }
 
 func textAttributes(src []*common.KeyValue, allowlists ...map[string]int) telemetry.Attributes {

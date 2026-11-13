@@ -5,7 +5,7 @@
     <h1>{{if .Trace.EntrySpan}}{{.Trace.EntrySpan.Operation}}{{else if .Trace.Evidence}}{{.Trace.Evidence.Operation}}{{else}}Trace details{{end}}</h1>
     <div class="trace-id"><code id="trace-id">{{.Trace.TraceID}}</code><button type="button" class="button quiet" data-copy="trace-id" hidden>Copy trace ID</button><span class="muted" role="status" id="copy-status"></span></div>
   </div>
-  <span class="pill {{outcomeClass .Trace}}">{{outcome .Trace}}</span>
+  <div class="actions"><span class="pill {{outcomeClass .Trace}}">{{outcome .Trace}}</span>{{if and .Trace.Evidence .Trace.EntrySpan}}<a class="button" href="/traces/{{.Trace.TraceID}}/compare">Compare with success</a>{{end}}<a class="button" href="/traces/{{.Trace.TraceID}}/otlp.json">Download OTLP JSON</a></div>
 </header>
 <dl class="trace-facts">
   <div><dt>Request duration</dt><dd>{{with .Trace.EntrySpan}}{{duration .DurationNS}}{{else}}Unavailable{{end}}</dd></div>
@@ -89,6 +89,9 @@
     {{range .Selected.Events}}
     <details{{if eq .Name "exception"}} open{{end}}><summary>{{.Name}} <small>{{timestamp .Time}}</small></summary>
       {{if .Attributes}}<dl class="attributes">{{range $key,$value := .Attributes}}<div><dt><code>{{$key}}</code></dt><dd class="prewrap">{{$value}}</dd></div>{{end}}</dl>
+      {{if eq .Name "exception"}}{{with sourceLinks (index .Attributes "exception.stacktrace")}}
+      <details><summary>Open source in VS Code</summary><ul>{{range .}}<li><a href="{{.URL}}"><code>{{.Location}}</code></a></li>{{end}}</ul></details>
+      {{end}}{{end}}
       {{else}}<p class="muted">No captured attributes.</p>{{end}}
     </details>
     {{end}}

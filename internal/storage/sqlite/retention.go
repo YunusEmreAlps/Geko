@@ -37,6 +37,9 @@ func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
 			return fmt.Errorf("count expired traces: %w", err)
 		}
 		removed = removed || deleted > 0
+		if deleted > 0 {
+			s.revision.Add(1)
+		}
 		if deleted < pruneBatchSize {
 			break
 		}

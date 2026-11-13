@@ -1,4 +1,5 @@
 version: 2
+project_name: geko
 
 builds:
   - main: ./cmd/geko

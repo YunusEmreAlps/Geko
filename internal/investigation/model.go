@@ -34,6 +34,7 @@ type Page[T any] struct {
 }
 
 type FailureFilter struct {
+	GroupKey        string
 	Application     *string // nil means all, empty means ungrouped
 	Service         string
 	EvidenceService string
@@ -43,6 +44,42 @@ type FailureFilter struct {
 	To              *time.Time
 	After           *Cursor
 	Limit           int
+}
+
+// FailureGroup counts traces by their selected primary evidence, not exports
+// or every failing span. Identity excludes instance IDs and free-text messages.
+type FailureGroup struct {
+	Key            string          `json:"-"`
+	Application    string          `json:"application,omitempty"`
+	Namespace      string          `json:"namespace,omitempty"`
+	Service        string          `json:"evidence_service"`
+	Environment    string          `json:"environment,omitempty"`
+	Operation      string          `json:"evidence_operation"`
+	Classification string          `json:"classification"`
+	ExceptionType  string          `json:"exception_type,omitempty"`
+	HTTPStatus     int             `json:"evidence_http_status,omitempty"`
+	Count          int64           `json:"trace_count"`
+	FirstObserved  time.Time       `json:"first_received"`
+	LastObserved   time.Time       `json:"last_received"`
+	TraceID        string          `json:"latest_trace_id"`
+	SpanID         string          `json:"latest_evidence_span_id"`
+	Outcomes       RequestOutcomes `json:"request_outcomes"`
+}
+
+type RequestOutcomes struct {
+	HTTP2xx     int64 `json:"http_2xx"`
+	HTTP5xx     int64 `json:"http_5xx"`
+	HTTPOther   int64 `json:"http_other"`
+	HTTPUnknown int64 `json:"http_unknown"`
+}
+
+type GroupCursor struct {
+	TimeNS int64
+	Key    string
+}
+type FailureGroups struct {
+	Items []FailureGroup
+	Next  *GroupCursor
 }
 
 type SpanSummary struct {

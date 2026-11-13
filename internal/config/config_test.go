@@ -52,6 +52,7 @@ func TestLoadOverrides(t *testing.T) {
 		RetentionDays: 14, MaxDBMiB: 512, ListenAddr: "[::1]:4320", DBPath: path,
 		OnFull: storage.Reject, Redaction: "strict",
 		Source: Source{
+			DashboardAddr: SettingSource{Kind: "default"}, GRPCAddr: SettingSource{Kind: "default"},
 			ListenAddr: envSource("GEKO_LISTEN_ADDR"), DBPath: envSource("GEKO_DB_PATH"),
 			RetentionDays: envSource("GEKO_RETENTION_DAYS"), MaxDBMiB: envSource("GEKO_MAX_DB_MIB"),
 			OnFull: envSource("GEKO_ON_FULL"), Redaction: envSource("GEKO_REDACTION"),
@@ -155,7 +156,14 @@ func TestRejectInvalidYAMLConfig(t *testing.T) {
 }
 
 func clearConfigEnv(t *testing.T) {
+	t.Setenv("GEKO_ACCESS_TOKEN", "")
 	t.Helper()
+	for _, key := range []string{"GEKO_DASHBOARD_ADDR", "GEKO_GRPC_ADDR"} {
+		t.Setenv(key, "")
+		if err := os.Unsetenv(key); err != nil {
+			t.Fatal(err)
+		}
+	}
 	t.Setenv("GEKO_CONFIG", "")
 	t.Setenv("GEKO_LISTEN_ADDR", "")
 	t.Setenv("GEKO_DB_PATH", "")
@@ -165,9 +173,53 @@ func clearConfigEnv(t *testing.T) {
 	t.Setenv("GEKO_REDACTION", "")
 }
 
+func TestTokenRequiredForNonLoopback(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	t.Setenv("GEKO_LISTEN_ADDR", "0.0.0.0:4318")
+	t.Setenv("GEKO_DASHBOARD_ADDR", "0.0.0.0:8080")
+	t.Setenv("GEKO_GRPC_ADDR", "[::]:4317")
+	for _, value := range []string{"", "too-short", strings.Repeat("a", 32), strings.Repeat("ab", 32)} {
+		t.Setenv("GEKO_ACCESS_TOKEN", value)
+		if _, err := Load(); err == nil {
+			t.Fatal("allowed non-loopback without a valid token")
+		}
+	}
+	t.Setenv("GEKO_ACCESS_TOKEN", "3f9c1e7a0b5d48e2c6a1f0d9b7e4c2a8")
+	cfg, err := Load()
+	if err != nil || !cfg.AccessToken.Enabled() || cfg.ListenAddr != "0.0.0.0:4318" {
+		t.Fatalf("token mode failed to load: %v", err)
+	}
+}
+
 func defaultTestSource() Source {
 	d := SettingSource{Kind: "default"}
-	return Source{ListenAddr: d, DBPath: d, RetentionDays: d, MaxDBMiB: d, OnFull: d, Redaction: d}
+	return Source{DashboardAddr: d, GRPCAddr: d, ListenAddr: d, DBPath: d, RetentionDays: d, MaxDBMiB: d, OnFull: d, Redaction: d}
+}
+
+func TestOptionalListeners(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	writeConfig(t, defaultConfigPath, "dashboard_addr: '127.0.0.1:8081'\ngrpc_addr: '[::1]:4317'\n")
+	cfg, err := Load()
+	if err != nil || cfg.DashboardAddr != "127.0.0.1:8081" || cfg.GRPCAddr != "[::1]:4317" || cfg.Source.GRPCAddr.Kind != "yaml" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	t.Setenv("GEKO_GRPC_ADDR", "")
+	cfg, err = Load()
+	if err != nil || cfg.GRPCAddr != "" || cfg.Source.GRPCAddr.Kind != "env" {
+		t.Fatalf("disable gRPC=%+v, %v", cfg, err)
+	}
+	for _, key := range []string{"GEKO_GRPC_ADDR", "GEKO_DASHBOARD_ADDR"} {
+		t.Run(key, func(t *testing.T) {
+			for _, addr := range []string{"0.0.0.0:4317", "localhost:4317", "127.0.0.1:0", "[::1%lo]:4317", "127.0.0.1:4318", "invalid"} {
+				t.Setenv(key, addr)
+				if _, err := Load(); err == nil {
+					t.Fatalf("accepted %s=%s", key, addr)
+				}
+			}
+		})
+	}
 }
 
 func envSource(variable string) SettingSource {

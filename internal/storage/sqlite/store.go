@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 
 	"github.com/YunusEmreAlps/geko/internal/storage"
 
@@ -37,15 +38,38 @@ var exceptionSearchSchema string
 //go:embed migrations/006_evidence_insert.sql
 var evidenceInsertSchema string
 
-var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema}
+//go:embed migrations/007_trace_projection.sql
+var traceProjectionSchema string
+
+//go:embed migrations/008_service_projection_batch.sql
+var serviceProjectionBatchSchema string
+
+var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema}
 
 type Store struct {
+	revision   atomic.Uint64
 	db         *sql.DB
 	read       *sql.DB
 	path       string
 	maxBytes   int64
 	onFull     storage.FullPolicy
 	assignment sync.Mutex
+	writeMu    sync.Mutex
+	pending    []spanWrite
+	writing    bool
+	closed     bool
+	writer     sync.WaitGroup
+	writeSlots chan struct{}
+}
+
+// Revision changes after this instance commits data affecting investigation.
+// It is an invalidation hint, not a persistent count or a cross-process feed.
+func (s *Store) Revision() uint64 { return s.revision.Load() }
+func (s *Store) changed(err error) error {
+	if err == nil {
+		s.revision.Add(1)
+	}
+	return err
 }
 
 func Open(ctx context.Context, path string) (*Store, error) {
@@ -84,7 +108,7 @@ func OpenWithPolicy(ctx context.Context, path string, maxBytes int64, onFull sto
 	if err != nil {
 		return nil, errors.Join(err, db.Close())
 	}
-	return &Store{db: db, read: read, path: path, maxBytes: maxBytes, onFull: onFull}, nil
+	return &Store{db: db, read: read, path: path, maxBytes: maxBytes, onFull: onFull, writeSlots: make(chan struct{}, 4)}, nil
 }
 
 func openConnection(path string, params url.Values, maxConnections int) (*sql.DB, error) {
@@ -255,6 +279,10 @@ func (s *Store) Status(ctx context.Context) (storage.Status, error) {
 }
 
 func (s *Store) Close() error {
+	s.writeMu.Lock()
+	s.closed = true
+	s.writeMu.Unlock()
+	s.writer.Wait()
 	if err := errors.Join(s.read.Close(), s.db.Close()); err != nil {
 		return fmt.Errorf("close database %q: %w", s.path, err)
 	}

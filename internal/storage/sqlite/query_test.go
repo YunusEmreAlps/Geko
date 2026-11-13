@@ -13,6 +13,26 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
+func TestAllTracesCursorIncludesHealthyAndFailing(t *testing.T) {
+	store := openTestStore(t)
+	observed := time.Now()
+	healthy := testSpan(2, 1, "api", 200)
+	failing := testSpan(1, 1, "api", 500)
+	if err := store.WriteSpans(t.Context(), observed, []telemetry.Span{healthy, failing}); err != nil {
+		t.Fatal(err)
+	}
+	filter := investigation.FailureFilter{Limit: 1}
+	first, err := store.Traces(t.Context(), filter)
+	if err != nil || len(first.Items) != 1 || first.Next == nil || first.Items[0].Evidence != nil {
+		t.Fatalf("first page = %+v, %v", first, err)
+	}
+	filter.After = first.Next
+	second, err := store.Traces(t.Context(), filter)
+	if err != nil || len(second.Items) != 1 || second.Next != nil || second.Items[0].Evidence == nil {
+		t.Fatalf("second page = %+v, %v", second, err)
+	}
+}
+
 func TestTraceSummaryUsesIndexedSpanLookups(t *testing.T) {
 	store := openTestStore(t)
 	traceID := telemetry.TraceID{1}

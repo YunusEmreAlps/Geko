@@ -266,7 +266,6 @@ tbody tr:hover { background: #26282f; }
 [data-theme="light"] .has-errors .node-status { fill: #a32f42; }
 [data-theme="light"] .is-selected .node-body, [data-theme="light"] .map-node:hover .node-body, [data-theme="light"] .map-node:focus .node-body { stroke: #426323; }
 [data-theme="light"] .empty code { color: var(--accent); }
-[data-theme="light"] .brand img { background: #23331c; border-radius: 8px; }
 
 /* Review fixes: readable auxiliary text, compact summary, small-screen navigation. */
 .map-controls { flex-wrap: wrap; }
@@ -296,3 +295,11 @@ tbody tr:hover { background: #26282f; }
   .sidebar nav a { min-height: 36px; }
   .map-controls .button { min-width: 34px; min-height: 34px; }
 }
+
+.failure-views { margin-block: 18px 12px; }
+.failure-views a[aria-current="page"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.group-explainer { margin-block: 0 18px; line-height: 1.6; }
+.group-table { min-width: 760px; }
+.group-table th:nth-child(3) { width: 70px; }
+.group-table th:nth-child(4), .group-table th:nth-child(5) { width: 170px; }
+.group-table .subtle { display: block; }

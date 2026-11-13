@@ -53,7 +53,7 @@ func (s *Store) ServiceApplications(ctx context.Context, after string) ([]invest
 func (s *Store) SetServiceApplication(ctx context.Context, service, application string) error {
 	if application == "" {
 		_, err := s.db.ExecContext(ctx, "DELETE FROM service_applications WHERE service_name = ?", service)
-		return err
+		return s.changed(err)
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -69,7 +69,7 @@ func (s *Store) SetServiceApplication(ctx context.Context, service, application 
 	if err != nil {
 		return writeError(err)
 	}
-	return writeError(tx.Commit())
+	return s.changed(writeError(tx.Commit()))
 }
 
 // AssignTraceApplication assigns or clears a label for unnamespaced spans in
@@ -140,14 +140,14 @@ func (s *Store) assignTraceBatch(ctx context.Context, scope assignmentScope) (in
 	if err != nil {
 		return 0, false, writeError(err)
 	}
-	return total, done, writeError(tx.Commit())
+	return total, done, s.changed(writeError(tx.Commit()))
 }
 
 func assignmentCandidates(ctx context.Context, tx *sql.Tx, scope assignmentScope, after []byte) ([][]byte, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT t.trace_id FROM traces t
         WHERE t.trace_id > ? AND t.last_observed_ns >= ? AND t.last_observed_ns < ?
-        AND EXISTS (SELECT 1 FROM spans s WHERE s.trace_id = t.trace_id
-            AND s.service_namespace = '' AND (? = '' OR s.service_name = ?))
+        AND EXISTS (SELECT 1 FROM trace_services s WHERE s.trace_id = t.trace_id
+            AND s.namespace = '' AND (? = '' OR s.service_name = ?))
         ORDER BY t.trace_id LIMIT ?`, after, scope.from, scope.to, scope.service, scope.service, assignmentBatchSize)
 	if err != nil {
 		return nil, err

@@ -1,8 +1,8 @@
 # Architecture
 
-`cmd/geko` owns command dispatch, local diagnostics, and HTTP lifecycle.
+`cmd/geko` owns command dispatch, local diagnostics, and HTTP/gRPC lifecycle.
 `internal/config` loads YAML and environment overrides, then validates the
-effective settings and restricts the listener to loopback IPs.
+effective settings and requires an access token for non-loopback listeners.
 `internal/telemetry` defines the normalized span and event model independently
 of wire protocols and storage. `internal/storage/sqlite` owns the database
 connections and migrations. The ingest and query packages define the storage
@@ -44,6 +44,28 @@ A mixed batch stores its valid spans and returns HTTP 200 with OTLP
 returns an error. Invalid fields produce HTTP 400 and size or count
 violations produce HTTP 413.
 
+An optional `grpc_addr` enables OTLP/gRPC with protobuf and gzip. A private
+method adapter acquires the same admission slot as HTTP before calling gRPC's
+request decoder; its codec runs the protobuf wire preflight before allocating
+generated messages. This prevents separate connections from each receiving an
+independent decoding budget. The receiver validates loopback `:authority` in
+local mode and Bearer credentials in token mode. It shares normalization,
+persistence, partial-success responses and counters
+with HTTP. Invalid batches return `InvalidArgument` or `ResourceExhausted`;
+temporary backpressure returns `Unavailable` with `RetryInfo` (30 seconds at
+capacity, one second when busy), following the
+[OTLP specification](https://opentelemetry.io/docs/specs/otlp/).
+
+By default the dashboard and query API share `listen_addr`. An optional
+`dashboard_addr` moves both to a separate listener. Health checks are available
+on both HTTP listeners. Startup binds
+all configured listeners before announcing readiness. Any bind failure unwinds
+the previously opened listeners. A serve failure or shutdown stops all
+transports together, with a five-second grace period. `doctor` probes every
+configured port. With `GEKO_ACCESS_TOKEN` set, authentication covers all HTTP
+routes and OTLP/gRPC. HTTP mutation requests also pass a cross-origin check.
+Token mode supports Docker bridge networking and a TLS-terminating proxy.
+
 The receiver allows a defined set of service, scope, HTTP, and exception
 attributes and canonicalizes legacy HTTP method and status keys. Headers,
 cookies, body fields, raw URLs, and other attributes outside the allowlists
@@ -80,7 +102,7 @@ disk space beyond the main file limit.
 Historical application assignment commits up to 225 trace IDs per transaction.
 The last committed ID and change count are stored with the form inputs so a
 retry can resume. Every batch evaluates eligibility against the current
-last-received times. Application membership is evaluated from grouped spans
+last-received times. Application membership is evaluated from indexed trace/service rows
 when querying. The application filter benchmark measures that query at
 different database sizes and match rates.
 
@@ -101,24 +123,34 @@ lookup. Each new span runs `json_each` once; existing evidence is preserved.
 Overview skips evidence lookup when a unique root already supplies its operation
 and service. `BenchmarkOverview200KFailures` tracks this path (about 2.28 s before
 and 1.62 s after on a Windows i7-8750H development machine; not a latency guarantee).
-Overview still scales with the number of matching failures, and application
-membership filters still derive membership from spans. Larger databases can
-exceed the query timeout. A future indexed trace/service membership projection
-must preserve cross-application membership, late root arrivals, ambiguous roots,
-and changes to historical assignments; a single application column on traces
-would not preserve those semantics. `BenchmarkApplicationFailureFilter` tracks
-the existing membership query cost.
+Migration 007 backfills the unique entry span, primary evidence span and
+indexed trace/service membership. Triggers maintain the entry and evidence
+spans in the same transaction as the underlying spans. Migration 008 removes the
+per-span membership insert trigger: ingest adds one count per trace, namespace
+and service in each export, reading the namespace from the stored span's
+generated column, and skips retransmitted spans. A delete trigger still
+decrements the count per span. Application labels resolve at
+read time, so changes to assignments apply immediately. Searches can still
+select matching secondary evidence. Overview and grouping still scale with
+the number of matching traces.
 
 The request summary uses a unique observed parentless server span when available.
 Its HTTP outcome is `server_error` for 5xx, `non_5xx` for other recorded HTTP
 statuses, and `unknown` when the entry or status is absent or ambiguous. Geko
-shows observed evidence immediately and re-evaluates the summary when queried
-after late arrivals. A span with reversed timestamps has no computed duration.
+updates the summary when late spans arrive. A span with reversed timestamps has
+no computed duration.
+
+Concurrent exports can share a SQLite transaction. Up to four writes can be
+admitted. The writer starts as soon as a request arrives; requests that arrive
+while a commit is in progress form the next shared batch. Acknowledgements
+follow the commit. A panic while writing fails only the exports in that batch
+and keeps the queue running. If a shared transaction fails, the writer
+retries eligible exports individually with the original capacity policy.
 
 `internal/api` serves bounded, cursor-paginated JSON queries. Trace summary and
 spans within one response use the same database snapshot. Cursors navigate the
 live result set, so a trace updated between requests may move to a newer page
-position. The query API restricts the HTTP Host to loopback and marks responses
+position. The query API requires a loopback Host in local mode and marks responses
 as non-cacheable.
 
 ## Dashboard
@@ -135,3 +167,34 @@ to an evidence or parent span can open its details even when the span is outside
 the initial page. Parent links across pages are preserved. Missing parents and
 cycles leave the affected rows visible. Settings reports live SQLite metadata,
 disk usage, and cumulative capacity counters.
+
+### Error groups and live updates
+
+`/failures?view=groups` aggregates the same filtered trace set as the trace list.
+Each trace contributes its selected primary evidence once. Group identity is the
+evidence span's effective application, namespace, service, environment, operation,
+classification, exception type and HTTP status. Messages, strict-mode hashes and
+instance IDs do not split groups. Missing exception types therefore produce a
+coarser group. Counts represent retained matching traces, not exports or all
+exception events; receipt timestamps come from those traces. Reassignment, late
+evidence and retention are reflected at query time. Groups use last receipt/key
+pagination and link to both matching traces and a deterministic latest example.
+The aggregate still scans matching traces; it shares the three-second query
+timeout, so narrower time ranges can be necessary on large databases.
+
+`/events/failures` is an SSE invalidation feed, limited to 16 streams
+outside the four dashboard query slots. Requests whose `Sec-Fetch-Site` is
+present and neither `same-origin` nor `none` are refused, so other web pages
+cannot occupy the streams. It samples an atomic revision every
+second, coalesces writes, and sends a ten-second heartbeat with bounded write
+deadlines. The feed contains no telemetry. Commits through this Store instance
+(ingest, historical assignment, service mapping, retention) advance the revision;
+external database writers are not monitored. The revision is not a persistent
+counter. Reconnection always requests a fresh snapshot.
+
+On the first page, the client coalesces invalidations over three seconds and
+replaces only server-rendered results. Filters remain untouched. Focused results
+and text selections defer replacement to an explicit refresh button. Users can
+pause updates; hidden tabs disconnect, and older pages remain stable. JavaScript
+is optional for manual navigation. Shutdown closes SSE streams before HTTP
+graceful shutdown completes.

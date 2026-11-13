@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 
 	"go.yaml.in/yaml/v3"
@@ -21,7 +22,10 @@ const DefaultMaxDBMiB = 256
 const DefaultRedaction = "best_effort"
 
 type Config struct {
+	AccessToken   access.Token       `yaml:"-"`
 	ListenAddr    string             `yaml:"listen_addr"`
+	DashboardAddr string             `yaml:"dashboard_addr"`
+	GRPCAddr      string             `yaml:"grpc_addr"`
 	DBPath        string             `yaml:"db_path"`
 	RetentionDays int                `yaml:"retention_days"`
 	MaxDBMiB      int                `yaml:"max_db_mib"`
@@ -32,6 +36,7 @@ type Config struct {
 
 // Source records where each effective setting came from.
 type Source struct {
+	DashboardAddr, GRPCAddr                                        SettingSource
 	FilePath                                                       string
 	ListenAddr, DBPath, RetentionDays, MaxDBMiB, OnFull, Redaction SettingSource
 }
@@ -51,6 +56,10 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	cfg.AccessToken, err = access.ParseToken(os.Getenv("GEKO_ACCESS_TOKEN"))
+	if err != nil {
+		return Config{}, err
+	}
 
 	addr := cfg.ListenAddr
 	if override := envOverride("GEKO_LISTEN_ADDR", &cfg.Source.ListenAddr); override != "" {
@@ -60,8 +69,11 @@ func Load() (Config, error) {
 		addr = DefaultListenAddr
 	}
 	endpoint, err := netip.ParseAddrPort(addr)
-	if err != nil || !endpoint.Addr().IsLoopback() || endpoint.Addr().Zone() != "" || endpoint.Port() == 0 {
-		return Config{}, fmt.Errorf("listen_addr (GEKO_LISTEN_ADDR) %q must be a loopback IP and a nonzero port (for example, %s)", addr, DefaultListenAddr)
+	if err != nil || endpoint.Addr().Zone() != "" || endpoint.Port() == 0 {
+		return Config{}, fmt.Errorf("listen_addr (GEKO_LISTEN_ADDR) %q must be an IP address and a nonzero port (for example, %s)", addr, DefaultListenAddr)
+	}
+	if !endpoint.Addr().IsLoopback() && !cfg.AccessToken.Enabled() {
+		return Config{}, errors.New("listen_addr must use a loopback IP unless GEKO_ACCESS_TOKEN is configured")
 	}
 
 	path := cfg.DBPath
@@ -83,6 +95,36 @@ func Load() (Config, error) {
 	}
 
 	cfg.ListenAddr, cfg.DBPath = endpoint.String(), path
+	for _, setting := range []struct {
+		key, env string
+		value    *string
+		source   *SettingSource
+	}{
+		{"dashboard_addr", "GEKO_DASHBOARD_ADDR", &cfg.DashboardAddr, &cfg.Source.DashboardAddr},
+		{"grpc_addr", "GEKO_GRPC_ADDR", &cfg.GRPCAddr, &cfg.Source.GRPCAddr},
+	} {
+		if value, ok := os.LookupEnv(setting.env); ok {
+			*setting.value = value
+			*setting.source = SettingSource{Kind: "env", Variable: setting.env}
+		}
+		if *setting.value == "" {
+			continue
+		}
+		address, err := netip.ParseAddrPort(*setting.value)
+		if err != nil || address.Addr().Zone() != "" || address.Port() == 0 {
+			return Config{}, fmt.Errorf("%s (%s) must be an IP address and a nonzero port", setting.key, setting.env)
+		}
+		if !address.Addr().IsLoopback() && !cfg.AccessToken.Enabled() {
+			return Config{}, fmt.Errorf("%s must use a loopback IP unless GEKO_ACCESS_TOKEN is configured", setting.key)
+		}
+		*setting.value = address.String()
+	}
+	if cfg.DashboardAddr != "" && cfg.DashboardAddr == cfg.ListenAddr {
+		return Config{}, errors.New("dashboard_addr must differ from listen_addr; omit it to share the HTTP listener")
+	}
+	if cfg.GRPCAddr != "" && (cfg.GRPCAddr == cfg.ListenAddr || cfg.GRPCAddr == cfg.DashboardAddr) {
+		return Config{}, errors.New("grpc_addr must differ from the HTTP and dashboard listeners")
+	}
 	cfg.RetentionDays, err = intSetting("retention_days", "GEKO_RETENTION_DAYS", &cfg.Source.RetentionDays, cfg.RetentionDays, 1, 3650)
 	if err != nil {
 		return Config{}, err
@@ -131,6 +173,7 @@ func loadFile(path string, optional bool) (Config, error) {
 		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB,
 		OnFull: storage.EvictOldest, Redaction: DefaultRedaction,
 		Source: Source{
+			DashboardAddr: defaultSource, GRPCAddr: defaultSource,
 			ListenAddr: defaultSource, DBPath: defaultSource, RetentionDays: defaultSource,
 			MaxDBMiB: defaultSource, OnFull: defaultSource, Redaction: defaultSource,
 		},
@@ -153,6 +196,8 @@ func loadFile(path string, optional bool) (Config, error) {
 	decoder := yaml.NewDecoder(file)
 	decoder.KnownFields(true)
 	var values struct {
+		DashboardAddr *string             `yaml:"dashboard_addr"`
+		GRPCAddr      *string             `yaml:"grpc_addr"`
 		ListenAddr    *string             `yaml:"listen_addr"`
 		DBPath        *string             `yaml:"db_path"`
 		RetentionDays *int                `yaml:"retention_days"`
@@ -183,6 +228,8 @@ func loadFile(path string, optional bool) (Config, error) {
 		yamlSetting(values.DBPath, &cfg.DBPath, &cfg.Source.DBPath)
 	}
 	yamlSetting(values.RetentionDays, &cfg.RetentionDays, &cfg.Source.RetentionDays)
+	yamlSetting(values.DashboardAddr, &cfg.DashboardAddr, &cfg.Source.DashboardAddr)
+	yamlSetting(values.GRPCAddr, &cfg.GRPCAddr, &cfg.Source.GRPCAddr)
 	yamlSetting(values.MaxDBMiB, &cfg.MaxDBMiB, &cfg.Source.MaxDBMiB)
 	yamlSetting(values.OnFull, &cfg.OnFull, &cfg.Source.OnFull)
 	yamlSetting(values.Redaction, &cfg.Redaction, &cfg.Source.Redaction)

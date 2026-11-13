@@ -18,6 +18,7 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/api"
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
+	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 	"github.com/YunusEmreAlps/geko/web"
 )
@@ -32,11 +33,16 @@ Commands:
   serve     Start the local dashboard and OTLP trace receiver
   doctor    Check SQLite and probe the listener
   compact   Reclaim free space in the SQLite file
+  failures --json   Query failures in the local database
+  mcp       Serve read-only investigation tools over stdio
   version   Print version and build information
 
 Environment:
   GEKO_CONFIG       YAML file (default geko.yaml in the working directory, if present)
-  GEKO_LISTEN_ADDR  Loopback address (default 127.0.0.1:4318)
+  GEKO_LISTEN_ADDR  OTLP/HTTP address (default 127.0.0.1:4318)
+  GEKO_DASHBOARD_ADDR  Optional separate loopback dashboard address
+  GEKO_ACCESS_TOKEN    Protect all HTTP and gRPC listeners with an access token
+  GEKO_GRPC_ADDR       Optional OTLP/gRPC address (e.g. 127.0.0.1:4317)
   GEKO_DB_PATH      SQLite file (default geko/geko.db in the user configuration directory)
   GEKO_RETENTION_DAYS  Trace retention in days (default 7)
   GEKO_MAX_DB_MIB      Main database size limit in MiB (default 256)
@@ -59,10 +65,15 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		_, err := io.WriteString(out, usage)
 		return err
 	}
+	if args[0] == "failures" {
+		return failuresCommand(ctx, args[1:], out)
+	}
 	if len(args) != 1 {
 		return errors.New("expected one command, run geko --help for usage")
 	}
 	switch args[0] {
+	case "mcp":
+		return mcpCommand(ctx, out)
 	case "help", "--help", "-h":
 		_, err := io.WriteString(out, usage)
 		return err
@@ -100,14 +111,21 @@ func printVersion(out io.Writer) {
 
 func doctor(ctx context.Context, cfg config.Config, out io.Writer) error {
 	dbErr := checkDatabase(ctx, cfg.DBPath, out)
-	listener, listenErr := listen(ctx, cfg.ListenAddr)
-	if listenErr == nil {
-		listenErr = listener.Close()
-		if listenErr == nil {
-			fmt.Fprintf(out, "Listener available at %s\n", cfg.ListenAddr)
+	var listenerErrors []error
+	for _, addr := range []string{cfg.ListenAddr, cfg.DashboardAddr, cfg.GRPCAddr} {
+		if addr == "" {
+			continue
 		}
+		listener, err := listen(ctx, addr)
+		if err == nil {
+			err = listener.Close()
+			if err == nil {
+				fmt.Fprintf(out, "Listener available at %s\n", addr)
+			}
+		}
+		listenerErrors = append(listenerErrors, err)
 	}
-	return errors.Join(dbErr, listenErr)
+	return errors.Join(append(listenerErrors, dbErr)...)
 }
 
 func checkDatabase(ctx context.Context, path string, out io.Writer) (err error) {
@@ -156,7 +174,7 @@ func listen(ctx context.Context, addr string) (net.Listener, error) {
 	var lc net.ListenConfig
 	listener, err := lc.Listen(ctx, "tcp", addr)
 	if err != nil {
-		return nil, fmt.Errorf("bind %s (check listen_addr or GEKO_LISTEN_ADDR, or stop the process using the port): %w", addr, err)
+		return nil, fmt.Errorf("bind %s (check GEKO_LISTEN_ADDR, GEKO_DASHBOARD_ADDR or GEKO_GRPC_ADDR, or stop the process using the port): %w", addr, err)
 	}
 	return listener, nil
 }
@@ -168,12 +186,36 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		return err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
+	// Migrations and earlier larger limits can leave the file above max_db_mib.
+	if status, err := db.Status(ctx); err == nil && status.MainBytes-status.FreeBytes > maxBytes {
+		advice := "Geko evicts the oldest traces as exports arrive"
+		if cfg.OnFull == storage.Reject {
+			advice = "every export is rejected until space is freed; raise max_db_mib or set on_full to evict_oldest"
+		}
+		fmt.Fprintf(out, "Warning: the database uses %d MiB, above max_db_mib (%d MiB); %s.\n",
+			(status.MainBytes-status.FreeBytes)>>20, cfg.MaxDBMiB, advice)
+	}
 
 	listener, err := listen(ctx, cfg.ListenAddr)
 	if err != nil {
 		return err
 	}
 	defer listener.Close()
+	var dashboardListener, grpcListener net.Listener
+	if cfg.DashboardAddr != "" {
+		dashboardListener, err = listen(ctx, cfg.DashboardAddr)
+		if err != nil {
+			return err
+		}
+		defer dashboardListener.Close()
+	}
+	if cfg.GRPCAddr != "" {
+		grpcListener, err = listen(ctx, cfg.GRPCAddr)
+		if err != nil {
+			return err
+		}
+		defer grpcListener.Close()
+	}
 
 	if cfg.RetentionDays > 0 {
 		retention := time.Duration(cfg.RetentionDays) * 24 * time.Hour
@@ -193,10 +235,23 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 	mux := http.NewServeMux()
 	receiver := otlp.NewHandlerWithRedaction(db, cfg.Redaction == "strict")
 	mux.Handle("POST /v1/traces", receiver)
-	api.Register(mux, db)
-	if err := web.Register(mux, db, web.Settings{
+	dashboardMux := mux
+	dashboardAddr := listener.Addr().String()
+	grpcAddr := ""
+	if grpcListener != nil {
+		grpcAddr = grpcListener.Addr().String()
+	}
+	if dashboardListener != nil {
+		dashboardMux = http.NewServeMux()
+		dashboardAddr = dashboardListener.Addr().String()
+	}
+	api.Register(dashboardMux, db)
+	if err := web.Register(dashboardMux, db, web.Settings{
+		Shutdown:      ctx.Done(),
+		DashboardAddr: dashboardAddr, GRPCAddr: grpcAddr,
 		ListenAddr: listener.Addr().String(), DBPath: cfg.DBPath, Version: version,
 		ReceiverDiagnostics: receiver.Diagnostics,
+		RestoreTrace:        receiver.RestoreTraceJSON,
 		RetentionDays:       cfg.RetentionDays, MaxDBBytes: maxBytes,
 		ConfigSource: cfg.Source,
 		OnFull:       cfg.OnFull, Redaction: cfg.Redaction,
@@ -206,39 +261,12 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
-	server := &http.Server{
-		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Cache-Control", "no-store")
-			w.Header().Set("X-Content-Type-Options", "nosniff")
-			w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
-			mux.ServeHTTP(w, r)
-		}),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      20 * time.Second,
-		IdleTimeout:       30 * time.Second,
+	endpoints := []httpEndpoint{{listener, newHTTPServer(cfg.AccessToken.Protect(mux))}}
+	if dashboardListener != nil {
+		dashboardMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+		endpoints = append(endpoints, httpEndpoint{dashboardListener, newHTTPServer(cfg.AccessToken.Protect(dashboardMux))})
 	}
-	done := make(chan error, 1)
-	go func() {
-		err := server.Serve(listener)
-		if errors.Is(err, http.ErrServerClosed) {
-			err = nil
-		}
-		done <- err
-	}()
-
-	fmt.Fprintf(out, "Geko listening on http://%s\n", listener.Addr())
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdown); err != nil {
-			return errors.Join(err, server.Close(), <-done)
-		}
-		return <-done
-	}
+	return runServers(ctx, out, endpoints, grpcListener, receiver, cfg.AccessToken)
 }
 
 func prunePeriodically(ctx context.Context, db *sqlite.Store, retention time.Duration) {

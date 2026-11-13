@@ -1,0 +1,28 @@
+{{define "compare"}}
+<a class="back" href="{{evidenceLink .Source}}"><span aria-hidden="true">←</span> Back to trace</a>
+<header class="page-head">
+  <div><h1>Compare traces</h1>{{with .Source.EntrySpan}}<p>{{.Operation}} · {{serviceLabel .Application .Service}}</p>{{end}}</div>
+</header>
+{{if .Baseline}}
+<div class="table-wrap" tabindex="0" role="region" aria-label="Trace comparison">
+<table>
+  <thead><tr><th scope="col">Measure</th><th scope="col">Trace with evidence</th><th scope="col">Successful trace</th></tr></thead>
+  <tbody>
+    <tr><th scope="row">Trace</th><td><a href="{{evidenceLink .Source}}"><code>{{.Source.TraceID}}</code></a></td><td><a href="{{evidenceLink .Baseline}}"><code>{{.Baseline.TraceID}}</code></a></td></tr>
+    <tr><th scope="row">Request result</th><td><span class="pill {{outcomeClass .Source}}">{{outcome .Source}}</span></td><td><span class="pill {{outcomeClass .Baseline}}">{{outcome .Baseline}}</span></td></tr>
+    <tr><th scope="row">Request duration</th><td>{{duration .Source.EntrySpan.DurationNS}}{{if .DurationDifference}}<span class="subtle"> · {{.DurationDifference}}</span>{{end}}</td><td>{{duration .Baseline.EntrySpan.DurationNS}}</td></tr>
+    <tr><th scope="row">Spans</th><td>{{.Source.Window.SpanCount}}</td><td>{{.Baseline.Window.SpanCount}}</td></tr>
+    <tr><th scope="row">Last received</th><td>{{timestamp .Source.LastObserved}}</td><td>{{timestamp .Baseline.LastObserved}}</td></tr>
+    <tr><th scope="row">Primary evidence</th><td>{{with .Source.Evidence}}{{classification .Classification}} · {{.Service}} · {{.Operation}}{{if .ExceptionMessage}}<span class="subtle">{{.ExceptionMessage}}</span>{{else if .ExceptionType}}<span class="subtle">{{.ExceptionType}}</span>{{end}}{{end}}</td><td>None recorded</td></tr>
+  </tbody>
+</table>
+</div>
+{{else}}
+<section class="empty">
+  <h2>No comparison available</h2>
+  {{if not .Source.EntrySpan}}<p>The source trace needs a unique entry span.</p>
+  {{else if not .Source.Evidence}}<p>Open a trace with recorded failure evidence to compare it with a successful request.</p>
+  {{else}}<p>No HTTP 2xx trace without failure evidence matches this operation, service, application and environment.</p>{{end}}
+</section>
+{{end}}
+{{end}}
