@@ -44,7 +44,10 @@ var traceProjectionSchema string
 //go:embed migrations/008_service_projection_batch.sql
 var serviceProjectionBatchSchema string
 
-var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema}
+//go:embed migrations/009_group_states.sql
+var groupStateSchema string
+
+var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema}
 
 type Store struct {
 	revision   atomic.Uint64
@@ -85,7 +88,7 @@ func OpenWithPolicy(ctx context.Context, path string, maxBytes int64, onFull sto
 	if onFull == "" {
 		onFull = storage.EvictOldest
 	}
-	if onFull != storage.EvictOldest && onFull != storage.Reject {
+	if !onFull.Evicts() && onFull != storage.Reject {
 		return nil, fmt.Errorf("invalid capacity policy %q", onFull)
 	}
 	if err := prepareFile(path); err != nil {
@@ -287,4 +290,10 @@ func (s *Store) Close() error {
 		return fmt.Errorf("close database %q: %w", s.path, err)
 	}
 	return nil
+}
+
+// Ready reports whether the database answers a read.
+func (s *Store) Ready(ctx context.Context) error {
+	var version int
+	return s.read.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version)
 }

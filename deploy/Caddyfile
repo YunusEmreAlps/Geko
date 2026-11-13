@@ -1,0 +1,13 @@
+{$GEKO_DOMAIN} {
+	# Geko rejects payloads above 4 MiB itself; this stops larger bodies earlier.
+	request_body {
+		max_size 5MB
+	}
+
+	# OTLP/gRPC and OTLP/HTTP share port 443. Caddy keeps the Host and
+	# Authorization headers, which Geko needs.
+	@grpc path /opentelemetry.proto.collector.trace.v1.TraceService/*
+	reverse_proxy @grpc h2c://geko:4317
+
+	reverse_proxy geko:4318
+}

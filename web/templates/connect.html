@@ -1,0 +1,46 @@
+{{define "connect"}}
+<header class="page-head"><div class="title"><h1>Connect an application</h1></div></header>
+<form class="filters" action="/connect" method="get">
+  <label>Service name <input name="service" value="{{.Service}}" maxlength="64" required></label>
+  <label>Application <input name="application" value="{{.Application}}" maxlength="64" placeholder="Optional"></label>
+  <label>Protocol
+    <select name="protocol">
+      <option value="http/protobuf"{{if eq .Protocol "http/protobuf"}} selected{{end}}>OTLP/HTTP</option>
+      <option value="grpc"{{if eq .Protocol "grpc"}} selected{{end}}{{if not .GRPC}} disabled{{end}}>OTLP/gRPC{{if not .GRPC}} (disabled){{end}}</option>
+    </select>
+  </label>
+  {{if .Tokens}}<label>Ingest token
+    <select name="token">{{range .Tokens}}<option value="{{.}}"{{if eq . $.Token}} selected{{end}}>{{.}}</option>{{end}}</select>
+  </label>{{end}}
+  <div class="filter-actions"><button class="button primary" type="submit">Update</button></div>
+</form>
+{{if .Error}}<p class="notice" role="alert">{{.Error}}</p>
+{{else}}
+<section class="section first">
+  <h2>Environment</h2>
+  <p class="muted">The OpenTelemetry SDKs and zero-code agents read these variables. The application groups this service's spans{{if .Application}} under <strong>{{.Application}}</strong>{{else}} by service name{{end}}.</p>
+  {{if .AccessToken}}<p class="note">Set <code>GEKO_INGEST_TOKEN</code> in the application's environment to {{if .Token}}the <code>{{.Token}}</code> token from <code>GEKO_INGEST_TOKENS</code>{{else}}an ingest token. None is configured: add one to <code>GEKO_INGEST_TOKENS</code> and restart Geko rather than sharing the access token{{end}}. Geko only stores a hash, so it can't show the value.</p>{{end}}
+  <div class="expanders">
+    <details open><summary>Bash</summary><pre class="snippet"><code>{{.Bash}}</code></pre></details>
+    <details><summary>PowerShell</summary><pre class="snippet"><code>{{.PowerShell}}</code></pre></details>
+    <details><summary>Docker Compose</summary><pre class="snippet"><code>{{.Compose}}</code></pre></details>
+  </div>
+</section>
+<section class="section">
+  <h2>Instrument the application</h2>
+  <dl class="properties">
+    <div><dt>Go</dt><dd>Add the SDK and an OTLP exporter in code. See <code>examples/go</code> in the Geko repository.</dd></div>
+    <div><dt>Node.js</dt><dd><code>npm install @opentelemetry/api @opentelemetry/auto-instrumentations-node</code>, then <code>node --require @opentelemetry/auto-instrumentations-node/register app.js</code></dd></div>
+    <div><dt>Python</dt><dd><code>pip install opentelemetry-distro opentelemetry-exporter-otlp</code>, <code>opentelemetry-bootstrap -a install</code>, then <code>opentelemetry-instrument python app.py</code></dd></div>
+    <div><dt>Java</dt><dd><code>java -javaagent:opentelemetry-javaagent.jar -jar app.jar</code></dd></div>
+    <div><dt>.NET</dt><dd>Install OpenTelemetry .NET Automatic Instrumentation, or add the SDK with the OTLP exporter.</dd></div>
+  </dl>
+  <p class="note">More languages: <a href="https://opentelemetry.io/docs/zero-code/">OpenTelemetry zero-code instrumentation</a>.</p>
+</section>
+<section class="section">
+  <h2>Check</h2>
+  <p class="muted">Send a request to the application, then look for its traces. Spans arrive after the exporter's batch delay, usually a few seconds.</p>
+  <p><a class="button" href="{{.TracesURL}}">Traces from {{.Service}}</a> <a class="button ghost" href="/settings#receiver">Receiver diagnostics</a></p>
+</section>
+{{end}}
+{{end}}

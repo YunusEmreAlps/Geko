@@ -10,12 +10,20 @@ type RegressionFilter struct {
 }
 
 type VersionMetrics struct {
-	Traces, Failures, Timed int
-	MeanNS                  *int64
+	Traces   int    `json:"traces"`
+	Failures int    `json:"failures"`
+	Timed    int    `json:"timed_traces"`
+	MeanNS   *int64 `json:"mean_duration_ns"`
 }
 
 type VersionComparison struct {
-	Application, Namespace, Service, Environment, Operation string
-	Baseline, Candidate                                     VersionMetrics
-	FailureRegression, LatencyRegression                    bool
+	Application       string         `json:"application,omitempty"`
+	Namespace         string         `json:"namespace,omitempty"`
+	Service           string         `json:"service"`
+	Environment       string         `json:"environment,omitempty"`
+	Operation         string         `json:"operation"`
+	Baseline          VersionMetrics `json:"baseline"`
+	Candidate         VersionMetrics `json:"candidate"`
+	FailureRegression bool           `json:"failure_regression"`
+	LatencyRegression bool           `json:"latency_regression"`
 }

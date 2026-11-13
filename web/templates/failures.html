@@ -13,11 +13,17 @@
     <a href="{{.TracesURL}}" title="Traces with recorded errors. A request can succeed even when one of its spans records an error."{{if and (not .AllTraces) (ne .Mode "groups")}} aria-current="page"{{end}}>Failures</a>
     <a href="{{.GroupsURL}}" title="Recurring failures by service, environment and operation. Each trace contributes its primary evidence once."{{if eq .Mode "groups"}} aria-current="page"{{end}}>Error groups</a>
   </nav>
+  {{with .StateURLs}}<nav class="segmented" aria-label="Group state">
+    <a href="{{.open}}" title="Groups that need attention, including resolved groups that recurred"{{if not $.GroupState}} aria-current="page"{{end}}>Open</a>
+    <a href="{{.resolved}}" title="Resolved groups with no trace received since"{{if eq $.GroupState "resolved"}} aria-current="page"{{end}}>Resolved</a>
+    <a href="{{.muted}}" title="Muted groups never send notifications"{{if eq $.GroupState "muted"}} aria-current="page"{{end}}>Muted</a>
+  </nav>{{end}}
 </div>
 {{if .Group}}<p class="active-filter"><span class="chip">One error group</span><a class="text-link" href="{{.GroupsURL}}">Back to groups</a></p>{{end}}
 <form class="filters" action="{{.Path}}" method="get" data-loading>
   {{if .Mode}}<input type="hidden" name="view" value="{{.Mode}}">{{end}}
   {{if .Group}}<input type="hidden" name="group" value="{{.Group}}">{{end}}
+  {{if .GroupState}}<input type="hidden" name="state" value="{{.GroupState}}">{{end}}
   <label><span class="sr-only">Search</span><input type="search" name="q" value="{{.Search}}" maxlength="4096" placeholder="Search trace ID or exception"></label>
   <label><span class="sr-only">Application</span>
     <select name="application">
@@ -47,7 +53,14 @@
 <section id="failure-results"{{if .Live}} data-live-url="{{.Refresh}}"{{end}}>
 {{with .GroupSummary}}
 <section class="summary-card" aria-labelledby="group-summary">
-  <h2 id="group-summary">Observed failure summary</h2>
+  <div class="section-head">
+    <h2 id="group-summary">Observed failure summary {{template "group-state" .}}</h2>
+    <form class="group-actions" action="/groups/state" method="post">
+      <input type="hidden" name="group" value="{{$.Group}}"><input type="hidden" name="return" value="{{$.Refresh}}">
+      {{if eq .State "resolved" "muted"}}<button class="button small" name="state" value="open">{{if eq .State "muted"}}Unmute{{else}}Reopen{{end}}</button>
+      {{else}}<input name="version" maxlength="256" placeholder="Fixed in version (optional)" aria-label="Fixed in service.version (optional)" title="With a version, only traces reporting that service.version reopen the group. Older instances still rolling out don't."><button class="button small" name="state" value="resolved" title="Hide this group until a new matching trace arrives">Resolve</button><button class="button small ghost" name="state" value="muted" title="Hide this group and never notify for it">Mute</button>{{end}}
+    </form>
+  </div>
   <p><strong>{{if .ExceptionType}}{{.ExceptionType}}{{else}}{{classification .Classification}}{{end}}</strong> on <code>{{.Operation}}</code> in {{serviceLabel .Application .Service}}{{if .Environment}} ({{.Environment}}){{end}}{{if .HTTPStatus}} · evidence HTTP {{.HTTPStatus}}{{end}}</p>
   <dl class="facts">
     <div><dt>Traces</dt><dd>{{.Count}} matching {{if eq .Count 1}}trace{{else}}traces{{end}}</dd></div>
@@ -65,7 +78,7 @@
   <h2>No traces received yet</h2>
   <p>Send OTLP/HTTP traces to <code>{{.Endpoint}}</code>.</p>
   <p>To try the Go example, set <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code> to that URL and run <code>go run ./examples/go</code> from the repository. Open <a href="http://127.0.0.1:8080/failure">the demo failure</a>, wait a few seconds, then refresh this list.</p>
-  <a class="button" href="/settings#receiver">Check receiver diagnostics</a>
+  <div class="actions"><a class="button primary" href="/connect">Connect an application</a><a class="button" href="/settings#receiver">Check receiver diagnostics</a></div>
 </section>
 {{else if or .AllTraces .Filtered .First}}
 <section class="empty"><h2>No matching traces</h2><p>Try a broader time range or remove a filter.</p><a class="button" href="{{.Reset}}">Clear filters</a></section>
@@ -91,11 +104,13 @@
 {{end}}
 {{end}}
 
+{{define "group-state"}}{{if eq .State "reopened"}}<span class="pill server_error" title="Resolved {{timestamp .StateChanged}}, then received again{{with .ResolvedVersion}} from {{.}}{{end}}">Reopened{{with .ResolvedVersion}} in {{.}}{{end}}</span>{{else if eq .State "resolved"}}<span class="pill neutral" title="Resolved {{timestamp .StateChanged}}{{with .ResolvedVersion}}; no matching trace from {{.}} since{{end}}">Resolved{{with .ResolvedVersion}} in {{.}}{{end}}</span>{{else if eq .State "muted"}}<span class="pill neutral" title="{{timestamp .StateChanged}}">Muted</span>{{end}}{{end}}
+
 {{define "group-table"}}
 <div class="table-wrap" tabindex="0" role="region" aria-label="Error groups">
 <table class="group-table"><thead><tr><th scope="col">Error / Operation</th><th scope="col">Service / Environment</th><th scope="col" class="num">Traces</th><th scope="col">First received</th><th scope="col">Last received</th></tr></thead><tbody>
-{{range .}}<tr>
-  <td><a class="operation" href="{{.TracesURL}}">{{if .ExceptionType}}{{.ExceptionType}}{{else}}{{classification .Classification}}{{end}}</a><span class="subtle">{{.Operation}}{{if .HTTPStatus}} · HTTP {{.HTTPStatus}}{{end}} · <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Latest example</a></span></td>
+{{range .}}<tr data-first-received="{{.FirstObserved.UnixMilli}}">
+  <td><a class="operation" href="{{.TracesURL}}">{{if .ExceptionType}}{{.ExceptionType}}{{else}}{{classification .Classification}}{{end}}</a> {{template "group-state" .FailureGroup}}<span class="subtle">{{.Operation}}{{if .HTTPStatus}} · HTTP {{.HTTPStatus}}{{end}} · <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Latest example</a></span></td>
   <td>{{serviceLabel .Application .Service}}<span class="subtle">{{if .Namespace}}{{.Namespace}} · {{end}}{{or .Environment "Environment unspecified"}}</span></td>
   <td class="num"><a class="operation" href="{{.TracesURL}}">{{.Count}}</a></td>
   <td class="time">{{timestamp .FirstObserved}}</td><td class="time">{{timestamp .LastObserved}}</td>

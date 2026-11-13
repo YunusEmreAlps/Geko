@@ -61,8 +61,13 @@ func TestReadOnlyAgentQueries(t *testing.T) {
 	}
 	defer client.Close()
 	tools, err := client.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 3 {
+	if err != nil || len(tools.Tools) != 5 {
 		t.Fatalf("tools = %v, %v", tools, err)
+	}
+	for _, tool := range tools.Tools {
+		if tool.Annotations == nil || !tool.Annotations.ReadOnlyHint {
+			t.Fatalf("tool %s is not marked read-only", tool.Name)
+		}
 	}
 	result, err := client.CallTool(ctx, &mcp.CallToolParams{
 		Name: "list_failures", Arguments: map[string]any{"service": "orders", "limit": 1, "cursor": page.NextCursor},

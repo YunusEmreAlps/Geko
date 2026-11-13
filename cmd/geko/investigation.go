@@ -29,6 +29,7 @@ type failureArgs struct {
 	To              string `json:"to,omitempty" jsonschema:"Exclusive last receipt time in RFC3339"`
 	Limit           int    `json:"limit,omitempty" jsonschema:"Page size, 1 to 100"`
 	Cursor          string `json:"cursor,omitempty" jsonschema:"Next cursor from a previous page"`
+	State           string `json:"state,omitempty" jsonschema:"Error groups only: open (default, includes reopened), resolved, muted or all"`
 }
 
 type queryPage[T any] struct {
@@ -37,9 +38,14 @@ type queryPage[T any] struct {
 }
 
 func (args failureArgs) filter() (investigation.FailureFilter, error) {
+	return api.ParseFailureFilter(args.params())
+}
+
+func (args failureArgs) params() url.Values {
 	params := url.Values{
 		"q": {args.Search}, "service": {args.Service}, "evidence_service": {args.EvidenceService},
 		"application": {args.Application}, "from": {args.From}, "to": {args.To}, "cursor": {args.Cursor},
+		"state": {args.State},
 	}
 	if args.Status != 0 {
 		params.Set("status", strconv.Itoa(args.Status))
@@ -47,7 +53,7 @@ func (args failureArgs) filter() (investigation.FailureFilter, error) {
 	if args.Limit != 0 {
 		params.Set("limit", strconv.Itoa(args.Limit))
 	}
-	return api.ParseFailureFilter(params)
+	return params
 }
 
 func readFailures(ctx context.Context, store api.Reader, filter investigation.FailureFilter) (queryPage[investigation.TraceSummary], error) {
@@ -79,6 +85,7 @@ func failuresCommand(ctx context.Context, argv []string, out io.Writer) error {
 	flags := flag.NewFlagSet("failures", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	jsonOutput := flags.Bool("json", false, "write JSON to stdout")
+	server := flags.String("server", "", "Geko server URL; the token is read from GEKO_TOKEN")
 	flags.StringVar(&args.Search, "q", "", "search text")
 	flags.StringVar(&args.Service, "service", "", "request service")
 	flags.StringVar(&args.EvidenceService, "evidence-service", "", "service that recorded the evidence")
@@ -105,6 +112,13 @@ func failuresCommand(ctx context.Context, argv []string, out io.Writer) error {
 	filter, err := args.filter()
 	if err != nil {
 		return err
+	}
+	if *server != "" {
+		result, err := remoteFailures(ctx, *server, args)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(out).Encode(result)
 	}
 	store, err := openInvestigation(ctx)
 	if err != nil {

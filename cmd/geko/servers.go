@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/access"
@@ -66,6 +67,9 @@ func runServers(ctx context.Context, out io.Writer, endpoints []httpEndpoint, gr
 	}
 	if grpcListener != nil {
 		fmt.Fprintf(out, "OTLP/gRPC listening on %s\n", grpcListener.Addr())
+	}
+	if names := token.Names(access.ScopeIngest); len(names) > 0 {
+		fmt.Fprintf(out, "Ingest tokens: %s\n", strings.Join(names, ", "))
 	}
 	listeners := []net.Listener{grpcListener}
 	for _, endpoint := range endpoints {

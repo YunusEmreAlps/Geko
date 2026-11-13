@@ -39,6 +39,7 @@ type Reader interface {
 	Traces(context.Context, investigation.FailureFilter) (investigation.Page[investigation.TraceSummary], error)
 	Revision() uint64
 	FailureGroups(context.Context, investigation.FailureFilter, *investigation.GroupCursor) (investigation.FailureGroups, error)
+	SetGroupState(context.Context, string, investigation.GroupState, string, time.Time) error
 	api.Reader
 	HasTraces(context.Context) (bool, error)
 	Overview(context.Context, time.Time) (investigation.Overview, error)
@@ -57,13 +58,30 @@ type Settings struct {
 	DashboardAddr, GRPCAddr string
 	ConfigSource            config.Source
 	ListenAddr              string
-	DBPath                  string
-	Version                 string
-	ReceiverDiagnostics     func() otlp.Diagnostics
-	RetentionDays           int
-	MaxDBBytes              int64
-	OnFull                  storage.FullPolicy
-	Redaction               string
+	PublicURL               string
+	AccessToken             bool
+	IngestTokens            []string
+	ReadTokens              []string
+	// Tokens, when set, supplies current token names after a reload.
+	Tokens            access.Token
+	IngestConcurrency int
+	Notifications     *Notifications
+	// SignIn and SignOut manage browser sessions when a token is configured.
+	SignIn              func(http.ResponseWriter, *http.Request, string) bool
+	SignOut             func(http.ResponseWriter, *http.Request)
+	DBPath              string
+	Version             string
+	ReceiverDiagnostics func() otlp.Diagnostics
+	RetentionDays       int
+	MaxDBBytes          int64
+	OnFull              storage.FullPolicy
+	Redaction           string
+}
+
+// Notifications describes the configured webhook without its secret URL.
+type Notifications struct {
+	Format, Host string
+	Test         func(context.Context) error
 }
 
 type dashboard struct {
@@ -77,6 +95,7 @@ type dashboard struct {
 type screen struct {
 	Page, Title string
 	Data        any
+	SignOut     bool
 }
 
 func Register(mux *http.ServeMux, store Reader, settings Settings) error {
@@ -112,11 +131,22 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	mux.HandleFunc("GET /traces/{traceID}/otlp.json", d.local(d.downloadTrace))
 	mux.HandleFunc("GET /settings", d.local(d.status))
 	mux.HandleFunc("GET /applications", d.local(d.applications))
+	mux.HandleFunc("GET /connect", d.local(d.connect))
+	mux.HandleFunc("GET /metrics", d.local(d.metrics))
 	protect := http.NewCrossOriginProtection()
 	if settings.RestoreTrace != nil {
 		mux.Handle("POST /traces/import", protect.Handler(d.local(d.restoreTrace)))
 	}
 	mux.Handle("POST /applications", protect.Handler(d.local(d.changeApplications)))
+	mux.Handle("POST /groups/state", protect.Handler(d.local(d.changeGroupState)))
+	if settings.SignIn != nil && settings.SignOut != nil {
+		mux.HandleFunc("GET /login", d.local(d.login))
+		mux.Handle("POST /login", protect.Handler(d.local(d.login)))
+		mux.Handle("POST /logout", protect.Handler(d.local(d.logout)))
+	}
+	if settings.Notifications != nil {
+		mux.Handle("POST /settings/notifications/test", protect.Handler(d.local(d.testNotification)))
+	}
 	for _, name := range []string{"dashboard.css", "dashboard.js", "geko.svg", "theme.js", "live.js"} {
 		mux.HandleFunc("GET /assets/"+name, d.local(func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFileFS(w, r, files, "assets/"+name)
@@ -131,7 +161,7 @@ func (d *dashboard) local(handler http.HandlerFunc) http.HandlerFunc {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
-		if !api.LocalHost(r.Host) && !access.Authenticated(r.Context()) {
+		if !api.LocalHost(r.Host) && !access.Authenticated(r.Context()) && !access.Public(r.Context()) {
 			http.Error(w, "Dashboard requires a loopback Host", http.StatusForbidden)
 			return
 		}
@@ -141,7 +171,7 @@ func (d *dashboard) local(handler http.HandlerFunc) http.HandlerFunc {
 
 func (d *dashboard) render(w http.ResponseWriter, status int, page, title string, data any) {
 	var body bytes.Buffer
-	if err := d.templates.ExecuteTemplate(&body, "layout", screen{Page: page, Title: title, Data: data}); err != nil {
+	if err := d.templates.ExecuteTemplate(&body, "layout", screen{Page: page, Title: title, Data: data, SignOut: d.settings.SignOut != nil}); err != nil {
 		log.Printf("render dashboard %s: %v", page, err)
 		http.Error(w, "Dashboard rendering failed", http.StatusInternalServerError)
 		return
@@ -186,6 +216,8 @@ type failureView struct {
 	Groups                            []failureGroupView
 	GroupSummary                      *investigation.FailureGroup
 	Mode, Group, GroupsURL, TracesURL string
+	GroupState                        string
+	StateURLs                         map[string]string
 	Live                              bool
 	Items                             []investigation.TraceSummary
 	Search, Service, Status, Range    string
@@ -223,7 +255,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 	view := failureView{
 		CanRestore: allTraces && d.settings.RestoreTrace != nil,
 		AllTraces:  allTraces, Path: path, Reset: path,
-		Mode: params.Get("view"), Group: params.Get("group"),
+		Mode: params.Get("view"), Group: params.Get("group"), GroupState: params.Get("state"),
 		Search: params.Get("q"), Service: params.Get("service"), Status: params.Get("status"), Range: params.Get("range"),
 		EvidenceService: params.Get("evidence_service"),
 		Application:     params.Get("application"),
@@ -250,6 +282,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 	toggle.Del("group_cursor")
 	toggle.Del("group")
 	toggle.Del("view")
+	toggle.Del("state")
 	view.TracesURL = route("/failures", toggle)
 	view.AllTracesURL = route("/traces", toggle)
 	toggle.Set("view", "groups")
@@ -262,6 +295,18 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 	view.Refresh = route(path, refresh)
 	if view.Mode == "groups" {
 		view.Reset = "/failures?view=groups"
+		view.StateURLs = make(map[string]string)
+		for _, state := range []string{"open", "resolved", "muted"} {
+			links := maps.Clone(refresh)
+			links.Del("state")
+			if state != "open" {
+				links.Set("state", state)
+			}
+			view.StateURLs[state] = route("/failures", links)
+		}
+	} else if view.GroupState != "" {
+		d.problem(w, r, http.StatusBadRequest, "Invalid filters", "Group states apply to error groups only.")
+		return
 	}
 	if view.Range != "" {
 		period, ok := map[string]time.Duration{"1h": time.Hour, "24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour}[view.Range]
@@ -302,6 +347,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 				links.Del("view")
 				links.Del("group_cursor")
 				links.Del("limit")
+				links.Del("state")
 				links.Set("group", investigation.EncodeGroupKey(group.Key))
 				view.Groups = append(view.Groups, failureGroupView{group, route("/failures", links)})
 			}
@@ -322,6 +368,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 			if err == nil && filter.GroupKey != "" && len(page.Items) > 0 {
 				summaryFilter := filter
 				summaryFilter.After, summaryFilter.Limit = nil, 1
+				summaryFilter.GroupState = investigation.GroupAll
 				var groups investigation.FailureGroups
 				groups, err = d.store.FailureGroups(ctx, summaryFilter, nil)
 				if err == nil && len(groups.Items) > 0 {
@@ -340,7 +387,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 				d.unavailable(w, r, ctx)
 				return
 			}
-			view.Endpoint = traceEndpoint(d.settings.ListenAddr, r.Host)
+			view.Endpoint = d.traceEndpoint(r.Host)
 		}
 		params.Del("limit")
 		if filter.After != nil {
@@ -392,8 +439,26 @@ func (d *dashboard) status(w http.ResponseWriter, r *http.Request) {
 			Storage       storage.Status
 			Receiver      *otlp.Diagnostics
 			TraceEndpoint string
-		}{d.settings, status, receiver, traceEndpoint(d.settings.ListenAddr, r.Host)})
+			Notification  string
+		}{d.currentSettings(), status, receiver, d.traceEndpoint(r.Host), r.URL.Query().Get("notification")})
 	})
+}
+
+// currentSettings refreshes token names, which a token file reload can change.
+func (d *dashboard) currentSettings() Settings {
+	settings := d.settings
+	if settings.Tokens.Enabled() {
+		settings.IngestTokens = settings.Tokens.Names(access.ScopeIngest)
+		settings.ReadTokens = settings.Tokens.Names(access.ScopeRead)
+	}
+	return settings
+}
+
+func (d *dashboard) traceEndpoint(requestHost string) string {
+	if d.settings.PublicURL != "" {
+		return d.settings.PublicURL + "/v1/traces"
+	}
+	return traceEndpoint(d.settings.ListenAddr, requestHost)
 }
 
 // traceEndpoint returns a URL exporters can use. A wildcard listener such as

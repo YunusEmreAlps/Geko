@@ -45,6 +45,14 @@ func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
 		}
 	}
 
+	result, err := s.db.ExecContext(ctx, "DELETE FROM group_states WHERE changed_ns < ?", cutoff.UnixNano())
+	if err != nil {
+		return fmt.Errorf("expire group states: %w", err)
+	}
+	if deleted, err := result.RowsAffected(); err == nil && deleted > 0 {
+		s.revision.Add(1)
+	}
+
 	if !removed {
 		size, err := s.journalSize()
 		if err != nil {
@@ -54,7 +62,7 @@ func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
 			return nil
 		}
 	}
-	_, err := s.truncateJournal(ctx)
+	_, err = s.truncateJournal(ctx)
 	if err != nil {
 		return fmt.Errorf("checkpoint trace storage: %w", err)
 	}
@@ -112,7 +120,7 @@ func (s *Store) checkWriteCapacity(ctx context.Context, tx *sql.Tx) error {
 	}
 	// SQLite floors the limit at the existing page count. Evict mode can
 	// continue to reuse that space without growing the main database.
-	if effective > maxPages && s.onFull != storage.EvictOldest {
+	if effective > maxPages && !s.onFull.Evicts() {
 		return storage.ErrCapacity
 	}
 

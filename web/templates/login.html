@@ -1,0 +1,24 @@
+{{define "login"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · Geko</title>
+  <link rel="icon" href="/assets/geko.svg" type="image/svg+xml">
+  <script src="/assets/theme.js"></script>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <p class="brand"><svg viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M30 36c-2 7-9 8-13 13-3 4-1 9 4 9 3 0 5-2 5-4" fill="none" stroke-width="5"/><path d="M30 24 21 19l-1-6m1 6-6 1m22 7 9 1 5-5m-5 5 5 3M28 34l-8-1-6 6m6-6-6-1m18 7 7 7 7-1m-7 1 1 6" fill="none" stroke-width="4"/><path d="M27 41c-6-3-4-12 1-19l4-6c-1-4 1-8 5-10 5-3 12-1 15 3 3 5 0 11-5 13-2 1-4 1-6 1l-5 13c-2 5-5 7-9 5Z" stroke="none"/></g><circle class="brand-eye" cx="43" cy="11" r="2.5"/></svg>Geko</p>
+    <h1>Sign in</h1>
+    <form action="/login" method="post">
+      <input type="hidden" name="next" value="{{.Next}}">
+      <label>Token <input type="password" name="token" required autocomplete="current-password" autofocus maxlength="256"></label>
+      {{with .Error}}<p class="login-error" role="alert">{{.}}</p>{{end}}
+      <button class="button primary" type="submit">Sign in</button>
+    </form>
+    <p class="subtle">Use the access token, or a read token for read-only access. You stay signed in on this browser for 7 days, or until Geko restarts.</p>
+  </main>
+</body>
+</html>{{end}}

@@ -41,3 +41,44 @@ assignments are resolved on reads, including after historical reassignment.
 - [x] Version-based regression detection.
 - [x] VS Code links from recorded stack traces with absolute source paths.
 - [x] Evidence-citing error group summaries in the dashboard and group evidence for AI summaries through MCP.
+
+## Phase 4: shared dev and staging instance
+
+One Geko instance on a server receives traces from several applications and
+reaches their developers and coding agents. Scope: side projects, dev and
+staging. Not production monitoring: no logs or metrics, no threshold alerts,
+no multi-user accounts, no built-in ACME, no external databases.
+
+- [ ] Tag and verify a first release (`v0.1`).
+- [x] Export-only ingest tokens per application (`GEKO_INGEST_TOKENS`).
+- [x] Non-loopback listeners require `GEKO_ALLOW_PLAINTEXT=true`.
+- [x] `public_url` for the trace endpoint shown behind a proxy.
+- [x] Unauthenticated `/healthz` and database-backed `/readyz`.
+- [x] `geko backup` with `VACUUM INTO` while the server runs.
+- [x] Compose with Caddy (HTTP and gRPC on 443) and a systemd unit in `deploy/`.
+- [x] Read-only tokens (`GEKO_READ_TOKENS`) for agents, scripts and viewers.
+- [x] Read-only MCP over Streamable HTTP at `/mcp` and `geko failures --server`.
+- [x] Webhooks for new and reopened error groups (JSON, Slack, Discord, ntfy).
+- [x] Resolve, mute and reopen error groups; "New" marks groups first received
+      since the browser's last visit to the open list.
+- [x] A connect page that generates exporter environment variables.
+
+## Phase 5: from failure to verified fix
+
+- [x] `geko run -- <command>` lists failures received while a command ran,
+      matched by receipt time. Matching by test would need spans that carry
+      test names.
+- [x] MCP `compare_trace` and `compare_versions`; `set_group_state` on `/mcp`
+      for full-access clients when `GEKO_MCP_TRIAGE` is set.
+- [x] Resolve in a version: only traces from the fixed `service.version` reopen
+      the group, so rollouts don't.
+- [x] Configurable ingest concurrency, rate-limited logging of rejected
+      credentials, and `/metrics`.
+- [x] `on_full: evict_fair` evicts from the application holding the most spans.
+- [x] Browser sign-in with in-memory sessions and sign-out; no Basic dialog.
+- [x] Token reload without restart through `GEKO_TOKENS_FILE`.
+- [x] Go benchmarks for ingest, failures and error groups
+      (`go test -run '^$' -bench . ./internal/storage/sqlite`).
+- [ ] Resource comparison with Jaeger and the five-developer usability study
+      from `competitive-research.md`. Both need people and a test setup.
+- [ ] Visual regression coverage for both themes. Needs a browser in CI.

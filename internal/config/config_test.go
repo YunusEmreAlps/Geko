@@ -4,9 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 )
 
@@ -22,10 +24,10 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Config{RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, ListenAddr: DefaultListenAddr, DBPath: filepath.Join(dir, "geko", "geko.db")}
+	want := Config{RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, IngestSlots: DefaultIngestConcurrency, ListenAddr: DefaultListenAddr, DBPath: filepath.Join(dir, "geko", "geko.db")}
 	want.OnFull, want.Redaction = storage.EvictOldest, DefaultRedaction
 	want.Source = defaultTestSource()
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Load() = %+v, want %+v", got, want)
 	}
 }
@@ -49,16 +51,16 @@ func TestLoadOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := Config{
-		RetentionDays: 14, MaxDBMiB: 512, ListenAddr: "[::1]:4320", DBPath: path,
+		RetentionDays: 14, MaxDBMiB: 512, IngestSlots: DefaultIngestConcurrency, ListenAddr: "[::1]:4320", DBPath: path,
 		OnFull: storage.Reject, Redaction: "strict",
 		Source: Source{
-			DashboardAddr: SettingSource{Kind: "default"}, GRPCAddr: SettingSource{Kind: "default"},
+			DashboardAddr: SettingSource{Kind: "default"}, GRPCAddr: SettingSource{Kind: "default"}, PublicURL: SettingSource{Kind: "default"}, IngestSlots: SettingSource{Kind: "default"},
 			ListenAddr: envSource("GEKO_LISTEN_ADDR"), DBPath: envSource("GEKO_DB_PATH"),
 			RetentionDays: envSource("GEKO_RETENTION_DAYS"), MaxDBMiB: envSource("GEKO_MAX_DB_MIB"),
 			OnFull: envSource("GEKO_ON_FULL"), Redaction: envSource("GEKO_REDACTION"),
 		},
 	}
-	if got != want {
+	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("Load() = %+v, want %+v", got, want)
 	}
 }
@@ -88,10 +90,10 @@ func TestLoadYAMLAndEnvironmentPrecedence(t *testing.T) {
 	yamlSource := SettingSource{Kind: "yaml"}
 	origin.ListenAddr, origin.DBPath, origin.OnFull, origin.Redaction = yamlSource, yamlSource, yamlSource, yamlSource
 	if want := (Config{
-		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, ListenAddr: "127.0.0.1:4320",
+		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, IngestSlots: DefaultIngestConcurrency, ListenAddr: "127.0.0.1:4320",
 		DBPath: filepath.Join(workingDir, "data", "default.db"), OnFull: storage.Reject, Redaction: "strict",
 		Source: origin,
-	}); err != nil || got != want {
+	}); err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("Load() = %+v, %v, want %+v", got, err, want)
 	}
 
@@ -103,10 +105,10 @@ func TestLoadYAMLAndEnvironmentPrecedence(t *testing.T) {
 	origin = defaultTestSource()
 	origin.FilePath, origin.ListenAddr, origin.DBPath = configPath, yamlSource, yamlSource
 	if want := (Config{
-		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, ListenAddr: "[::1]:4321",
+		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, IngestSlots: DefaultIngestConcurrency, ListenAddr: "[::1]:4321",
 		DBPath: filepath.Join(configDir, "data", "custom.db"), Source: origin,
 		OnFull: storage.EvictOldest, Redaction: DefaultRedaction,
-	}); err != nil || got != want {
+	}); err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("Load() = %+v, %v, want %+v", got, err, want)
 	}
 
@@ -115,10 +117,10 @@ func TestLoadYAMLAndEnvironmentPrecedence(t *testing.T) {
 	got, err = Load()
 	origin.ListenAddr, origin.DBPath = envSource("GEKO_LISTEN_ADDR"), envSource("GEKO_DB_PATH")
 	if want := (Config{
-		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, ListenAddr: "127.0.0.1:4322",
+		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, IngestSlots: DefaultIngestConcurrency, ListenAddr: "127.0.0.1:4322",
 		DBPath: filepath.Join(workingDir, "override.db"), Source: origin,
 		OnFull: storage.EvictOldest, Redaction: DefaultRedaction,
-	}); err != nil || got != want {
+	}); err != nil || !reflect.DeepEqual(got, want) {
 		t.Fatalf("Load() = %+v, %v, want %+v", got, err, want)
 	}
 }
@@ -158,6 +160,15 @@ func TestRejectInvalidYAMLConfig(t *testing.T) {
 func clearConfigEnv(t *testing.T) {
 	t.Setenv("GEKO_ACCESS_TOKEN", "")
 	t.Helper()
+	t.Setenv("GEKO_INGEST_TOKENS", "")
+	t.Setenv("GEKO_READ_TOKENS", "")
+	t.Setenv("GEKO_WEBHOOK_URL", "")
+	t.Setenv("GEKO_WEBHOOK_FORMAT", "")
+	t.Setenv("GEKO_MCP_TRIAGE", "")
+	t.Setenv("GEKO_INGEST_CONCURRENCY", "")
+	t.Setenv("GEKO_TOKENS_FILE", "")
+	t.Setenv("GEKO_ALLOW_PLAINTEXT", "")
+	t.Setenv("GEKO_PUBLIC_URL", "")
 	for _, key := range []string{"GEKO_DASHBOARD_ADDR", "GEKO_GRPC_ADDR"} {
 		t.Setenv(key, "")
 		if err := os.Unsetenv(key); err != nil {
@@ -186,15 +197,66 @@ func TestTokenRequiredForNonLoopback(t *testing.T) {
 		}
 	}
 	t.Setenv("GEKO_ACCESS_TOKEN", "3f9c1e7a0b5d48e2c6a1f0d9b7e4c2a8")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GEKO_ALLOW_PLAINTEXT") {
+		t.Fatalf("non-loopback listener without plaintext acknowledgment: %v", err)
+	}
+	t.Setenv("GEKO_ALLOW_PLAINTEXT", "maybe")
+	if _, err := Load(); err == nil {
+		t.Fatal("accepted an invalid GEKO_ALLOW_PLAINTEXT")
+	}
+	t.Setenv("GEKO_ALLOW_PLAINTEXT", "true")
 	cfg, err := Load()
 	if err != nil || !cfg.AccessToken.Enabled() || cfg.ListenAddr != "0.0.0.0:4318" {
 		t.Fatalf("token mode failed to load: %v", err)
 	}
 }
 
+func TestLoopbackNeedsNoPlaintextAcknowledgment(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	t.Setenv("GEKO_ACCESS_TOKEN", "3f9c1e7a0b5d48e2c6a1f0d9b7e4c2a8")
+	if _, err := Load(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIngestTokens(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	t.Setenv("GEKO_INGEST_TOKENS", "storefront=a1b2c3d4e5f60718293a4b5c6d7e8f90")
+	if _, err := Load(); err == nil {
+		t.Fatal("ingest tokens accepted without an access token")
+	}
+	t.Setenv("GEKO_ACCESS_TOKEN", "3f9c1e7a0b5d48e2c6a1f0d9b7e4c2a8")
+	cfg, err := Load()
+	if err != nil || strings.Join(cfg.AccessToken.Names(access.ScopeIngest), ",") != "storefront" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+}
+
+func TestPublicURL(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	writeConfig(t, defaultConfigPath, "public_url: 'https://geko.example.com/'\n")
+	cfg, err := Load()
+	if err != nil || cfg.PublicURL != "https://geko.example.com" || cfg.Source.PublicURL.Kind != "yaml" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	t.Setenv("GEKO_PUBLIC_URL", "https://example.com/geko")
+	if cfg, err = Load(); err != nil || cfg.PublicURL != "https://example.com/geko" || cfg.Source.PublicURL.Kind != "env" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	for _, value := range []string{"geko.example.com", "ftp://geko.example.com", "https://user:pass@geko.example.com", "https://geko.example.com/?a=1", "https://geko.example.com/#x", "https://"} {
+		t.Setenv("GEKO_PUBLIC_URL", value)
+		if _, err := Load(); err == nil {
+			t.Errorf("accepted %q", value)
+		}
+	}
+}
+
 func defaultTestSource() Source {
 	d := SettingSource{Kind: "default"}
-	return Source{DashboardAddr: d, GRPCAddr: d, ListenAddr: d, DBPath: d, RetentionDays: d, MaxDBMiB: d, OnFull: d, Redaction: d}
+	return Source{DashboardAddr: d, GRPCAddr: d, PublicURL: d, IngestSlots: d, ListenAddr: d, DBPath: d, RetentionDays: d, MaxDBMiB: d, OnFull: d, Redaction: d}
 }
 
 func TestOptionalListeners(t *testing.T) {
@@ -230,5 +292,75 @@ func writeConfig(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestWebhook(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	t.Setenv("GEKO_WEBHOOK_FORMAT", "slack")
+	if _, err := Load(); err == nil {
+		t.Fatal("accepted a webhook format without a URL")
+	}
+	t.Setenv("GEKO_WEBHOOK_FORMAT", "")
+	t.Setenv("GEKO_WEBHOOK_URL", "https://hooks.slack.com/services/T/B/X")
+	cfg, err := Load()
+	if err != nil || cfg.WebhookFormat != "slack" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	t.Setenv("GEKO_WEBHOOK_FORMAT", "teams")
+	if _, err := Load(); err == nil {
+		t.Fatal("accepted an unknown webhook format")
+	}
+	t.Setenv("GEKO_WEBHOOK_FORMAT", "")
+	t.Setenv("GEKO_WEBHOOK_URL", "hooks.slack.com/services")
+	if _, err := Load(); err == nil {
+		t.Fatal("accepted a webhook URL without a scheme")
+	}
+}
+
+func TestIngestConcurrency(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	writeConfig(t, defaultConfigPath, "ingest_concurrency: 16\n")
+	cfg, err := Load()
+	if err != nil || cfg.IngestSlots != 16 || cfg.Source.IngestSlots.Kind != "yaml" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	for _, value := range []string{"0", "65", "many"} {
+		t.Setenv("GEKO_INGEST_CONCURRENCY", value)
+		if _, err := Load(); err == nil {
+			t.Errorf("accepted %q", value)
+		}
+	}
+}
+
+func TestFairEvictionPolicy(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	t.Setenv("GEKO_ON_FULL", "evict_fair")
+	if cfg, err := Load(); err != nil || cfg.OnFull != storage.EvictFair {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	t.Setenv("GEKO_ON_FULL", "evict_newest")
+	if _, err := Load(); err == nil {
+		t.Fatal("accepted an unknown policy")
+	}
+}
+
+func TestTokensFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	clearConfigEnv(t)
+	writeConfig(t, "tokens.yaml", "access: 3f9c1e7a0b5d48e2c6a1f0d9b7e4c2a8\nread:\n  agent: f0e1d2c3b4a5968778695a4b3c2d1e0f\n")
+	t.Setenv("GEKO_TOKENS_FILE", "tokens.yaml")
+	cfg, err := Load()
+	if err != nil || !cfg.AccessToken.Enabled() || cfg.TokensFile != filepath.Join(dir, "tokens.yaml") ||
+		strings.Join(cfg.AccessToken.Names(access.ScopeRead), ",") != "agent" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	t.Setenv("GEKO_READ_TOKENS", "other=9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "not both") {
+		t.Fatalf("tokens in a file and the environment: %v", err)
 	}
 }

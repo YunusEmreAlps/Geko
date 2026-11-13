@@ -256,3 +256,84 @@ func retentionSpan(id byte, name string) telemetry.Span {
 		StartTime: time.Unix(1, 0), EndTime: time.Unix(2, 0),
 	}
 }
+
+func TestFairEvictionKeepsQuietServices(t *testing.T) {
+	for _, tc := range []struct {
+		policy    storage.FullPolicy
+		quietKept bool
+	}{{storage.EvictOldest, false}, {storage.EvictFair, true}} {
+		t.Run(string(tc.policy), func(t *testing.T) {
+			ctx := t.Context()
+			db, err := OpenWithPolicy(ctx, filepath.Join(t.TempDir(), "fair.db"), 1<<20, tc.policy)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+			now := time.Now()
+			span := func(id byte, service string, size int) telemetry.Span {
+				s := retentionSpan(id, strings.Repeat("x", size))
+				s.ServiceName = service
+				return s
+			}
+			quiet := span(1, "quiet", 100<<10)
+			if err := db.WriteSpans(ctx, now.Add(-2*time.Hour), []telemetry.Span{quiet}); err != nil {
+				t.Fatal(err)
+			}
+			for i := range 6 {
+				if err := db.WriteSpans(ctx, now.Add(-time.Hour+time.Duration(i)*time.Minute), []telemetry.Span{span(byte(10+i), "noisy", 100<<10)}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := db.WriteSpans(ctx, now, []telemetry.Span{span(30, "noisy", 300<<10)}); err != nil {
+				t.Fatal(err)
+			}
+			status, err := db.Status(ctx)
+			if err != nil || status.EvictedTraces == 0 {
+				t.Fatalf("status = %+v, %v", status, err)
+			}
+			_, _, err = db.Trace(ctx, quiet.TraceID, nil, 1)
+			if kept := err == nil; kept != tc.quietKept {
+				t.Fatalf("quiet trace kept = %v, want %v (%v)", kept, tc.quietKept, err)
+			}
+			if _, _, err := db.Trace(ctx, telemetry.TraceID{30}, nil, 1); err != nil {
+				t.Fatalf("incoming trace: %v", err)
+			}
+		})
+	}
+}
+
+func TestFairEvictionFallsBackToOldest(t *testing.T) {
+	ctx := t.Context()
+	db, err := OpenWithPolicy(ctx, filepath.Join(t.TempDir(), "fallback.db"), 1<<20, storage.EvictFair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Now()
+	old := retentionSpan(1, strings.Repeat("x", 300<<10))
+	old.ServiceName = "small"
+	if err := db.WriteSpans(ctx, now.Add(-time.Hour), []telemetry.Span{old}); err != nil {
+		t.Fatal(err)
+	}
+	large := func(id byte) telemetry.Span {
+		s := retentionSpan(20, strings.Repeat("y", 150<<10))
+		s.ID, s.ServiceName = telemetry.SpanID{id}, "large"
+		return s
+	}
+	if err := db.WriteSpans(ctx, now.Add(-30*time.Minute), []telemetry.Span{large(1), large(2), large(3)}); err != nil {
+		t.Fatal(err)
+	}
+	// "large" holds the most spans, but its only trace continues in this
+	// export and is protected, so the oldest other trace is evicted instead.
+	continued := large(4)
+	continued.Name = strings.Repeat("z", 300<<10)
+	if err := db.WriteSpans(ctx, now, []telemetry.Span{continued}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.Trace(ctx, old.TraceID, nil, 1); !errors.Is(err, investigation.ErrTraceNotFound) {
+		t.Fatalf("old trace lookup: %v", err)
+	}
+	if _, page, err := db.Trace(ctx, telemetry.TraceID{20}, nil, 10); err != nil || len(page.Items) != 4 {
+		t.Fatalf("protected trace = %d spans, %v", len(page.Items), err)
+	}
+}

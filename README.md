@@ -80,33 +80,110 @@ Refresh **Failures** and open **POST /checkout**. More examples:
 
 The host networking example uses Geko's default loopback listener. To use Docker
 bridge networking and publish a port, configure an access token and an address
-reachable inside the container. This example publishes the port on the Docker
-host's loopback interface. [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/)
+reachable inside the container. A non-loopback address also requires
+`GEKO_ALLOW_PLAINTEXT=true`, which confirms that only a trusted network or a TLS
+proxy can reach it. This example publishes the port on the Docker host's loopback
+interface. [Docker port publishing](https://docs.docker.com/engine/network/port-publishing/)
 
 ```sh
 export GEKO_ACCESS_TOKEN="$(openssl rand -hex 32)"
 docker run --rm -p 127.0.0.1:4318:4318 -v geko-data:/data \
-  -e GEKO_ACCESS_TOKEN -e GEKO_LISTEN_ADDR=0.0.0.0:4318 geko
+  -e GEKO_ACCESS_TOKEN -e GEKO_LISTEN_ADDR=0.0.0.0:4318 -e GEKO_ALLOW_PLAINTEXT=true geko
 ```
 
-Open http://127.0.0.1:4318 and sign in as `geko` with the token as the
-password. For OTLP/HTTP and OTLP/gRPC clients, set
+Open http://127.0.0.1:4318 and sign in with the token. The browser stays signed
+in for 7 days, or until Geko restarts; **Sign out** in the sidebar ends the
+session. Scripts can send the token as a Bearer token, or as the Basic password
+for user `geko`. For OTLP/HTTP and OTLP/gRPC clients, set
 `OTEL_EXPORTER_OTLP_TRACES_HEADERS="authorization=Bearer%20${GEKO_ACCESS_TOKEN}"`.
 API and health check clients can also send `Authorization: Bearer <token>`.
 To receive gRPC through Docker, also set `GEKO_GRPC_ADDR=0.0.0.0:4317` and
 publish `127.0.0.1:4317:4317`.
 
-For access from another machine, terminate TLS at a reverse proxy and keep
-Geko's published port on host loopback. Preserve the request Host and
-Authorization headers. Configure HTTP/2 proxying for gRPC if you expose it.
-Restart Geko after rotating the token. At startup, Geko prints a warning for
-every listener that is not bound to a loopback address.
+For access from another machine, see [Run on a server](#run-on-a-server).
+
+### Run on a server
+
+One Geko instance can receive traces from several of your applications, for
+example side projects or dev and staging environments. It is not a production
+monitoring system: it stores traces only, keeps them in one SQLite file, and
+does not send alerts. Production tracing is usually sampled, so a failure in a
+dropped trace never reaches Geko.
+
+[`deploy/`](deploy) contains a Docker Compose setup with Caddy, which obtains a
+TLS certificate and serves OTLP/HTTP, OTLP/gRPC and the dashboard on port 443:
+
+```sh
+cd deploy
+cp .env.example .env   # set GEKO_DOMAIN, GEKO_ACCESS_TOKEN and GEKO_INGEST_TOKENS
+docker compose up -d --build
+```
+
+- **Access token** (`GEKO_ACCESS_TOKEN`): signs in to the dashboard with full
+  access. Keep it out of application configuration.
+- **Ingest tokens** (`GEKO_INGEST_TOKENS`): one per application, as
+  `name=token` pairs. They can only export traces, so a leaked token can't read
+  stored data, and you can revoke one application without changing the others.
+  **Settings** lists the names, never the values.
+- **Read tokens** (`GEKO_READ_TOKENS`): for coding agents, scripts and teammates
+  who only look. Teammates sign in to the dashboard with one. They open the dashboard, the query API and `/mcp`, but can't
+  change mappings, triage groups or restore traces.
+- **Connect** in the sidebar generates the environment variables for a service
+  in Bash, PowerShell or Docker Compose. Point each application at the domain
+  with its ingest token:
+
+  ```sh
+  OTEL_EXPORTER_OTLP_ENDPOINT=https://geko.example.com
+  OTEL_EXPORTER_OTLP_HEADERS="authorization=Bearer%20<ingest token>"
+  OTEL_RESOURCE_ATTRIBUTES=service.namespace=Storefront
+  ```
+
+  The same endpoint works for `http/protobuf` and `grpc`.
+- `GEKO_PUBLIC_URL` makes the dashboard show the public trace endpoint instead
+  of the container address.
+- `GET /healthz` and `GET /readyz` need no token. `/readyz` returns 503 when the
+  database doesn't answer. `GET /metrics` serves receiver counters and storage
+  sizes in Prometheus format to a read token.
+- Rejected credentials are logged with the client address: the first at once,
+  then a count per address each minute. Geko doesn't lock addresses out, because
+  behind a proxy every client shares the proxy's address; tokens of 32 or more
+  random characters can't be guessed online.
+- Back up while Geko runs: `docker compose exec geko /geko backup /data/backup.db`,
+  then copy the file out with `docker compose cp`.
+- Set `GEKO_WEBHOOK_URL` to get a message when an error group first appears or
+  a resolved group recurs. See [Notifications](#notifications).
+- Coding agents reach the server through `/mcp` or `geko failures --server`.
+  See [Read traces from coding tools](#read-traces-from-coding-tools).
+
+Without Docker, [`deploy/geko.service`](deploy/geko.service) runs Geko under
+systemd on loopback, behind your own reverse proxy. For any proxy, preserve the
+Host and Authorization headers, allow request bodies of at least 5 MB (nginx
+defaults to 1 MB), proxy gRPC over HTTP/2, and don't buffer `text/event-stream`
+responses.
+
+Tokens set in environment variables take effect at restart. To add or rotate
+tokens without a restart, keep them in a file and set `GEKO_TOKENS_FILE` to its
+path instead of the three token variables:
+
+```yaml
+access: <token>
+ingest:
+  storefront: <token>
+  reporting: <token>
+read:
+  claude: <token>
+```
+
+Geko checks the file every 5 seconds. A valid change applies to every listener
+at once and signs out every browser, so a rotated token also ends sessions that
+started with the old one. An invalid file is logged and the current tokens stay
+in use. Keep the file readable only by Geko's user.
 
 ### Upgrade an existing installation
 
-Stop Geko and back up the SQLite database, including any remaining
-`-wal` file beside it. The database path is shown in **Settings** and
-`geko doctor`. Start the new binary with `geko serve` and the same
+Back up the SQLite database with `geko backup <new-file>`, which works while
+Geko runs, or stop Geko and copy the file with any remaining `-wal` file beside
+it. The database path is shown in **Settings** and `geko doctor`. Start the new binary with `geko serve` and the same
 configuration. Geko updates the database schema at startup and derives
 trace summaries and service membership from the existing spans. Startup
 can take longer for larger databases, and the file can grow by roughly 15%.
@@ -275,12 +352,58 @@ To connect an MCP client, set its stdio command to the absolute path to
 `GEKO_CONFIG` in the client's server environment when using a custom
 database. Use `list_failures` for recent failure evidence, `get_trace` for
 paginated span timings and relationships, and `list_failure_groups` for
-recurring failures with trace counts, receipt times, and request HTTP outcomes.
+recurring failures with trace counts, receipt times, request HTTP outcomes and
+triage state. Its `state` argument is `open` (the default, including reopened
+groups), `resolved`, `muted` or `all`.
 Ask your MCP client to summarize the groups and cite each `evidence_path`
 relative to your Geko dashboard. The client generates the AI summary using
 its own model. Geko computes the group statistics locally.
 
-Both commands open an existing SQLite database in read-only mode. MCP tool
+`compare_trace` returns a failing trace beside the latest successful request to
+the same entry operation, service, application and environment, with the
+duration difference. `compare_versions` compares failure rates and mean
+durations per operation between two `service.version` values.
+
+On a server, Geko serves the same read-only tools over Streamable HTTP at
+`/mcp` on the dashboard listener. Give the agent a read token:
+
+```sh
+claude mcp add --transport http geko https://geko.example.com/mcp \
+  --header "Authorization: Bearer <read token>"
+```
+
+`geko failures --json --server https://geko.example.com` queries a server's
+API instead of a local file, with the token from `GEKO_TOKEN`. Without a token,
+`/mcp` only answers requests to a loopback Host, like the rest of the dashboard.
+
+With `GEKO_MCP_TRIAGE=true`, `/mcp` also offers `set_group_state` to clients
+using the access token, or to any local client when no token is configured. An
+agent can then resolve the group it fixed, with the version that contains the
+fix. Read tokens and `geko mcp` over stdio never get it. Telemetry text can
+contain instructions planted by whoever controls a service's input, so enable
+this only for agents you supervise.
+
+### Check a test run
+
+`geko run` runs a command with exporter variables pointing at Geko, then lists
+the failures received while it ran:
+
+```sh
+geko run -- go test ./...
+geko run -- npm test
+```
+
+It sets `OTEL_EXPORTER_OTLP_ENDPOINT`, the protocol, a 500 ms batch delay, and
+turns off metric and log exporters, unless the environment already sets them.
+If no Geko is listening on `listen_addr`, it starts one for the duration of the
+command. The summary goes to stderr, with links and the time window to pass to
+`list_failures`, and Geko exits with the command's exit code. Traces are matched
+by receipt time, not by test: the list can include failures from other clients
+of the same Geko, and misses spans exported more than two seconds after the
+command exits. Only processes that inherit the environment, such as the test
+binary and servers it starts, send traces.
+
+Locally, both commands open an existing SQLite database in read-only mode. MCP tool
 descriptions mark telemetry text as untrusted data, because exception messages
 and operation names come from the instrumented services. A malformed request
 line receives a JSON-RPC error and the session continues. They work
@@ -311,6 +434,20 @@ span immediately. The summary separates request HTTP outcomes from the
 evidence span's status and links to the latest matching span. Application,
 service, search and time filters apply to the summary and trace list.
 
+Triage a group from its summary: **Resolve** hides it until a matching trace is
+received again, when it returns to the open list marked **Reopened**. **Mute**
+hides it for good and stops its notifications. **Open**, **Resolved** and **Muted**
+next to the view switcher list each state. Groups first received since your
+last visit to the open list are marked **New** in that browser. Triage states
+expire with trace retention. Because the application is part of a group's
+identity, changing a service mapping starts new groups.
+
+Enter the release that contains the fix in **Fixed in version** when you resolve
+a group. Geko then reopens it only for traces whose evidence service reports
+that `service.version`, so failures from instances still running the old version
+during a rollout don't reopen it. The group list shows **Resolved in 1.4.2**
+while no matching trace from that version has arrived.
+
 Groups use each trace's primary evidence. Application, namespace, service,
 environment, operation, error classification, exception type and span HTTP status
 identify a group. Different instance IDs or messages do not split it; exceptions
@@ -323,6 +460,22 @@ use **Refresh results** when prompted. Older pages stay stable, and manual
 refresh works without JavaScript. Changes made by another process directly to
 the database require manual refresh. Only Geko's own pages can open the live
 stream; browsers that send a cross-site `Sec-Fetch-Site` header are refused.
+
+### Notifications
+
+Set `GEKO_WEBHOOK_URL` to send a message when an error group is first received,
+or when a resolved group recurs. Muted groups never notify. Geko checks every
+30 seconds and sends at most five messages per check, then one summary.
+
+`GEKO_WEBHOOK_FORMAT` is `slack`, `discord`, `ntfy` or `json`. Slack, Discord and
+ntfy.sh URLs are recognized automatically; any other URL receives JSON with an
+`event` (`new_group`, `reopened_group`, `summary` or `test`), a `text` summary,
+the group's fields and a dashboard `url`. Links use `public_url`, or the
+dashboard address when it isn't set. Messages contain the exception type,
+operation, service and counts, but never exception messages, which can contain
+secrets. **Settings** shows the webhook's host and has **Send test
+notification**. This is not alerting: there are no thresholds, schedules or
+escalation, and a failure in a trace that never reaches Geko sends nothing.
 
 ## Configuration
 
@@ -337,14 +490,23 @@ even if YAML configures a separate address.
 
 | YAML key | Environment variable | Default |
 | --- | --- | --- |
-| `listen_addr` | `GEKO_LISTEN_ADDR` | `127.0.0.1:4318`. Non-loopback listeners require an access token. |
+| `listen_addr` | `GEKO_LISTEN_ADDR` | `127.0.0.1:4318`. Non-loopback listeners require an access token and `GEKO_ALLOW_PLAINTEXT=true`. |
 | — | `GEKO_ACCESS_TOKEN` | Empty. A token of 32–256 ASCII letters, digits, hyphens or underscores, with at least 10 different characters, enables authentication on all listeners. Generate one with `openssl rand -hex 32`. |
+| — | `GEKO_INGEST_TOKENS` | Empty. Export-only tokens as comma-separated `name=token` pairs, with the same token rules. Requires `GEKO_ACCESS_TOKEN`. |
+| — | `GEKO_ALLOW_PLAINTEXT` | `false`. Geko doesn't terminate TLS; set `true` to allow non-loopback listeners behind a TLS proxy or on a trusted network. |
+| `public_url` | `GEKO_PUBLIC_URL` | Empty. External URL of the OTLP/HTTP listener, such as `https://geko.example.com`, shown as the trace endpoint and used in notification links. |
+| — | `GEKO_READ_TOKENS` | Empty. Read-only tokens for the dashboard, query API and `/mcp`, as comma-separated `name=token` pairs. Requires `GEKO_ACCESS_TOKEN`. |
+| — | `GEKO_TOKENS_FILE` | Empty. YAML file with `access`, `ingest` and `read` tokens, reloaded when it changes. Replaces the three token variables. |
+| — | `GEKO_WEBHOOK_URL` | Empty. Webhook for new and reopened error groups. |
+| — | `GEKO_WEBHOOK_FORMAT` | Inferred from the URL: `slack`, `discord`, `ntfy`, otherwise `json`. |
 | `db_path` | `GEKO_DB_PATH` | `geko/geko.db` in the OS user configuration directory |
 | `retention_days` | `GEKO_RETENTION_DAYS` | `7` (1–3650) |
 | `dashboard_addr` | `GEKO_DASHBOARD_ADDR` | Empty: share the HTTP listener |
 | `grpc_addr` | `GEKO_GRPC_ADDR` | Empty: disabled; set `127.0.0.1:4317` to enable |
 | `max_db_mib` | `GEKO_MAX_DB_MIB` | `256` MiB for the main SQLite file (8–65536) |
-| `on_full` | `GEKO_ON_FULL` | `evict_oldest`, or `reject` to keep stored traces and return HTTP 503 |
+| `ingest_concurrency` | `GEKO_INGEST_CONCURRENCY` | `4` exports decoded at once across OTLP/HTTP and gRPC (1–64). Each can hold a 4 MiB payload and its spans in memory. Raise it when slow clients over a WAN get `Receiver busy` rejections. |
+| — | `GEKO_MCP_TRIAGE` | `false`. Offer `set_group_state` on `/mcp` to clients with full access. |
+| `on_full` | `GEKO_ON_FULL` | `evict_oldest`; `evict_fair` to evict from the application holding the most spans first; or `reject` to keep stored traces and return HTTP 503 |
 | `redaction` | `GEKO_REDACTION` | `best_effort`, or `strict` |
 
 A relative `db_path` in YAML resolves from the YAML file's directory. A
@@ -357,7 +519,13 @@ relative `GEKO_DB_PATH` resolves from the working directory.
   transaction as the new export. Traces in the incoming export are protected.
   If the export still doesn't fit, nothing is evicted and Geko returns HTTP 503
   with `Retry-After: 30`. `reject` returns that response right away.
-- If you lower the limit below the current file size, `evict_oldest` reuses
+- `evict_fair` suits one Geko shared by several applications: it evicts the
+  oldest traces of the application with the most stored spans, or of the
+  service for spans without `service.namespace`, so one busy application can't
+  push out the others' history. A trace spanning applications is removed whole.
+  When that application's only traces are in the incoming export, it evicts the
+  oldest traces of any application instead.
+- If you lower the limit below the current file size, eviction reuses
   existing pages and evicts traces as needed without growing the file.
 - The WAL and shared-memory files use space beyond the limit. Stop the server
   and run `geko compact` to shrink the main file. `geko doctor` reports each
@@ -387,11 +555,13 @@ A mode change applies only to new spans. See
 
 | Command | Purpose |
 | --- | --- |
-| `geko serve` | Start the receiver and dashboard. `GET /healthz` returns 204 once it is listening. |
+| `geko serve` | Start the receiver and dashboard. `GET /healthz` returns 204 once it is listening, and `GET /readyz` once the database answers. Neither needs a token. |
 | `geko doctor` | Check SQLite integrity, storage sizes, and that every configured port is free. |
-| `geko failures --json` | Print a page of failures as JSON for scripts and coding agents. See [Read traces from coding tools](#read-traces-from-coding-tools). |
-| `geko mcp` | Serve read-only investigation tools to an MCP client over stdio. |
+| `geko failures --json` | Print a page of failures as JSON for scripts and coding agents, from the local database or a server with `--server`. See [Read traces from coding tools](#read-traces-from-coding-tools). |
+| `geko mcp` | Serve read-only investigation tools to an MCP client over stdio. `geko serve` also serves them at `/mcp`. |
 | `geko compact` | Reclaim free space from the main database file (stop the server first). |
+| `geko backup <file>` | Write a consistent copy of the database to a new file, while the server runs. |
+| `geko run -- <command>` | Run a command with exporters pointing at Geko, then list the failures received meanwhile. See [Check a test run](#check-a-test-run). |
 | `geko version` | Print build information. |
 
 The dashboard's data is also available as JSON on the dashboard listener, which
@@ -419,7 +589,7 @@ accepts these filters:
 
 | Tool | Best for | Deployment |
 | --- | --- | --- |
-| **Geko** | Starting from failure evidence on a developer machine: filter failures, open the evidence span, follow the trace's calls. | Single binary, loopback by default, SQLite with retention and a size limit. Traces only. |
+| **Geko** | Starting from failure evidence on a developer machine or a shared dev/staging instance: filter failures, open the evidence span, follow the trace's calls. | Single binary, loopback by default, SQLite with retention and a size limit. Traces only. |
 | [Jaeger](https://www.jaegertracing.io/docs/2.23/features/) | Searching and inspecting traces and service dependencies at any scale. | All-in-one or separate collector and query roles with external storage. |
 | [Zipkin](https://zipkin.io/) | Looking up traces by ID, service, operation, tags, and duration, with an aggregate dependency diagram. | In-memory or persistent backends such as Cassandra and Elasticsearch. |
 | [OpenTelemetry Desktop Viewer](https://github.com/CtrlSpice/otel-desktop-viewer) | A local telemetry UI with SQL access. | Local CLI with a browser UI. |

@@ -50,15 +50,22 @@ func TestGRPCTokenWithRemoteAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	ingest := "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	token, err = token.WithIngestTokens("storefront=" + ingest)
+	if err != nil {
+		t.Fatal(err)
+	}
 	receiver := NewHandler(nil)
 	client := collector.NewTraceServiceClient(grpcClientWithToken(t, receiver, "geko.example", token))
 	req := &collector.ExportTraceServiceRequest{}
 	if _, err := client.Export(t.Context(), req); status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("missing credentials: %v", err)
 	}
-	ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer "+secret)
-	if _, err := client.Export(ctx, req); err != nil {
-		t.Fatalf("authenticated remote authority: %v", err)
+	for _, value := range []string{secret, ingest} {
+		ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer "+value)
+		if _, err := client.Export(ctx, req); err != nil {
+			t.Fatalf("authenticated remote authority: %v", err)
+		}
 	}
 }
 

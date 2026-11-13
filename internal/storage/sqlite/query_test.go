@@ -113,6 +113,12 @@ func BenchmarkApplicationFailureFilter(b *testing.B) {
               FROM traces`); err != nil {
 				b.Fatal(err)
 			}
+			// Ingest maintains this projection in Go, not in a trigger.
+			if _, err := tx.ExecContext(ctx, `INSERT INTO trace_services
+              SELECT trace_id, service_namespace, service_name, count(*) FROM spans
+              GROUP BY trace_id, service_namespace, service_name`); err != nil {
+				b.Fatal(err)
+			}
 			if err := tx.Commit(); err != nil {
 				b.Fatal(err)
 			}

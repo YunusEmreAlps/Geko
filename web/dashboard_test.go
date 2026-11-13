@@ -1,8 +1,10 @@
 package web
 
 import (
+	"context"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/config"
+	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
@@ -56,7 +59,7 @@ func TestDashboardInvestigation(t *testing.T) {
 	get("/assets/dashboard.css", http.StatusOK, ".waterfall")
 	get("/assets/dashboard.js", http.StatusOK, "clipboard.writeText")
 	get("/assets/theme.js", http.StatusOK, "geko.theme")
-	get("/settings", http.StatusOK, "schema 8", "SQLite sidecars", "127.0.0.1:4318", configPath,
+	get("/settings", http.StatusOK, "schema 9", "SQLite sidecars", "127.0.0.1:4318", configPath,
 		"Set by <code>GEKO_DB_PATH</code>", ">yaml</span>", ">default</span>", "Traces evicted at capacity")
 
 	start := time.Now().UTC().Add(-time.Minute)
@@ -151,5 +154,102 @@ func TestTraceEndpointForWildcardListeners(t *testing.T) {
 		if got := traceEndpoint(tc.listen, tc.host); got != tc.want {
 			t.Errorf("traceEndpoint(%q, %q) = %q, want %q", tc.listen, tc.host, got, tc.want)
 		}
+	}
+}
+
+func TestSettingsForRemoteDeployment(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "remote.db")
+	store, err := sqlite.Open(t.Context(), dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	mux := http.NewServeMux()
+	if err := Register(mux, store, Settings{
+		ListenAddr: "0.0.0.0:4318", DBPath: dbPath, PublicURL: "https://geko.example.com",
+		AccessToken: true, IngestTokens: []string{"storefront", "reporting"},
+		ConfigSource: config.Source{PublicURL: config.SettingSource{Kind: "env", Variable: "GEKO_PUBLIC_URL"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for path, fragments := range map[string][]string{
+		"/settings": {"https://geko.example.com/v1/traces", "Set by <code>GEKO_PUBLIC_URL</code>", "Access token required", "<code>storefront</code>, <code>reporting</code>"},
+		"/failures": {"https://geko.example.com/v1/traces"},
+	} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:4318"+path, nil))
+		for _, fragment := range fragments {
+			if !strings.Contains(w.Body.String(), fragment) {
+				t.Errorf("%s missing %q", path, fragment)
+			}
+		}
+	}
+}
+
+func TestNotificationSettings(t *testing.T) {
+	store, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "notify.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	fail := false
+	mux := http.NewServeMux()
+	if err := Register(mux, store, Settings{Notifications: &Notifications{Format: "slack", Host: "hooks.slack.com", Test: func(context.Context) error {
+		if fail {
+			return errors.New("webhook returned 500")
+		}
+		return nil
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, failing := range []bool{false, true} {
+		fail = failing
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "http://127.0.0.1/settings/notifications/test", nil))
+		want := "/settings?notification=sent#notifications"
+		if failing {
+			want = "/settings?notification=failed#notifications"
+		}
+		if w.Code != http.StatusSeeOther || w.Header().Get("Location") != want {
+			t.Fatalf("test notification = %d, %q", w.Code, w.Header().Get("Location"))
+		}
+	}
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/settings?notification=failed", nil))
+	for _, fragment := range []string{"<code>slack</code> to <code>hooks.slack.com</code>", "Send test notification", "test notification failed"} {
+		if !strings.Contains(w.Body.String(), fragment) {
+			t.Errorf("settings missing %q", fragment)
+		}
+	}
+}
+
+func TestMetrics(t *testing.T) {
+	store, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "metrics.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	mux := http.NewServeMux()
+	if err := Register(mux, store, Settings{Version: "v1.2.3", MaxDBBytes: 256 << 20, ReceiverDiagnostics: func() otlp.Diagnostics {
+		return otlp.Diagnostics{AcceptedExports: 7, LastAccepted: time.Unix(1_700_000_000, 0), Rejections: []otlp.Rejection{{Reason: "Payload or batch limit exceeded", Count: 2}}}
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/metrics", nil))
+	for _, fragment := range []string{
+		`geko_build_info{version="v1.2.3"} 1`, "geko_receiver_accepted_exports_total 7",
+		`geko_receiver_rejected_requests_total{reason="payload_or_batch_limit_exceeded"} 2`,
+		"geko_receiver_last_accepted_timestamp_seconds 1700000000.000", `geko_storage_bytes{file="main"} `,
+		"geko_storage_limit_bytes 268435456", "# TYPE geko_storage_evicted_traces_total counter",
+	} {
+		if !strings.Contains(w.Body.String(), fragment) {
+			t.Errorf("metrics missing %q:\n%s", fragment, w.Body)
+		}
+	}
+	w = httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://evil.example/metrics", nil))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("metrics on a non-loopback Host = %d", w.Code)
 	}
 }

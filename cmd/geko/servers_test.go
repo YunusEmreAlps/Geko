@@ -30,7 +30,11 @@ func testSeparateListeners(t *testing.T, secret string) {
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	cfg := config.Config{ListenAddr: "127.0.0.1:0", DashboardAddr: "127.0.0.1:0", GRPCAddr: "127.0.0.1:0", DBPath: filepath.Join(t.TempDir(), "geko.db"), MaxDBMiB: 256}
+	const ingestSecret = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
 	token, err := access.ParseToken(secret)
+	if err == nil && secret != "" {
+		token, err = token.WithIngestTokens("storefront=" + ingestSecret)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,6 +76,8 @@ func testSeparateListeners(t *testing.T, secret string) {
 				req.SetBasicAuth("geko", secret)
 			case "bearer":
 				req.Header.Set("Authorization", "Bearer "+secret)
+			case "ingest":
+				req.Header.Set("Authorization", "Bearer "+ingestSecret)
 			case "wrong":
 				req.Header.Set("Authorization", "Bearer wrong")
 			}
@@ -94,7 +100,11 @@ func testSeparateListeners(t *testing.T, secret string) {
 		}{
 			{"GET", dashboard + "/settings", "", 401},
 			{"GET", dashboard + "/events/failures", "wrong", 401},
-			{"GET", ingest + "/healthz", "", 401},
+			{"GET", ingest + "/healthz", "", 204},
+			{"GET", dashboard + "/readyz", "", 204},
+			{"POST", ingest + "/v1/traces", "ingest", 415},
+			{"GET", dashboard + "/settings", "ingest", 401},
+			{"GET", dashboard + "/api/v1/failures", "ingest", 401},
 			{"POST", ingest + "/v1/traces", "basic", 401},
 			{"POST", ingest + "/v1/traces", "bearer", 415},
 			{"POST", dashboard + "/traces/import", "cross-origin", 403},

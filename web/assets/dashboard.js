@@ -112,6 +112,25 @@ if (spanDetails) {
   window.addEventListener("load", keepPlace, { once: true });
 }
 
+// Mark error groups first received since this browser last listed open groups.
+const groupRows = document.querySelectorAll("tr[data-first-received]");
+if (groupRows.length && !new URLSearchParams(location.search).has("state") && !new URLSearchParams(location.search).has("group_cursor")) {
+  const key = "geko.groups.seen";
+  let seen = 0;
+  try { seen = Number(localStorage.getItem(key)) || 0; } catch {}
+  if (seen) {
+    groupRows.forEach((row) => {
+      if (Number(row.dataset.firstReceived) <= seen) return;
+      const badge = document.createElement("span");
+      badge.className = "pill new";
+      badge.title = "First received since your last visit";
+      badge.textContent = "New";
+      row.querySelector(".operation").after(" ", badge);
+    });
+  }
+  try { localStorage.setItem(key, String(Date.now())); } catch {}
+}
+
 const waterfall = document.querySelector(".waterfall-disclosure");
 if (waterfall) {
   const key = "geko.waterfall:" + location.pathname;

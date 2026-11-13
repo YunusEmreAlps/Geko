@@ -46,7 +46,7 @@ func (exportCodec) Unmarshal(data []byte, value any) error {
 func (h *Receiver) NewGRPCServer(token access.Token) *grpc.Server {
 	server := grpc.NewServer(
 		grpc.ForceServerCodec(exportCodec{}), grpc.MaxRecvMsgSize(maxPayloadBytes),
-		grpc.MaxConcurrentStreams(maxConcurrent), grpc.MaxHeaderListSize(16<<10),
+		grpc.MaxConcurrentStreams(uint32(cap(h.slots))), grpc.MaxHeaderListSize(16<<10),
 		grpc.ConnectionTimeout(5*time.Second),
 		grpc.WaitForHandlers(true),
 		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle: time.Minute}),
@@ -58,7 +58,7 @@ func (h *Receiver) NewGRPCServer(token access.Token) *grpc.Server {
 		authority := md.Get(":authority")
 		if token.Enabled() {
 			headers := md.Get("authorization")
-			if len(headers) != 1 || !token.Bearer(headers[0]) {
+			if len(headers) != 1 || !token.IngestBearer(headers[0]) {
 				return nil, status.Error(codes.Unauthenticated, "Bearer token required")
 			}
 		} else if len(authority) != 1 || !api.LocalHost(authority[0]) {

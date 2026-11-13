@@ -63,7 +63,7 @@ func (s *Store) writeExport(ctx context.Context, observedNS int64, spans []telem
 
 func (s *Store) writeSpans(ctx context.Context, observedNS int64, spans []telemetry.Span) error {
 	_, err := s.writeSpanBatch(ctx, observedNS, spans, "", 0)
-	if !errors.Is(err, storage.ErrCapacity) || s.onFull != storage.EvictOldest {
+	if !errors.Is(err, storage.ErrCapacity) || !s.onFull.Evicts() {
 		return err
 	}
 
@@ -98,12 +98,14 @@ func (s *Store) writeSpanBatch(ctx context.Context, observedNS int64, spans []te
 	}
 	var deleted int64
 	if limit > 0 {
-		query := fmt.Sprintf(deleteOldest, "AND lower(hex(trace_id)) NOT IN (SELECT value FROM json_each(?))")
-		result, err := tx.ExecContext(ctx, query, observedNS, protected, limit)
-		if err != nil {
-			return 0, fmt.Errorf("evict traces: %w", writeError(err))
+		var err error
+		if s.onFull == storage.EvictFair {
+			deleted, err = evict(ctx, tx, evictLargestOwner, observedNS, protected, limit)
 		}
-		deleted, err = result.RowsAffected()
+		// The largest owner may only hold traces in this export; fall back.
+		if err == nil && deleted == 0 {
+			deleted, err = evict(ctx, tx, fmt.Sprintf(deleteOldest, unprotected), observedNS, protected, limit)
+		}
 		if err != nil {
 			return 0, err
 		}
@@ -118,6 +120,31 @@ func (s *Store) writeSpanBatch(ctx context.Context, observedNS int64, spans []te
 		return deleted, err
 	}
 	return deleted, writeError(tx.Commit())
+}
+
+const unprotected = "AND lower(hex(trace_id)) NOT IN (SELECT value FROM json_each(?))"
+
+// evictLargestOwner deletes the oldest traces containing spans of the owner
+// with the most stored spans. An owner is a service namespace, or a service
+// name for spans without one.
+const evictLargestOwner = `WITH owners AS (
+    SELECT CASE WHEN namespace <> '' THEN 'n:' || namespace ELSE 's:' || service_name END AS owner, sum(span_count) AS spans
+    FROM trace_services GROUP BY owner ORDER BY spans DESC, owner LIMIT 1
+)
+DELETE FROM traces WHERE trace_id IN (
+    SELECT t.trace_id FROM traces t
+    WHERE t.last_observed_ns < ? ` + unprotected + `
+    AND EXISTS (SELECT 1 FROM trace_services ts, owners o WHERE ts.trace_id = t.trace_id
+        AND CASE WHEN ts.namespace <> '' THEN 'n:' || ts.namespace ELSE 's:' || ts.service_name END = o.owner)
+    ORDER BY t.last_observed_ns, t.trace_id LIMIT ?
+)`
+
+func evict(ctx context.Context, tx *sql.Tx, query string, observedNS int64, protected string, limit int64) (int64, error) {
+	result, err := tx.ExecContext(ctx, query, observedNS, protected, limit)
+	if err != nil {
+		return 0, fmt.Errorf("evict traces: %w", writeError(err))
+	}
+	return result.RowsAffected()
 }
 
 func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []telemetry.Span) error {

@@ -20,10 +20,14 @@
   {{if .Receiver}}<p class="muted">Counts cover the current server session.</p>{{end}}
   <dl class="properties">
     <div><dt>Listener</dt><dd><code>{{.ListenAddr}}</code>{{template "settings-source" .ConfigSource.ListenAddr}}</dd></div>
-    <div><dt>Trace endpoint</dt><dd><code>{{.TraceEndpoint}}</code></dd></div>
+    <div><dt>Trace endpoint</dt><dd><code>{{.TraceEndpoint}}</code>{{if .PublicURL}}{{template "settings-source" .ConfigSource.PublicURL}}{{end}}</dd></div>
+    <div><dt>Authentication</dt><dd>{{if .AccessToken}}Access token required{{else}}None; loopback only{{end}}</dd></div>
+    {{if .AccessToken}}<div><dt>Ingest tokens</dt><dd>{{range $i, $name := .IngestTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{else}}None; exporters use the access token{{end}}</dd></div>
+    <div><dt>Read tokens</dt><dd>{{range $i, $name := .ReadTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{else}}None{{end}} <span class="subtle">Dashboard, query API and <code>/mcp</code></span></dd></div>{{end}}
     <div><dt>Protocol</dt><dd>OTLP/HTTP protobuf and JSON{{if .GRPCAddr}}, OTLP/gRPC{{end}}</dd></div>
     <div><dt>Dashboard listener</dt><dd><code>{{or .DashboardAddr .ListenAddr}}</code>{{template "settings-source" .ConfigSource.DashboardAddr}}{{if not .ConfigSource.DashboardAddr.Kind}} <span class="subtle">Shared HTTP listener unless configured separately</span>{{end}}</dd></div>
     <div><dt>OTLP/gRPC listener</dt><dd>{{if .GRPCAddr}}<code>{{.GRPCAddr}}</code>{{else}}Disabled{{end}}{{template "settings-source" .ConfigSource.GRPCAddr}}</dd></div>
+    {{if .IngestConcurrency}}<div><dt>Concurrent exports</dt><dd>{{.IngestConcurrency}}{{template "settings-source" .ConfigSource.IngestSlots}}</dd></div>{{end}}
     <div><dt>Receiver status</dt><dd><span class="status-ok">Running</span></dd></div>
     {{with .Receiver}}
     <div><dt>Accepted exports with spans</dt><dd>{{.AcceptedExports}}</dd></div>
@@ -32,6 +36,19 @@
     {{range .Rejections}}<div><dt>{{.Reason}}</dt><dd>{{.Count}} rejected</dd></div>{{end}}
     {{end}}
   </dl>
+</section>
+<section class="section" id="notifications">
+  <h2>Notifications</h2>
+  {{if eq .Notification "sent"}}<p class="notice" role="status">Test notification sent.</p>{{else if eq .Notification "failed"}}<p class="notice" role="alert">The test notification failed. The server log has the reason.</p>{{end}}
+  <dl class="properties">
+    {{with .Notifications}}
+    <div><dt>Webhook</dt><dd><code>{{.Format}}</code> to <code>{{.Host}}</code> <span class="subtle">Set by <code>GEKO_WEBHOOK_URL</code></span></dd></div>
+    <div><dt>Sends</dt><dd>New error groups and resolved groups that recur. Muted groups never notify.</dd></div>
+    {{else}}
+    <div><dt>Webhook</dt><dd>Not configured <span class="subtle">Set <code>GEKO_WEBHOOK_URL</code> to a Slack, Discord, ntfy or JSON webhook</span></dd></div>
+    {{end}}
+  </dl>
+  {{if .Notifications}}<form action="/settings/notifications/test" method="post" data-loading><button class="button" type="submit">Send test notification</button></form>{{end}}
 </section>
 <section class="section">
   <h2>Storage</h2>

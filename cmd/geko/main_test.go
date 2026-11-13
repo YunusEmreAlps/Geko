@@ -56,7 +56,7 @@ func TestDoctorReportsBusyListener(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "GEKO_LISTEN_ADDR") {
 		t.Fatalf("doctor error = %v, want a listener configuration hint", err)
 	}
-	if !strings.Contains(out.String(), "schema 8") {
+	if !strings.Contains(out.String(), "schema 9") {
 		t.Fatalf("doctor output %q does not include the database result", out.String())
 	}
 	if _, err := os.Stat("doctor.db"); err != nil {
@@ -235,4 +235,33 @@ type startupOutput chan string
 func (out startupOutput) Write(p []byte) (int, error) {
 	out <- string(p)
 	return len(p), nil
+}
+
+func TestBackupCommand(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("GEKO_CONFIG", "")
+	t.Setenv("GEKO_LISTEN_ADDR", "")
+	t.Setenv("GEKO_DB_PATH", filepath.Join(dir, "geko.db"))
+	var out bytes.Buffer
+	if err := run(t.Context(), []string{"backup"}, &out); err == nil {
+		t.Fatal("backup without a target succeeded")
+	}
+	if err := run(t.Context(), []string{"backup", "copy.db"}, &out); err == nil || !strings.Contains(err.Error(), "no Geko database") {
+		t.Fatalf("backup of a missing database: %v", err)
+	}
+	db, err := sqlite.Open(t.Context(), filepath.Join(dir, "geko.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := run(t.Context(), []string{"backup", "copy.db"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), filepath.Join(dir, "copy.db")) {
+		t.Fatalf("output %q does not name the backup", out.String())
+	}
+	if err := run(t.Context(), []string{"backup", "copy.db"}, &out); err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("backup overwrote a file: %v", err)
+	}
 }

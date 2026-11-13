@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"io"
 	"net/netip"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/YunusEmreAlps/geko/internal/access"
+	"github.com/YunusEmreAlps/geko/internal/notify"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 
 	"go.yaml.in/yaml/v3"
@@ -20,15 +23,24 @@ const defaultConfigPath = "geko.yaml"
 const DefaultRetentionDays = 7
 const DefaultMaxDBMiB = 256
 const DefaultRedaction = "best_effort"
+const DefaultIngestConcurrency = 4
 
 type Config struct {
-	AccessToken   access.Token       `yaml:"-"`
+	AccessToken   access.Token  `yaml:"-"`
+	PublicURL     string        `yaml:"public_url"`
+	WebhookURL    string        `yaml:"-"`
+	WebhookFormat notify.Format `yaml:"-"`
+	MCPTriage     bool          `yaml:"-"`
+	// TokensFile holds the tokens instead of environment variables and is
+	// reloaded when it changes.
+	TokensFile    string             `yaml:"-"`
 	ListenAddr    string             `yaml:"listen_addr"`
 	DashboardAddr string             `yaml:"dashboard_addr"`
 	GRPCAddr      string             `yaml:"grpc_addr"`
 	DBPath        string             `yaml:"db_path"`
 	RetentionDays int                `yaml:"retention_days"`
 	MaxDBMiB      int                `yaml:"max_db_mib"`
+	IngestSlots   int                `yaml:"ingest_concurrency"`
 	OnFull        storage.FullPolicy `yaml:"on_full"`
 	Redaction     string             `yaml:"redaction"`
 	Source        Source             `yaml:"-"`
@@ -36,9 +48,10 @@ type Config struct {
 
 // Source records where each effective setting came from.
 type Source struct {
-	DashboardAddr, GRPCAddr                                        SettingSource
+	DashboardAddr, GRPCAddr, PublicURL                             SettingSource
 	FilePath                                                       string
 	ListenAddr, DBPath, RetentionDays, MaxDBMiB, OnFull, Redaction SettingSource
+	IngestSlots                                                    SettingSource
 }
 
 type SettingSource struct {
@@ -56,9 +69,47 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-	cfg.AccessToken, err = access.ParseToken(os.Getenv("GEKO_ACCESS_TOKEN"))
+	if path := os.Getenv("GEKO_TOKENS_FILE"); path != "" {
+		for _, variable := range []string{"GEKO_ACCESS_TOKEN", "GEKO_INGEST_TOKENS", "GEKO_READ_TOKENS"} {
+			if os.Getenv(variable) != "" {
+				return Config{}, fmt.Errorf("set tokens in GEKO_TOKENS_FILE or in %s, not both", variable)
+			}
+		}
+		if cfg.TokensFile, err = filepath.Abs(path); err == nil {
+			cfg.AccessToken, err = access.LoadTokenFile(cfg.TokensFile)
+		}
+	} else {
+		cfg.AccessToken, err = access.ParseToken(os.Getenv("GEKO_ACCESS_TOKEN"))
+		if err == nil {
+			cfg.AccessToken, err = cfg.AccessToken.WithIngestTokens(os.Getenv("GEKO_INGEST_TOKENS"))
+		}
+		if err == nil {
+			cfg.AccessToken, err = cfg.AccessToken.WithReadTokens(os.Getenv("GEKO_READ_TOKENS"))
+		}
+	}
 	if err != nil {
 		return Config{}, err
+	}
+	allowPlaintext := false
+	if value := os.Getenv("GEKO_ALLOW_PLAINTEXT"); value != "" {
+		if allowPlaintext, err = strconv.ParseBool(value); err != nil {
+			return Config{}, errors.New("GEKO_ALLOW_PLAINTEXT must be true or false")
+		}
+	}
+	// Geko serves plain HTTP and gRPC. A non-loopback listener needs a token and an
+	// explicit acknowledgment that TLS is terminated in front of it.
+	remote := func(key, env string, address netip.Addr) error {
+		if address.IsLoopback() {
+			return nil
+		}
+		if !cfg.AccessToken.Enabled() {
+			return fmt.Errorf("%s (%s) must use a loopback IP unless GEKO_ACCESS_TOKEN is configured", key, env)
+		}
+		if !allowPlaintext {
+			return fmt.Errorf("%s (%s) is not a loopback IP and Geko does not terminate TLS; "+
+				"serve it behind a TLS reverse proxy or on a trusted network, then set GEKO_ALLOW_PLAINTEXT=true", key, env)
+		}
+		return nil
 	}
 
 	addr := cfg.ListenAddr
@@ -72,8 +123,8 @@ func Load() (Config, error) {
 	if err != nil || endpoint.Addr().Zone() != "" || endpoint.Port() == 0 {
 		return Config{}, fmt.Errorf("listen_addr (GEKO_LISTEN_ADDR) %q must be an IP address and a nonzero port (for example, %s)", addr, DefaultListenAddr)
 	}
-	if !endpoint.Addr().IsLoopback() && !cfg.AccessToken.Enabled() {
-		return Config{}, errors.New("listen_addr must use a loopback IP unless GEKO_ACCESS_TOKEN is configured")
+	if err := remote("listen_addr", "GEKO_LISTEN_ADDR", endpoint.Addr()); err != nil {
+		return Config{}, err
 	}
 
 	path := cfg.DBPath
@@ -114,8 +165,8 @@ func Load() (Config, error) {
 		if err != nil || address.Addr().Zone() != "" || address.Port() == 0 {
 			return Config{}, fmt.Errorf("%s (%s) must be an IP address and a nonzero port", setting.key, setting.env)
 		}
-		if !address.Addr().IsLoopback() && !cfg.AccessToken.Enabled() {
-			return Config{}, fmt.Errorf("%s must use a loopback IP unless GEKO_ACCESS_TOKEN is configured", setting.key)
+		if err := remote(setting.key, setting.env, address.Addr()); err != nil {
+			return Config{}, err
 		}
 		*setting.value = address.String()
 	}
@@ -125,6 +176,30 @@ func Load() (Config, error) {
 	if cfg.GRPCAddr != "" && (cfg.GRPCAddr == cfg.ListenAddr || cfg.GRPCAddr == cfg.DashboardAddr) {
 		return Config{}, errors.New("grpc_addr must differ from the HTTP and dashboard listeners")
 	}
+	if override := envOverride("GEKO_PUBLIC_URL", &cfg.Source.PublicURL); override != "" {
+		cfg.PublicURL = override
+	}
+	if cfg.PublicURL != "" {
+		if cfg.PublicURL, err = publicURL(cfg.PublicURL); err != nil {
+			return Config{}, err
+		}
+	}
+	if cfg.WebhookURL = os.Getenv("GEKO_WEBHOOK_URL"); cfg.WebhookURL != "" {
+		parsed, err := url.Parse(cfg.WebhookURL)
+		if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" {
+			return Config{}, errors.New("GEKO_WEBHOOK_URL must be an http or https URL")
+		}
+		if cfg.WebhookFormat, err = notify.ParseFormat(os.Getenv("GEKO_WEBHOOK_FORMAT"), cfg.WebhookURL); err != nil {
+			return Config{}, fmt.Errorf("GEKO_WEBHOOK_FORMAT: %w", err)
+		}
+	} else if os.Getenv("GEKO_WEBHOOK_FORMAT") != "" {
+		return Config{}, errors.New("GEKO_WEBHOOK_FORMAT requires GEKO_WEBHOOK_URL")
+	}
+	if value := os.Getenv("GEKO_MCP_TRIAGE"); value != "" {
+		if cfg.MCPTriage, err = strconv.ParseBool(value); err != nil {
+			return Config{}, errors.New("GEKO_MCP_TRIAGE must be true or false")
+		}
+	}
 	cfg.RetentionDays, err = intSetting("retention_days", "GEKO_RETENTION_DAYS", &cfg.Source.RetentionDays, cfg.RetentionDays, 1, 3650)
 	if err != nil {
 		return Config{}, err
@@ -133,11 +208,15 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	cfg.IngestSlots, err = intSetting("ingest_concurrency", "GEKO_INGEST_CONCURRENCY", &cfg.Source.IngestSlots, cfg.IngestSlots, 1, 64)
+	if err != nil {
+		return Config{}, err
+	}
 	if override := envOverride("GEKO_ON_FULL", &cfg.Source.OnFull); override != "" {
 		cfg.OnFull = storage.FullPolicy(override)
 	}
-	if cfg.OnFull != storage.EvictOldest && cfg.OnFull != storage.Reject {
-		return Config{}, fmt.Errorf("on_full (GEKO_ON_FULL) must be %q or %q", storage.EvictOldest, storage.Reject)
+	if !cfg.OnFull.Evicts() && cfg.OnFull != storage.Reject {
+		return Config{}, fmt.Errorf("on_full (GEKO_ON_FULL) must be %q, %q or %q", storage.EvictOldest, storage.EvictFair, storage.Reject)
 	}
 	if override := envOverride("GEKO_REDACTION", &cfg.Source.Redaction); override != "" {
 		cfg.Redaction = override
@@ -146,6 +225,16 @@ func Load() (Config, error) {
 		return Config{}, errors.New("redaction (GEKO_REDACTION) must be best_effort or strict")
 	}
 	return cfg, nil
+}
+
+// publicURL validates the external base URL, such as https://geko.example.com.
+func publicURL(value string) (string, error) {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" ||
+		parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
+		return "", errors.New("public_url (GEKO_PUBLIC_URL) must be an http or https URL without credentials, query or fragment")
+	}
+	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
 func envOverride(name string, source *SettingSource) string {
@@ -170,10 +259,11 @@ func intSetting(key, env string, source *SettingSource, value, minValue, maxValu
 func loadFile(path string, optional bool) (Config, error) {
 	defaultSource := SettingSource{Kind: "default"}
 	cfg := Config{
-		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB,
+		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, IngestSlots: DefaultIngestConcurrency,
 		OnFull: storage.EvictOldest, Redaction: DefaultRedaction,
 		Source: Source{
-			DashboardAddr: defaultSource, GRPCAddr: defaultSource,
+			IngestSlots:   defaultSource,
+			DashboardAddr: defaultSource, GRPCAddr: defaultSource, PublicURL: defaultSource,
 			ListenAddr: defaultSource, DBPath: defaultSource, RetentionDays: defaultSource,
 			MaxDBMiB: defaultSource, OnFull: defaultSource, Redaction: defaultSource,
 		},
@@ -198,10 +288,12 @@ func loadFile(path string, optional bool) (Config, error) {
 	var values struct {
 		DashboardAddr *string             `yaml:"dashboard_addr"`
 		GRPCAddr      *string             `yaml:"grpc_addr"`
+		PublicURL     *string             `yaml:"public_url"`
 		ListenAddr    *string             `yaml:"listen_addr"`
 		DBPath        *string             `yaml:"db_path"`
 		RetentionDays *int                `yaml:"retention_days"`
 		MaxDBMiB      *int                `yaml:"max_db_mib"`
+		IngestSlots   *int                `yaml:"ingest_concurrency"`
 		OnFull        *storage.FullPolicy `yaml:"on_full"`
 		Redaction     *string             `yaml:"redaction"`
 	}
@@ -230,7 +322,9 @@ func loadFile(path string, optional bool) (Config, error) {
 	yamlSetting(values.RetentionDays, &cfg.RetentionDays, &cfg.Source.RetentionDays)
 	yamlSetting(values.DashboardAddr, &cfg.DashboardAddr, &cfg.Source.DashboardAddr)
 	yamlSetting(values.GRPCAddr, &cfg.GRPCAddr, &cfg.Source.GRPCAddr)
+	yamlSetting(values.PublicURL, &cfg.PublicURL, &cfg.Source.PublicURL)
 	yamlSetting(values.MaxDBMiB, &cfg.MaxDBMiB, &cfg.Source.MaxDBMiB)
+	yamlSetting(values.IngestSlots, &cfg.IngestSlots, &cfg.Source.IngestSlots)
 	yamlSetting(values.OnFull, &cfg.OnFull, &cfg.Source.OnFull)
 	yamlSetting(values.Redaction, &cfg.Redaction, &cfg.Source.Redaction)
 	return cfg, nil

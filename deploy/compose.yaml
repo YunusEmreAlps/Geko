@@ -1,0 +1,43 @@
+# Geko behind Caddy, which obtains a TLS certificate for GEKO_DOMAIN.
+# Copy .env.example to .env, fill it in, then run: docker compose up -d --build
+services:
+  geko:
+    build: ..
+    restart: unless-stopped
+    environment:
+      GEKO_ACCESS_TOKEN: ${GEKO_ACCESS_TOKEN:?set GEKO_ACCESS_TOKEN in .env}
+      GEKO_INGEST_TOKENS: ${GEKO_INGEST_TOKENS:-}
+      GEKO_READ_TOKENS: ${GEKO_READ_TOKENS:-}
+      GEKO_WEBHOOK_URL: ${GEKO_WEBHOOK_URL:-}
+      GEKO_WEBHOOK_FORMAT: ${GEKO_WEBHOOK_FORMAT:-}
+      GEKO_PUBLIC_URL: https://${GEKO_DOMAIN:?set GEKO_DOMAIN in .env}
+      GEKO_LISTEN_ADDR: 0.0.0.0:4318
+      GEKO_GRPC_ADDR: 0.0.0.0:4317
+      # Only Caddy reaches these listeners, over the private Compose network.
+      GEKO_ALLOW_PLAINTEXT: "true"
+      GEKO_RETENTION_DAYS: ${GEKO_RETENTION_DAYS:-14}
+      GEKO_MAX_DB_MIB: ${GEKO_MAX_DB_MIB:-4096}
+      GEKO_ON_FULL: ${GEKO_ON_FULL:-evict_fair}
+    volumes:
+      - geko-data:/data
+
+  caddy:
+    image: caddy:2.10
+    restart: unless-stopped
+    depends_on:
+      - geko
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      GEKO_DOMAIN: ${GEKO_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  geko-data:
+  caddy-data:
+  caddy-config:

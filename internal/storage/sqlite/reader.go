@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"path/filepath"
 
 	"github.com/YunusEmreAlps/geko/internal/investigation"
@@ -47,4 +48,30 @@ func (r *Reader) FailureGroups(ctx context.Context, filter investigation.Failure
 
 func (r *Reader) Trace(ctx context.Context, id telemetry.TraceID, after *investigation.Cursor, limit int) (investigation.TraceSummary, investigation.Page[investigation.Span], error) {
 	return r.store.Trace(ctx, id, after, limit)
+}
+
+func (r *Reader) CompareTrace(ctx context.Context, id telemetry.TraceID) (investigation.TraceSummary, *investigation.TraceSummary, error) {
+	return r.store.CompareTrace(ctx, id)
+}
+
+func (r *Reader) VersionComparisons(ctx context.Context, filter investigation.RegressionFilter) ([]investigation.VersionComparison, error) {
+	return r.store.VersionComparisons(ctx, filter)
+}
+
+// Backup writes a consistent snapshot to a new file while Geko keeps serving.
+func (r *Reader) Backup(ctx context.Context, path string) error {
+	if !filepath.IsAbs(path) {
+		return errors.New("backup path must be absolute")
+	}
+	// query_only blocks VACUUM INTO, so use a dedicated connection that still
+	// opens the source read-only.
+	db, err := openConnection(r.store.path, url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(5000)"}}, 1)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, "VACUUM INTO ?", path); err != nil {
+		return fmt.Errorf("back up database to %q: %w", path, err)
+	}
+	return nil
 }

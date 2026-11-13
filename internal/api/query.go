@@ -149,6 +149,13 @@ func ParseFailureFilter(params url.Values) (investigation.FailureFilter, error) 
 			return filter, err
 		}
 	}
+	switch state := investigation.GroupState(params.Get("state")); state {
+	case "", investigation.GroupOpen:
+	case investigation.GroupResolved, investigation.GroupMuted, investigation.GroupAll:
+		filter.GroupState = state
+	default:
+		return filter, errors.New("state must be open, resolved, muted or all")
+	}
 	filter.Service, filter.Search = params.Get("service"), params.Get("q")
 	filter.EvidenceService = params.Get("evidence_service")
 	if value := params.Get("application"); value != "" {

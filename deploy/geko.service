@@ -1,0 +1,30 @@
+# Geko on a Linux host without Docker. Keep the listeners on loopback and put a
+# TLS reverse proxy such as Caddy in front:
+#   sudo install -m 0755 geko /usr/local/bin/geko
+#   sudo install -D -m 0600 geko.env /etc/geko/geko.env
+#   sudo cp geko.service /etc/systemd/system/ && sudo systemctl enable --now geko
+[Unit]
+Description=Geko trace investigation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# geko.env sets GEKO_ACCESS_TOKEN, GEKO_INGEST_TOKENS, GEKO_READ_TOKENS,
+# GEKO_PUBLIC_URL and optionally GEKO_WEBHOOK_URL.
+EnvironmentFile=/etc/geko/geko.env
+Environment=GEKO_DB_PATH=/var/lib/geko/geko.db
+Environment=GEKO_LISTEN_ADDR=127.0.0.1:4318
+ExecStart=/usr/local/bin/geko serve
+Restart=on-failure
+DynamicUser=yes
+StateDirectory=geko
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

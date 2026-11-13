@@ -44,7 +44,21 @@ type FailureFilter struct {
 	To              *time.Time
 	After           *Cursor
 	Limit           int
+	// GroupState selects error groups by triage state; it does not filter traces.
+	GroupState GroupState
 }
+
+// GroupState is an error group's triage state. The zero value selects open
+// groups, which include resolved groups that recurred.
+type GroupState string
+
+const (
+	GroupOpen     GroupState = "open"
+	GroupReopened GroupState = "reopened"
+	GroupResolved GroupState = "resolved"
+	GroupMuted    GroupState = "muted"
+	GroupAll      GroupState = "all"
+)
 
 // FailureGroup counts traces by their selected primary evidence, not exports
 // or every failing span. Identity excludes instance IDs and free-text messages.
@@ -64,6 +78,10 @@ type FailureGroup struct {
 	TraceID        string          `json:"latest_trace_id"`
 	SpanID         string          `json:"latest_evidence_span_id"`
 	Outcomes       RequestOutcomes `json:"request_outcomes"`
+	State          GroupState      `json:"state"`
+	StateChanged   *time.Time      `json:"state_changed,omitempty"`
+	// ResolvedVersion is the service.version a resolved group was fixed in.
+	ResolvedVersion string `json:"resolved_version,omitempty"`
 }
 
 type RequestOutcomes struct {

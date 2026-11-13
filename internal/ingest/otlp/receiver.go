@@ -80,6 +80,13 @@ func NewHandlerWithRedaction(store spanWriter, strict bool) *Receiver {
 	return &Receiver{store: store, slots: make(chan struct{}, maxConcurrent), strict: strict}
 }
 
+// WithConcurrency sets how many exports HTTP and gRPC decode at once. Each
+// holds up to a 4 MiB payload and its decoded spans in memory.
+func (h *Receiver) WithConcurrency(n int) *Receiver {
+	h.slots = make(chan struct{}, n)
+	return h
+}
+
 func (h *Receiver) Diagnostics() Diagnostics {
 	h.mu.Lock()
 	defer h.mu.Unlock()
