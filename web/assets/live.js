@@ -10,6 +10,11 @@
   let source, timer, inFlight, pending = false, paused = false;
   toggle.hidden = false;
 
+  function setStatus(text, state) {
+    status.textContent = text;
+    status.dataset.state = state;
+  }
+
   function readingResults() {
     return results.contains(document.activeElement) || window.getSelection()?.isCollapsed === false;
   }
@@ -17,7 +22,7 @@
   async function update(force = false) {
     if (inFlight || document.hidden || (paused && !force)) return;
     if (!force && readingResults()) {
-      status.textContent = "New data available";
+      setStatus("New data available", "stale");
       refresh.hidden = false;
       return;
     }
@@ -34,17 +39,17 @@
       if (!force && readingResults()) {
         pending = true;
         refresh.hidden = false;
-        status.textContent = "New data available";
+        setStatus("New data available", "stale");
         return;
       }
       results.replaceWith(replacement);
       results = replacement;
       refresh.hidden = true;
-      status.textContent = "Live · updated " + new Date().toLocaleTimeString();
+      setStatus("Live · updated " + new Date().toLocaleTimeString(), "live");
     } catch {
       pending = true;
       refresh.hidden = false;
-      status.textContent = "Refresh unavailable · retry";
+      setStatus("Refresh unavailable · retry", "error");
     } finally {
       clearTimeout(timeout);
       inFlight = undefined;
@@ -64,14 +69,14 @@
   function connect() {
     if (source || paused || document.hidden) return;
     source = new EventSource("/events/failures");
-    source.addEventListener("ready", () => { status.textContent = "Live"; schedule(); });
+    source.addEventListener("ready", () => { setStatus("Live", "live"); schedule(); });
     source.addEventListener("changed", schedule);
-    source.onerror = () => { status.textContent = "Reconnecting…"; };
+    source.onerror = () => { setStatus("Reconnecting…", "error"); };
   }
   toggle.addEventListener("click", () => {
     paused = !paused;
-    toggle.textContent = paused ? "Resume live updates" : "Pause live updates";
-    if (paused) { disconnect(); status.textContent = "Paused"; } else connect();
+    toggle.textContent = paused ? "Resume" : "Pause";
+    if (paused) { disconnect(); setStatus("Paused", "paused"); } else connect();
   });
   refresh.addEventListener("click", () => update(true));
   document.addEventListener("visibilitychange", () => document.hidden ? disconnect() : connect());

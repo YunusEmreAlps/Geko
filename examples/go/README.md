@@ -43,7 +43,7 @@ The HTTP 500 response from `/failure` is intentional.
 | `/retry` | 200 | Successful request with exception evidence from the first payment attempt. |
 
 Each response includes its trace ID in the body and `X-Trace-ID` header. Wait
-about five seconds for batch export, then use **Go to trace** on
+about five seconds for batch export, then use **Go to trace ID** on
 [Failures](http://127.0.0.1:4318/failures) to open any of the three traces by
 its ID. Filter Failures by `geko-go-checkout` to browse the failure and retry
 scenarios. The retry trace retains HTTP 200 as its request result even

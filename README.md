@@ -185,10 +185,10 @@ endpoint from **Settings → Receiver**.
 1. **Find it.** Filter **Failures** by application, request (entry) service,
    evidence service, HTTP status, time range, or search text. **Overview**
    summarizes the last 24 hours. To open any stored trace, including a
-   successful one, paste its ID into **Go to trace**. Open **All traces** to
+   successful one, paste its ID into **Go to trace ID** in the sidebar (press `/`). Open **All traces** to
    browse successful and failing requests together with the same filters.
 2. **Open the evidence.** Selecting an operation jumps to the evidence span.
-   **Observed evidence** lists every span with an exception event, an HTTP 5xx,
+   **Evidence** lists every span with an exception event, an HTTP 5xx,
    or an explicit error status.
 3. **Follow the calls.** The **Service map** shows the parent–child calls
    observed in this trace, and the **Span waterfall** compares start times and
@@ -212,7 +212,7 @@ Several applications can share one Geko, even when each one names its service
 `OTEL_RESOURCE_ATTRIBUTES=service.namespace=Storefront`, and each namespace
 becomes an **Application** filter.
 
-For spans exported without a namespace, open **Failures → Manage applications**:
+For spans exported without a namespace, open **Applications** in the sidebar:
 
 | Situation | What to do |
 | --- | --- |
@@ -245,7 +245,7 @@ entry span and no failure evidence for the same application, namespace,
 service, operation and environment. The comparison shows both request
 durations, the difference, span counts and a link to each trace.
 
-Open **Overview → Compare versions** to compare two recorded `service.version`
+Open **Regressions** in the sidebar to compare two recorded `service.version`
 values in a time range. Geko matches entry spans by application, namespace,
 service, operation and environment. The table flags increases of at least
 5 percentage points in failure evidence rate or 20% in mean request duration,
@@ -291,7 +291,7 @@ database schema is older, run the matching `geko serve` to migrate it first.
 ## Transfer a trace
 
 Open a trace and select **Download OTLP JSON**. To load it into another Geko
-instance, choose **Restore trace from OTLP JSON** on **All traces**. Each file
+instance, choose **Restore trace from OTLP JSON** at the bottom of **All traces**. Each file
 contains one trace and is limited to 4 MiB and 2,048 spans. A trace over the
 limit cannot be downloaded through this feature.
 
@@ -317,7 +317,7 @@ identify a group. Different instance IDs or messages do not split it; exceptions
 without a type form broader groups. Counts cover retained traces, not every
 exception event.
 
-The first page updates automatically through SSE. **Pause live updates** keeps
+The first page updates automatically through SSE. **Pause**, next to the live indicator, keeps
 the current results in place. Focused links and selected text are preserved;
 use **Refresh results** when prompted. Older pages stay stable, and manual
 refresh works without JavaScript. Changes made by another process directly to

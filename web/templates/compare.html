@@ -1,7 +1,6 @@
 {{define "compare"}}
-<a class="back" href="{{evidenceLink .Source}}"><span aria-hidden="true">←</span> Back to trace</a>
 <header class="page-head">
-  <div><h1>Compare traces</h1>{{with .Source.EntrySpan}}<p>{{.Operation}} · {{serviceLabel .Application .Service}}</p>{{end}}</div>
+  <div class="title"><a class="crumb" href="{{evidenceLink .Source}}">Trace</a><span class="crumb-sep" aria-hidden="true">/</span><h1>Compare traces</h1>{{with .Source.EntrySpan}}<span class="muted">{{.Operation}} · {{serviceLabel .Application .Service}}</span>{{end}}</div>
 </header>
 {{if .Baseline}}
 <div class="table-wrap" tabindex="0" role="region" aria-label="Trace comparison">
@@ -10,10 +9,10 @@
   <tbody>
     <tr><th scope="row">Trace</th><td><a href="{{evidenceLink .Source}}"><code>{{.Source.TraceID}}</code></a></td><td><a href="{{evidenceLink .Baseline}}"><code>{{.Baseline.TraceID}}</code></a></td></tr>
     <tr><th scope="row">Request result</th><td><span class="pill {{outcomeClass .Source}}">{{outcome .Source}}</span></td><td><span class="pill {{outcomeClass .Baseline}}">{{outcome .Baseline}}</span></td></tr>
-    <tr><th scope="row">Request duration</th><td>{{duration .Source.EntrySpan.DurationNS}}{{if .DurationDifference}}<span class="subtle"> · {{.DurationDifference}}</span>{{end}}</td><td>{{duration .Baseline.EntrySpan.DurationNS}}</td></tr>
+    <tr><th scope="row">Request duration</th><td>{{duration .Source.EntrySpan.DurationNS}}{{if .DurationDifference}}<span class="subtle">{{.DurationDifference}}</span>{{end}}</td><td>{{duration .Baseline.EntrySpan.DurationNS}}</td></tr>
     <tr><th scope="row">Spans</th><td>{{.Source.Window.SpanCount}}</td><td>{{.Baseline.Window.SpanCount}}</td></tr>
-    <tr><th scope="row">Last received</th><td>{{timestamp .Source.LastObserved}}</td><td>{{timestamp .Baseline.LastObserved}}</td></tr>
-    <tr><th scope="row">Primary evidence</th><td>{{with .Source.Evidence}}{{classification .Classification}} · {{.Service}} · {{.Operation}}{{if .ExceptionMessage}}<span class="subtle">{{.ExceptionMessage}}</span>{{else if .ExceptionType}}<span class="subtle">{{.ExceptionType}}</span>{{end}}{{end}}</td><td>None recorded</td></tr>
+    <tr><th scope="row">Last received</th><td class="time">{{timestamp .Source.LastObserved}}</td><td class="time">{{timestamp .Baseline.LastObserved}}</td></tr>
+    <tr><th scope="row">Primary evidence</th><td>{{with .Source.Evidence}}<span class="evidence-label">{{classification .Classification}}</span> · {{.Service}} · {{.Operation}}{{if .ExceptionMessage}}<span class="subtle">{{.ExceptionMessage}}</span>{{else if .ExceptionType}}<span class="subtle">{{.ExceptionType}}</span>{{end}}{{end}}</td><td class="muted">None recorded</td></tr>
   </tbody>
 </table>
 </div>

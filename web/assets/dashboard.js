@@ -20,6 +20,15 @@ if (copy && navigator.clipboard) {
   });
 }
 
+const traceSearch = document.querySelector("[data-trace-search]");
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey || !traceSearch) return;
+  if (event.target.closest("input, select, textarea, [contenteditable]")) return;
+  if (getComputedStyle(traceSearch).visibility === "hidden" || !traceSearch.offsetParent) return;
+  event.preventDefault();
+  traceSearch.focus();
+});
+
 const loading = document.querySelector(".loading");
 function showLoading() {
   loading.hidden = false;
@@ -52,6 +61,12 @@ if (graph) {
     if (output) output.textContent = Math.round(zoom * 100) + "%";
   }
   controls.hidden = false;
+  // Shrink slightly wider graphs to fit; larger ones scroll so labels stay readable.
+  const widthFit = canvas.clientWidth / width;
+  if (widthFit < 1 && widthFit >= 0.7) {
+    zoom = widthFit;
+    renderZoom();
+  }
   controls.addEventListener("click", (event) => {
     const button = event.target.closest("[data-map-zoom]");
     if (!button) return;
@@ -66,6 +81,35 @@ if (graph) {
     }
     renderZoom();
   });
+}
+
+// Span links end in #span-details so narrow layouts jump to the details below the
+// map. On wide layouts the details sit beside the map, so the jump would only hide
+// the trace summary: open a trace at the top, and keep the reader's place when a
+// span is selected from within the same trace.
+const spanDetails = document.getElementById("span-details");
+if (spanDetails) {
+  const key = "geko.scroll:" + location.pathname;
+  const wide = window.matchMedia("(min-width: 1250px)");
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest("a[href]");
+    if (!link) return;
+    const url = new URL(link.getAttribute("href"), location.href);
+    if (url.pathname !== location.pathname || url.hash !== "#span-details") return;
+    try { sessionStorage.setItem(key, String(window.scrollY)); } catch {}
+  });
+  let saved = null;
+  try {
+    saved = sessionStorage.getItem(key);
+    sessionStorage.removeItem(key);
+  } catch {}
+  const keepPlace = () => {
+    if (location.hash !== "#span-details" || !wide.matches) return;
+    if (document.activeElement === spanDetails) spanDetails.blur();
+    window.scrollTo(0, saved === null ? 0 : Number(saved));
+  };
+  keepPlace();
+  window.addEventListener("load", keepPlace, { once: true });
 }
 
 const waterfall = document.querySelector(".waterfall-disclosure");

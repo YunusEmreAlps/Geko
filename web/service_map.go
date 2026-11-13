@@ -171,14 +171,14 @@ func serviceMap(spans []investigation.Span, selected *investigation.Span, path s
 		}
 	}
 	rows := make(map[int]int)
-	view.Width, view.Height = 640, 360
+	view.Width, view.Height = 640, 176
 	for _, name := range names {
 		node := nodes[name]
 		level := levels[name]
-		node.X, node.Y = 48+level*280, 64+rows[level]*140
+		node.X, node.Y = 40+level*264, 48+rows[level]*112
 		rows[level]++
-		view.Width = max(view.Width, node.X+252)
-		view.Height = max(view.Height, node.Y+140)
+		view.Width = max(view.Width, node.X+244)
+		view.Height = max(view.Height, node.Y+128)
 		slices.Sort(node.Instances)
 		if node.Selected {
 			view.SelectedInstances = node.Instances

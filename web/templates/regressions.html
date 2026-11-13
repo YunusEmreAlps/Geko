@@ -1,11 +1,10 @@
 {{define "regressions"}}
-<a class="back" href="/overview">← Overview</a>
 <header class="page-head">
-  <div><h1>Version regressions</h1><p>Compare recorded requests by their entry service version.</p></div>
+  <div class="title"><h1>Version regressions</h1></div>
 </header>
-<form class="filters" method="get" action="/regressions" data-loading>
-  <label>Baseline version <input name="baseline" required maxlength="256" value="{{.Baseline}}"></label>
-  <label>Candidate version <input name="candidate" required maxlength="256" value="{{.Candidate}}"></label>
+<form class="filters regression-form" method="get" action="/regressions" data-loading>
+  <label>Baseline version <input name="baseline" required maxlength="256" value="{{.Baseline}}" placeholder="e.g. 1.4.0"></label>
+  <label>Candidate version <input name="candidate" required maxlength="256" value="{{.Candidate}}" placeholder="e.g. 1.5.0"></label>
   <label>Request service <input name="service" maxlength="256" value="{{.Service}}" placeholder="Any service"></label>
   <label>Time range
     <select name="range">
@@ -17,7 +16,6 @@
   <button class="button primary" type="submit">Compare</button>
 </form>
 {{if .Compared}}
-<p class="subtle group-explainer">Flags require at least 10 samples per version and a rise of 5 percentage points in failure rate or 20% in mean request duration. Failure rate counts traces with recorded evidence.</p>
 {{if .Rows}}
 <div class="table-wrap" tabindex="0" role="region" aria-label="Version comparison results">
   <table>
@@ -25,16 +23,19 @@
     <tbody>{{range .Rows}}
     <tr>
       <th scope="row">{{.Operation}}<span class="subtle">{{serviceLabel .Application .Service}}{{if .Namespace}} · Namespace {{.Namespace}}{{end}}{{if .Environment}} · {{.Environment}}{{end}}</span></th>
-      <td>{{.BaselineRate}} with evidence ({{.Baseline.Failures}} / {{.Baseline.Traces}})<br>{{duration .Baseline.MeanNS}} mean ({{.Baseline.Timed}} timed)</td>
-      <td>{{.CandidateRate}} with evidence ({{.Candidate.Failures}} / {{.Candidate.Traces}})<br>{{duration .Candidate.MeanNS}} mean ({{.Candidate.Timed}} timed)</td>
+      <td>{{.BaselineRate}} with evidence ({{.Baseline.Failures}} / {{.Baseline.Traces}})<span class="subtle">{{duration .Baseline.MeanNS}} mean ({{.Baseline.Timed}} timed)</span></td>
+      <td>{{.CandidateRate}} with evidence ({{.Candidate.Failures}} / {{.Candidate.Traces}})<span class="subtle">{{duration .Candidate.MeanNS}} mean ({{.Candidate.Timed}} timed)</span></td>
       <td>{{.Signal}}</td>
     </tr>
     {{end}}</tbody>
   </table>
 </div>
-{{if .Truncated}}<p class="subtle">Showing the first 50 results. Narrow the service or time range to see a smaller set.</p>{{end}}
+{{if .Truncated}}<p class="note">Showing the first 50 results. Narrow the service or time range to see a smaller set.</p>{{end}}
 {{else}}
 <section class="empty"><h2>No matching operations</h2><p>Both versions need traces with a unique entry span for the same application, namespace, service, operation and environment.</p></section>
 {{end}}
+<p class="note">Flags require at least 10 samples per version and a rise of 5 percentage points in failure rate or 20% in mean request duration. Failure rate counts traces with recorded evidence.</p>
+{{else}}
+<section class="empty"><h2>Compare two versions</h2><p>Enter the <code>service.version</code> values of a baseline and a candidate release to compare failure rate and request duration per operation.</p></section>
 {{end}}
 {{end}}

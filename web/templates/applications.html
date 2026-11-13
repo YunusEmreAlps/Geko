@@ -1,11 +1,10 @@
 {{define "applications"}}
 <header class="page-head">
-  <div><h1>Applications</h1><p>Group traces from different projects in this Geko instance.</p></div>
-  <a class="button" href="/failures">Browse failures</a>
+  <div class="title"><h1>Applications</h1></div>
 </header>
-{{if .Saved}}<p class="section" role="status">Service mapping updated.</p>{{end}}
-{{with .Changed}}<p class="section" role="status">{{.}} trace assignments changed.</p>{{end}}
-<section class="section">
+{{if .Saved}}<p class="notice" role="status">Service mapping updated.</p>{{end}}
+{{with .Changed}}<p class="notice" role="status">{{.}} trace assignments changed.</p>{{end}}
+<section class="section first">
   <h2>Service mappings</h2>
   <p class="muted">Map an exact service name to an application for past and future spans without a namespace.</p>
   <form class="application-form" action="/applications" method="post">
@@ -28,8 +27,7 @@
 </section>
 <section class="section">
   <h2>Assign historical traces</h2>
-  <p class="muted">Select when Geko last received the traces. The end time is exclusive. A service name narrows which traces match. If interrupted, submit the same inputs to resume.</p>
-  <p class="muted">The assignment applies to every span without a namespace in the matching traces and takes precedence over service mappings. Namespaced spans keep their application.</p>
+  <p class="muted">Matches traces by when Geko last received them (UTC, end exclusive). Applies to spans without a namespace and takes precedence over service mappings. If interrupted, submit the same inputs to resume.</p>
   <form class="application-form" action="/applications" method="post">
     <label>From (UTC) <input name="from" type="datetime-local" required></label>
     <label>To (UTC) <input name="to" type="datetime-local" required></label>
@@ -38,9 +36,8 @@
     <div class="actions">
       <button class="button primary" name="action" value="assign">Assign traces</button>
       <button class="button" name="action" value="assign-clear" formnovalidate>Clear assignments</button>
-      <button class="button" name="action" value="assign-discard" formnovalidate>Discard progress</button>
+      <button class="button" name="action" value="assign-discard" formnovalidate title="Keeps changes from completed batches.">Discard progress</button>
     </div>
   </form>
-  <p class="subtle">Discarding progress keeps changes from completed batches.</p>
 </section>
 {{end}}

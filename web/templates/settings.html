@@ -1,28 +1,30 @@
 {{define "settings"}}
-<header class="page-head"><div><h1>Settings</h1><p>Effective configuration and local diagnostics for this instance.</p></div></header>
+<header class="page-head"><div class="title"><h1>Settings</h1></div></header>
 <section class="section">
   <h2>Appearance</h2>
-  <div class="properties theme-preference">
-    <label for="theme">Theme</label>
-    <select id="theme" data-theme-select disabled>
-      <option value="dark">Dark</option>
-      <option value="light">Light</option>
-      <option value="system">System</option>
-    </select>
-    <p class="muted" id="theme-status" role="status">Saved in this browser. System follows your device appearance.</p>
-    <noscript>Enable JavaScript to change the theme.</noscript>
+  <div class="properties">
+    <div class="theme-preference">
+      <label for="theme">Theme</label>
+      <select id="theme" data-theme-select disabled title="Saved in this browser. System follows your device appearance.">
+        <option value="dark">Dark</option>
+        <option value="light">Light</option>
+        <option value="system">System</option>
+      </select>
+      <p class="muted" id="theme-status" role="status"></p>
+      <noscript>Enable JavaScript to change the theme.</noscript>
+    </div>
   </div>
 </section>
 <section class="section" id="receiver">
   <h2>Receiver</h2>
-  {{if .Receiver}}<p class="muted">Export counts and last accepted time cover the current server session.</p>{{end}}
+  {{if .Receiver}}<p class="muted">Counts cover the current server session.</p>{{end}}
   <dl class="properties">
     <div><dt>Listener</dt><dd><code>{{.ListenAddr}}</code>{{template "settings-source" .ConfigSource.ListenAddr}}</dd></div>
     <div><dt>Trace endpoint</dt><dd><code>{{.TraceEndpoint}}</code></dd></div>
     <div><dt>Protocol</dt><dd>OTLP/HTTP protobuf and JSON{{if .GRPCAddr}}, OTLP/gRPC{{end}}</dd></div>
     <div><dt>Dashboard listener</dt><dd><code>{{or .DashboardAddr .ListenAddr}}</code>{{template "settings-source" .ConfigSource.DashboardAddr}}{{if not .ConfigSource.DashboardAddr.Kind}} <span class="subtle">Shared HTTP listener unless configured separately</span>{{end}}</dd></div>
     <div><dt>OTLP/gRPC listener</dt><dd>{{if .GRPCAddr}}<code>{{.GRPCAddr}}</code>{{else}}Disabled{{end}}{{template "settings-source" .ConfigSource.GRPCAddr}}</dd></div>
-    <div><dt>Receiver status</dt><dd><span class="pill non_5xx">Running</span></dd></div>
+    <div><dt>Receiver status</dt><dd><span class="status-ok">Running</span></dd></div>
     {{with .Receiver}}
     <div><dt>Accepted exports with spans</dt><dd>{{.AcceptedExports}}</dd></div>
     <div><dt>Spans rejected in partially accepted exports</dt><dd>{{.RejectedSpans}}</dd></div>
@@ -43,7 +45,7 @@
     <div><dt>Traces evicted at capacity</dt><dd>{{.Storage.EvictedTraces}}</dd></div>
     <div><dt>Exports rejected at capacity</dt><dd>{{.Storage.RejectedExports}}</dd></div>
     <div><dt>SQLite</dt><dd>{{.Storage.SQLiteVersion}} · schema {{.Storage.SchemaVersion}}</dd></div>
-    <div><dt>Database status</dt><dd><span class="pill non_5xx">Reachable</span></dd></div>
+    <div><dt>Database status</dt><dd><span class="status-ok">Reachable</span></dd></div>
   </dl>
 </section>
 <section class="section">
@@ -53,7 +55,7 @@
     <div><dt>Exception redaction</dt><dd><code>{{or .Redaction "best_effort"}}</code>{{template "settings-source" .ConfigSource.Redaction}}</dd></div>
     <div><dt>Loaded YAML file</dt><dd>{{with .ConfigSource.FilePath}}<code>{{.}}</code>{{else}}No YAML file loaded{{end}}</dd></div>
   </dl>
-  <p class="subtle">{{if .ConfigSource.FilePath}}Edit the YAML file or environment variables, then restart Geko to apply changes.{{else}}Create <code>geko.yaml</code> or set <code>GEKO_CONFIG</code> to a file path. Restart Geko to load it.{{end}}</p>
+  <p class="note">{{if .ConfigSource.FilePath}}Edit the YAML file or environment variables, then restart Geko to apply changes.{{else}}Create <code>geko.yaml</code> or set <code>GEKO_CONFIG</code> to a file path. Restart Geko to load it.{{end}}</p>
 </section>
 {{end}}
 

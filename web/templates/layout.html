@@ -13,21 +13,27 @@
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
   <aside class="sidebar">
-    <a href="/failures" class="brand" aria-label="Geko home">
-      <img src="/assets/geko.svg" alt="" width="32" height="32">
-      <span>Geko<small>Trace investigation</small></span>
+    <a href="/overview" class="brand" aria-label="Geko home">
+      <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M30 36c-2 7-9 8-13 13-3 4-1 9 4 9 3 0 5-2 5-4" fill="none" stroke-width="5"/><path d="M30 24 21 19l-1-6m1 6-6 1m22 7 9 1 5-5m-5 5 5 3M28 34l-8-1-6 6m6-6-6-1m18 7 7 7 7-1m-7 1 1 6" fill="none" stroke-width="4"/><path d="M27 41c-6-3-4-12 1-19l4-6c-1-4 1-8 5-10 5-3 12-1 15 3 3 5 0 11-5 13-2 1-4 1-6 1l-5 13c-2 5-5 7-9 5Z" stroke="none"/></g><circle class="brand-eye" cx="43" cy="11" r="2.5"/></svg>
+      Geko
     </a>
+    <form class="side-search" action="/traces" method="get" role="search" data-loading>
+      <svg viewBox="0 0 24 24" aria-hidden="true" class="nav-icon"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input name="trace_id" aria-label="Go to trace ID" placeholder="Go to trace ID" required maxlength="32" pattern="[0-9A-Fa-f]{32}" title="32 hexadecimal characters" spellcheck="false" autocomplete="off" data-trace-search>
+      <kbd aria-hidden="true">/</kbd>
+    </form>
     <nav aria-label="Main navigation">
-      <span class="nav-label">Workspace</span>
-      <a href="/overview"{{if eq .Page "overview"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="12" y="3" width="5" height="5" rx="1"/><rect x="3" y="12" width="5" height="5" rx="1"/><rect x="12" y="12" width="5" height="5" rx="1"/></svg>Overview</a>
-      <a href="/failures"{{if or (eq .Page "failures") (eq .Page "trace")}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M2 10h4l2-6 4 12 2-6h4"/></svg>Failures</a>
-      <a href="/traces"{{if eq .Page "traces"}} aria-current="page"{{end}}>All traces</a>
-      <a href="/settings"{{if eq .Page "settings"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 3v14M10 3v14M16 3v14"/><path d="M2 7h4M8 13h4M14 6h4" stroke-width="3"/></svg>Settings</a>
+      <a href="/overview"{{if eq .Page "overview"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
+      <a href="/failures"{{if or (eq .Page "failures") (eq .Page "traces") (eq .Page "trace") (eq .Page "compare")}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Traces</a>
+      <a href="/regressions"{{if eq .Page "regressions"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></svg>Regressions</a>
     </nav>
-    <div class="sidebar-foot"><span class="local-dot"></span> Local instance</div>
+    <nav class="nav-secondary" aria-label="Instance">
+      <a href="/applications"{{if eq .Page "applications"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 4.5-9 4.5-9-4.5z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/></svg>Applications</a>
+      <a href="/settings"{{if eq .Page "settings"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-9M14 17H4"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>Settings</a>
+    </nav>
   </aside>
   <main id="main" tabindex="-1">
-    <p class="loading" role="status" hidden>Loading telemetry…</p>
+    <p class="loading" role="status" hidden>Loading…</p>
     {{if or (eq .Page "failures") (eq .Page "traces")}}{{template "failures" .Data}}
     {{else if eq .Page "overview"}}{{template "overview" .Data}}
     {{else if eq .Page "regressions"}}{{template "regressions" .Data}}
@@ -41,9 +47,12 @@
 </html>{{end}}
 
 {{define "error"}}
-<div class="page-head"><h1>{{.Title}}</h1><p>{{.Message}}</p></div>
-<div class="actions">
-  <a class="button primary" href="/failures">Back to failures</a>
-  <a class="button" href="{{.Retry}}">Retry</a>
-</div>
+<header class="page-head"><div class="title"><h1>{{.Title}}</h1></div></header>
+<section class="empty">
+  <p>{{.Message}}</p>
+  <div class="actions">
+    <a class="button primary" href="/failures">Back to failures</a>
+    <a class="button" href="{{.Retry}}">Retry</a>
+  </div>
+</section>
 {{end}}

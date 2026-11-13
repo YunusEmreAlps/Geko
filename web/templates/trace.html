@@ -1,21 +1,27 @@
 {{define "trace"}}
-<a class="back" href="/failures"><span aria-hidden="true">←</span> Failures</a>
-<header class="page-head trace-head">
-  <div>
+<header class="page-head">
+  <div class="title">
+    <a class="crumb" href="/failures">Failures</a><span class="crumb-sep" aria-hidden="true">/</span>
     <h1>{{if .Trace.EntrySpan}}{{.Trace.EntrySpan.Operation}}{{else if .Trace.Evidence}}{{.Trace.Evidence.Operation}}{{else}}Trace details{{end}}</h1>
-    <div class="trace-id"><code id="trace-id">{{.Trace.TraceID}}</code><button type="button" class="button quiet" data-copy="trace-id" hidden>Copy trace ID</button><span class="muted" role="status" id="copy-status"></span></div>
+    <span class="pill {{outcomeClass .Trace}}">{{outcome .Trace}}</span>
   </div>
-  <div class="actions"><span class="pill {{outcomeClass .Trace}}">{{outcome .Trace}}</span>{{if and .Trace.Evidence .Trace.EntrySpan}}<a class="button" href="/traces/{{.Trace.TraceID}}/compare">Compare with success</a>{{end}}<a class="button" href="/traces/{{.Trace.TraceID}}/otlp.json">Download OTLP JSON</a></div>
+  <div class="actions">
+    {{if and .Trace.Evidence .Trace.EntrySpan}}<a class="button" href="/traces/{{.Trace.TraceID}}/compare"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Compare with success</a>{{end}}
+    <a class="button" href="/traces/{{.Trace.TraceID}}/otlp.json" download><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Download OTLP JSON</a>
+  </div>
 </header>
-<dl class="trace-facts">
-  <div><dt>Request duration</dt><dd>{{with .Trace.EntrySpan}}{{duration .DurationNS}}{{else}}Unavailable{{end}}</dd></div>
-  <div><dt>Spans</dt><dd>{{with .Trace.Window}}{{.SpanCount}}{{else}}0{{end}}</dd></div>
-  <div><dt>First observed</dt><dd>{{timestamp .Trace.FirstObserved}}</dd></div>
-  <div><dt>Last observed</dt><dd>{{timestamp .Trace.LastObserved}}</dd></div>
-</dl>
+<div class="trace-meta">
+  <dl class="trace-facts">
+    <div><dt>Duration</dt><dd>{{with .Trace.EntrySpan}}{{duration .DurationNS}}{{else}}Unavailable{{end}}</dd></div>
+    <div><dt>Spans</dt><dd>{{with .Trace.Window}}{{.SpanCount}}{{else}}0{{end}}</dd></div>
+    <div><dt>First received</dt><dd>{{timestamp .Trace.FirstObserved}}</dd></div>
+    {{if ne (timestamp .Trace.FirstObserved) (timestamp .Trace.LastObserved)}}<div><dt>Last received</dt><dd>{{timestamp .Trace.LastObserved}}</dd></div>{{end}}
+  </dl>
+  <div class="trace-id"><code id="trace-id">{{.Trace.TraceID}}</code><button type="button" class="button ghost quiet" data-copy="trace-id" hidden>Copy</button><span role="status" id="copy-status"></span></div>
+</div>
 {{if .Trace.Evidence}}
 <section class="section" id="evidence" aria-labelledby="evidence-title">
-  <h2 id="evidence-title">Observed evidence</h2>
+  <h2 id="evidence-title">Evidence</h2>
   {{if .Evidence}}
   <ul class="evidence-list">
     {{range .Evidence}}
@@ -41,9 +47,8 @@
 <section class="section timeline">
   {{template "service-map" .ServiceMap}}
   <details class="waterfall-disclosure"{{if .First}} open{{end}}>
-  <summary>Span waterfall · timing details</summary>
-  <h2>Span waterfall</h2>
-  <p class="muted">Bars show recorded timing across the trace. Select a span to inspect its attributes and events.</p>
+  <summary>Span waterfall</summary>
+  <h2 class="sr-only">Span waterfall</h2>
   {{if .Rows}}
   <div class="table-wrap" tabindex="0" role="region" aria-label="Span waterfall">
     <table class="waterfall">
@@ -70,7 +75,7 @@
   {{if .MissingSpan}}<h2>Span unavailable</h2><p class="muted">The selected span is unavailable. Its parent or child may have arrived separately.</p>
   {{else if .Selected}}
   <h2>Span details</h2>
-  <p class="muted">Showing one recorded span from this service. Use the waterfall to inspect other spans.</p>
+  <p class="muted">One representative span. Use the waterfall for others.</p>
   <dl class="properties">
     <div><dt>Operation</dt><dd>{{.Selected.Operation}}</dd></div>
     <div><dt>Service</dt><dd>{{.Selected.Service}}</dd></div>

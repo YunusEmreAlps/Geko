@@ -14,6 +14,6 @@ Start Geko, then run a client from the repository root.
 | Java 11+ | `java examples/otlp-json/ExportTrace.java` |
 | .NET 10 SDK | `dotnet run --file examples/otlp-json/ExportTrace.cs` |
 
-The client prints the trace ID. Paste it into **Go to trace**, or choose the
+The client prints the trace ID. Paste it into **Go to trace ID**, or choose the
 `otlp-json-demo` application in **Failures**. Set
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` if Geko listens at a different URL.
