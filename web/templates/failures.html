@@ -61,14 +61,36 @@
       {{else}}<input name="version" maxlength="256" placeholder="Fixed in version (optional)" aria-label="Fixed in service.version (optional)" title="With a version, only traces reporting that service.version reopen the group. Older instances still rolling out don't."><button class="button small" name="state" value="resolved" title="Hide this group until a new matching trace arrives">Resolve</button><button class="button small ghost" name="state" value="muted" title="Hide this group and never notify for it">Mute</button>{{end}}
     </form>{{end}}
   </div>
-  <p><strong>{{if .ExceptionType}}{{.ExceptionType}}{{else}}{{classification .Classification}}{{end}}</strong> on <code>{{.Operation}}</code> in {{serviceLabel .Application .Service}}{{if .Environment}} ({{.Environment}}){{end}}{{if .HTTPStatus}} · evidence HTTP {{.HTTPStatus}}{{end}}</p>
+  <p><strong>{{failureTitle .ExceptionType .Classification}}</strong> on <code>{{.Operation}}</code> in {{serviceLabel .Application .Service}}{{if .Environment}} ({{.Environment}}){{end}}{{if .HTTPStatus}} · evidence HTTP {{.HTTPStatus}}{{end}}</p>
   <dl class="facts">
     <div><dt>Traces</dt><dd>{{.Count}} matching {{if eq .Count 1}}trace{{else}}traces{{end}}</dd></div>
     <div><dt>First received</dt><dd>{{timestamp .FirstObserved}}</dd></div>
     <div><dt>Last received</dt><dd>{{timestamp .LastObserved}}</dd></div>
     <div><dt>Request outcomes</dt><dd>{{.Outcomes.HTTP2xx}} 2xx · {{.Outcomes.HTTP5xx}} 5xx · {{.Outcomes.HTTPOther}} other HTTP · {{.Outcomes.HTTPUnknown}} unknown</dd></div>
   </dl>
-  <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Open the latest evidence span</a>
+  {{if or .Note .IssueURL}}
+  <div class="group-note" id="group-note">
+    {{with .IssueURL}}<a class="issue-link" href="{{.}}" target="_blank" rel="noopener noreferrer">{{issueLabel .}}</a>{{end}}
+    {{with .Note}}<p class="note-text">{{.}}</p>{{end}}
+    <p class="subtle">Updated {{with .NoteBy}}by {{.}} {{end}}{{with .NoteChanged}}{{template "age" .}}{{end}}</p>
+  </div>
+  {{end}}
+  <div class="summary-links">
+    <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Open the latest evidence span</a>
+    <button type="button" class="button small" data-copy="group-evidence" data-copy-status="group-evidence-status" hidden>Copy as bug evidence</button><span role="status" class="subtle" id="group-evidence-status"></span>
+  </div>
+  <pre id="group-evidence" hidden>{{$.GroupEvidence}}</pre>
+  {{if $.CanTriage}}
+  <details class="note-editor"{{if not (or .Note .IssueURL)}} id="group-note"{{end}}>
+    <summary>{{if or .Note .IssueURL}}Edit note{{else}}Add a note or issue link{{end}}</summary>
+    <form action="/groups/note" method="post">
+      <input type="hidden" name="group" value="{{$.Group}}"><input type="hidden" name="return" value="{{$.Refresh}}">
+      <label>Issue link <input type="url" name="issue_url" maxlength="2048" value="{{.IssueURL}}" placeholder="https://jira.example.com/browse/PAY-12"></label>
+      <label>Note <textarea name="note" maxlength="2000" rows="3">{{.Note}}</textarea></label>
+      <div><button class="button small" type="submit">Save note</button><span class="subtle">Clear both fields to remove the note.</span></div>
+    </form>
+  </details>
+  {{end}}
 </section>
 {{end}}
 {{if .Groups}}{{template "group-table" .Groups}}
@@ -113,7 +135,7 @@
 <div class="table-wrap" tabindex="0" role="region" aria-label="Error groups">
 <table class="group-table"><thead><tr><th scope="col">Error / Operation</th><th scope="col">Service / Environment</th><th scope="col" class="num">Traces</th><th scope="col">First received</th><th scope="col">Last received</th></tr></thead><tbody>
 {{range .}}<tr data-first-received="{{.FirstObserved.UnixMilli}}">
-  <td><a class="operation" href="{{.TracesURL}}">{{if .ExceptionType}}{{.ExceptionType}}{{else}}{{classification .Classification}}{{end}}</a> {{template "group-state" .FailureGroup}}<span class="subtle">{{.Operation}}{{if .HTTPStatus}} · HTTP {{.HTTPStatus}}{{end}} · <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Latest example</a></span></td>
+  <td><a class="operation" href="{{.TracesURL}}">{{failureTitle .ExceptionType .Classification}}</a> {{template "group-state" .FailureGroup}}<span class="subtle">{{.Operation}}{{if .HTTPStatus}} · HTTP {{.HTTPStatus}}{{end}} · <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Latest example</a>{{with .IssueURL}} · <a href="{{.}}" target="_blank" rel="noopener noreferrer" title="{{.}}">Issue</a>{{end}}</span></td>
   <td>{{serviceLabel .Application .Service}}{{$namespace := and .Namespace (ne .Namespace .Application)}}{{if or $namespace .Environment}}<span class="subtle">{{if $namespace}}{{.Namespace}}{{if .Environment}} · {{end}}{{end}}{{.Environment}}</span>{{end}}</td>
   <td class="num"><a class="operation" href="{{.TracesURL}}">{{.Count}}</a></td>
   <td class="time">{{template "age" .FirstObserved}}</td><td class="time">{{template "age" .LastObserved}}</td>

@@ -43,8 +43,9 @@ func (s *Store) FailureGroups(ctx context.Context, f investigation.FailureFilter
  FROM matching GROUP BY group_key)
  SELECT * FROM (SELECT g.*,CASE WHEN gs.state IS NULL THEN 'open' WHEN gs.state = 'muted' THEN 'muted'
  WHEN rc.group_key IS NOT NULL THEN 'reopened' ELSE 'resolved' END AS state,
- coalesce(gs.changed_ns,0) AS changed_ns,coalesce(gs.version,'') AS resolved_version,coalesce(gs.changed_by,'') AS changed_by
- FROM grouped g LEFT JOIN group_states gs USING (group_key) LEFT JOIN recurred rc USING (group_key))
+ coalesce(gs.changed_ns,0) AS changed_ns,coalesce(gs.version,'') AS resolved_version,coalesce(gs.changed_by,'') AS changed_by,
+ coalesce(gn.note,'') AS note,coalesce(gn.issue_url,'') AS issue_url,coalesce(gn.changed_ns,0) AS note_ns,coalesce(gn.changed_by,'') AS note_by
+ FROM grouped g LEFT JOIN group_states gs USING (group_key) LEFT JOIN recurred rc USING (group_key) LEFT JOIN group_notes gn USING (group_key))
  WHERE ` + groupStateCondition[f.GroupState]
 	if after != nil {
 		query += ` AND (last_ns < ? OR (last_ns = ? AND group_key > ?))`
@@ -64,12 +65,13 @@ func (s *Store) FailureGroups(ctx context.Context, f investigation.FailureFilter
 			break
 		}
 		var group investigation.FailureGroup
-		var first, last, changed int64
+		var first, last, changed, noted int64
 		var rank int
 		if err := rows.Scan(&group.Key, &group.Application, &group.Namespace, &group.Service, &group.Environment,
 			&group.Operation, &rank, &group.ExceptionType, &group.HTTPStatus, &group.Count, &first, &last, &group.TraceID, &group.SpanID,
 			&group.Outcomes.HTTP2xx, &group.Outcomes.HTTP5xx, &group.Outcomes.HTTPOther, &group.Outcomes.HTTPUnknown,
 			&group.State, &changed, &group.ResolvedVersion, &group.ChangedBy,
+			&group.Note, &group.IssueURL, &noted, &group.NoteBy,
 		); err != nil {
 			return result, err
 		}
@@ -79,6 +81,10 @@ func (s *Store) FailureGroups(ctx context.Context, f investigation.FailureFilter
 		if group.State != investigation.GroupOpen {
 			at := time.Unix(0, changed).UTC()
 			group.StateChanged = &at
+		}
+		if noted != 0 {
+			at := time.Unix(0, noted).UTC()
+			group.NoteChanged = &at
 		}
 		result.Items = append(result.Items, group)
 	}
@@ -117,6 +123,28 @@ func (s *Store) SetGroupState(ctx context.Context, key string, state investigati
 	default:
 		return errors.New("state must be open, resolved or muted")
 	}
+}
+
+// SetGroupNote stores a group's note and issue link, replacing earlier ones.
+// Both empty removes them. by names who made the change.
+func (s *Store) SetGroupNote(ctx context.Context, key, note, issueURL, by string, now time.Time) error {
+	if _, err := investigation.DecodeGroupKey(investigation.EncodeGroupKey(key)); err != nil {
+		return err
+	}
+	if err := investigation.ValidateGroupNote(note, issueURL); err != nil {
+		return err
+	}
+	if len(by) > 256 {
+		return errors.New("the name of who changed a group is limited to 256 bytes")
+	}
+	if note == "" && issueURL == "" {
+		_, err := s.db.ExecContext(ctx, "DELETE FROM group_notes WHERE group_key = ?", key)
+		return s.changed(writeError(err))
+	}
+	_, err := s.db.ExecContext(ctx, `INSERT INTO group_notes (group_key, note, issue_url, changed_ns, changed_by) VALUES (?, ?, ?, ?, ?)
+ ON CONFLICT (group_key) DO UPDATE SET note = excluded.note, issue_url = excluded.issue_url, changed_ns = excluded.changed_ns,
+ changed_by = excluded.changed_by`, key, note, issueURL, now.UnixNano(), by)
+	return s.changed(writeError(err))
 }
 
 // MarkGroupNotified records that a reopened group's notification was sent.

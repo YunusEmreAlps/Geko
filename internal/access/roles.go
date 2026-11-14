@@ -80,9 +80,9 @@ func scopeRole(scope Scope) Role {
 	return 0
 }
 
-// triageRequest changes an error group's state, which triagers may do.
+// triageRequest changes an error group's state or note, which triagers may do.
 func triageRequest(r *http.Request) bool {
-	return r.Method == http.MethodPost && r.URL.Path == "/groups/state"
+	return r.Method == http.MethodPost && (r.URL.Path == "/groups/state" || r.URL.Path == "/groups/note")
 }
 
 // permitted reports whether role may make the request. Ingest is checked separately.

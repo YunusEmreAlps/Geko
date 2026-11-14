@@ -18,8 +18,10 @@ even if YAML configures a separate address.
 | — | `GEKO_INGEST_TOKENS` | Empty. Export-only tokens as comma-separated `name=token` pairs, with the same token rules. Requires `GEKO_ACCESS_TOKEN`. |
 | — | `GEKO_ALLOW_PLAINTEXT` | `false`. Geko doesn't terminate TLS; set `true` to allow non-loopback listeners behind a TLS proxy or on a trusted network. |
 | `public_url` | `GEKO_PUBLIC_URL` | Empty. External URL of the OTLP/HTTP listener, such as `https://geko.example.com`, shown as the trace endpoint and used in notification links. |
+| `trace_link_url` | `GEKO_TRACE_LINK_URL` | Empty. Link that opens a trace in another tool, with `{trace_id}` in place of the trace ID, such as a Grafana Explore URL for Tempo or `https://jaeger.example.com/trace/{trace_id}`. Adds an **Open in** button to trace pages. |
+| `trace_link_name` | `GEKO_TRACE_LINK_NAME` | `Tempo`. Tool name shown on that button, up to 40 bytes. |
 | — | `GEKO_READ_TOKENS` | Empty. Read-only tokens for the dashboard, query API and `/mcp`, as comma-separated `name=token` pairs. Requires `GEKO_ACCESS_TOKEN`. |
-| — | `GEKO_TRIAGE_TOKENS` | Empty. Tokens with read access that can also resolve, mute and reopen error groups, as comma-separated `name=token` pairs. Read and triage token names must differ. Requires `GEKO_ACCESS_TOKEN`. |
+| — | `GEKO_TRIAGE_TOKENS` | Empty. Tokens with read access that can also resolve, mute and reopen error groups and edit their notes, as comma-separated `name=token` pairs. Read and triage token names must differ. Requires `GEKO_ACCESS_TOKEN`. |
 | — | `GEKO_TOKENS_FILE` | Empty. YAML file with `access`, `ingest`, `read` and `triage` tokens, reloaded when it changes. Replaces the four token variables. |
 | — | `GEKO_PROXY_USER_HEADER` | Empty. Header in which an authenticating proxy, such as oauth2-proxy, names the signed-in user. Requires `GEKO_ACCESS_TOKEN` and `GEKO_PROXY_TRUSTED_IPS`. See [Sign in through a proxy](server.md#sign-in-through-a-proxy). |
 | — | `GEKO_PROXY_TRUSTED_IPS` | Empty. Comma-separated IP addresses or CIDR prefixes of that proxy. The header is ignored on requests from other addresses. |

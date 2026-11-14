@@ -3,6 +3,8 @@ package investigation
 
 import (
 	"errors"
+	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
@@ -84,6 +86,11 @@ type FailureGroup struct {
 	ResolvedVersion string `json:"resolved_version,omitempty"`
 	// ChangedBy names who resolved or muted the group, when known.
 	ChangedBy string `json:"state_changed_by,omitempty"`
+	// Note and IssueURL are written by the team, not received with traces.
+	Note        string     `json:"note,omitempty"`
+	IssueURL    string     `json:"issue_url,omitempty"`
+	NoteBy      string     `json:"note_changed_by,omitempty"`
+	NoteChanged *time.Time `json:"note_changed,omitempty"`
 }
 
 type RequestOutcomes struct {
@@ -200,4 +207,42 @@ func HTTPOutcome(entry *SpanSummary) string {
 		return "server_error"
 	}
 	return "non_5xx"
+}
+
+// genericExceptionTypes are Go error types that say nothing about the failure:
+// the OpenTelemetry Go SDK records them for errors.New, fmt.Errorf and
+// errors.Join.
+var genericExceptionTypes = map[string]bool{
+	"*errors.errorString": true, "*fmt.wrapError": true, "*fmt.wrapErrors": true, "*errors.joinError": true,
+}
+
+// NamedExceptionType returns the exception type when it identifies the failure,
+// or "" for generic wrapper types.
+func NamedExceptionType(kind string) string {
+	if genericExceptionTypes[kind] {
+		return ""
+	}
+	return kind
+}
+
+// MaxGroupNote limits a group note; MaxIssueURL limits its issue link.
+const (
+	MaxGroupNote = 2000
+	MaxIssueURL  = 2048
+)
+
+// ValidateGroupNote checks a group note and its issue link, an absolute http or
+// https URL without credentials.
+func ValidateGroupNote(note, issueURL string) error {
+	if len(note) > MaxGroupNote {
+		return fmt.Errorf("a note is limited to %d bytes", MaxGroupNote)
+	}
+	if issueURL == "" {
+		return nil
+	}
+	parsed, err := url.Parse(issueURL)
+	if len(issueURL) > MaxIssueURL || err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return fmt.Errorf("an issue link must be an http or https URL of up to %d bytes", MaxIssueURL)
+	}
+	return nil
 }

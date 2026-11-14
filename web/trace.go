@@ -27,6 +27,9 @@ type traceView struct {
 	Evidence            []evidenceRow
 	EvidenceFirst       string
 	EvidenceNext        string
+	BugEvidence         string
+	TraceLink           string
+	TraceLinkName       string
 }
 
 type evidenceRow struct {
@@ -150,6 +153,8 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 		if page.Next != nil {
 			view.Next = traceRoute(path, url.Values{"cursor": {api.EncodeCursor(page.Next)}}, mergeEnvironments)
 		}
+		view.BugEvidence = traceBugEvidence(d.baseURL(r), summary)
+		view.TraceLink, view.TraceLinkName = traceLink(d.settings.TraceLinkURL, summary.TraceID), d.settings.TraceLinkName
 		d.render(w, r, http.StatusOK, "trace", "Trace details", view)
 	})
 }
@@ -245,6 +250,15 @@ func signal(span investigation.Span) string {
 		return "span_error"
 	}
 	return ""
+}
+
+// failureTitle names a failure group by its exception type, or by its
+// classification when the type is a generic Go error wrapper.
+func failureTitle(kind, value string) string {
+	if kind = investigation.NamedExceptionType(kind); kind != "" {
+		return kind
+	}
+	return classification(value)
 }
 
 func classification(value string) string {

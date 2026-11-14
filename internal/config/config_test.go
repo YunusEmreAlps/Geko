@@ -170,6 +170,8 @@ func clearConfigEnv(t *testing.T) {
 	t.Setenv("GEKO_WEBHOOK_URL", "")
 	t.Setenv("GEKO_WEBHOOK_FORMAT", "")
 	t.Setenv("GEKO_MCP_TRIAGE", "")
+	t.Setenv("GEKO_TRACE_LINK_URL", "")
+	t.Setenv("GEKO_TRACE_LINK_NAME", "")
 	t.Setenv("GEKO_INGEST_CONCURRENCY", "")
 	t.Setenv("GEKO_TOKENS_FILE", "")
 	t.Setenv("GEKO_ALLOW_PLAINTEXT", "")
@@ -316,6 +318,35 @@ func TestPublicURL(t *testing.T) {
 		if _, err := Load(); err == nil {
 			t.Errorf("accepted %q", value)
 		}
+	}
+}
+
+func TestTraceLink(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	cfg, err := Load()
+	if err != nil || cfg.TraceLinkURL != "" || cfg.TraceLinkName != "" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	writeConfig(t, defaultConfigPath, "trace_link_url: 'https://grafana.example.com/explore?query={trace_id}'\n")
+	if cfg, err = Load(); err != nil || cfg.TraceLinkURL != "https://grafana.example.com/explore?query={trace_id}" || cfg.TraceLinkName != "Tempo" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	t.Setenv("GEKO_TRACE_LINK_URL", "http://jaeger:16686/trace/%7Btrace_id%7D")
+	t.Setenv("GEKO_TRACE_LINK_NAME", "Jaeger")
+	if cfg, err = Load(); err != nil || cfg.TraceLinkURL != "http://jaeger:16686/trace/%7Btrace_id%7D" || cfg.TraceLinkName != "Jaeger" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	for _, value := range []string{"https://grafana.example.com/explore", "javascript:alert('{trace_id}')", "https://user:pass@grafana.example.com/{trace_id}", "/trace/{trace_id}"} {
+		t.Setenv("GEKO_TRACE_LINK_URL", value)
+		if _, err := Load(); err == nil {
+			t.Errorf("accepted %q", value)
+		}
+	}
+	t.Setenv("GEKO_TRACE_LINK_URL", "")
+	writeConfig(t, defaultConfigPath, "")
+	if _, err := Load(); err == nil {
+		t.Error("accepted a trace link name without a URL")
 	}
 }
 

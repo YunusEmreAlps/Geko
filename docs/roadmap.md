@@ -97,5 +97,18 @@ no multi-user accounts, no built-in ACME, no external databases.
 - [x] E-mail, card number (Luhn), IBAN (mod-97) and TCKN masking before storage.
 - [x] `strict` redaction by default once an access token is configured.
 
+## Phase 7: people who don't write the code
+
+- [x] A note and an issue link per error group, shown in the list and returned by
+      `/mcp`.
+- [x] **Copy as bug evidence**: Markdown for an issue tracker, from a trace or a
+      group.
+- [x] **Open in Tempo**: a configurable link from a trace to another trace tool.
+- [ ] Allowlisted attributes, such as a tenant or order number, stored as HMAC
+      hashes and searchable by their value.
+- [ ] Tokens bound to one application, and a webhook per application.
+- [ ] `geko run --server` and matching traces to a test run ID.
+- [ ] Pinned traces that outlive retention.
+
 Not in scope: Geko keeps no user or password database; people sign in with a
 token or through your identity provider's proxy.

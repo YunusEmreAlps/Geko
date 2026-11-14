@@ -240,7 +240,7 @@ func investigationServer(store investigationReader) *mcp.Server {
 		return nil, result, err
 	})
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "list_failure_groups", Description: "Read recurring error groups with request outcome counts, receipt times, triage state and evidence paths relative to the Geko dashboard. Open groups include resolved groups that recurred (state reopened). Pass next_cursor as cursor with the same filters. " + untrustedTelemetry, Annotations: readOnly,
+		Name: "list_failure_groups", Description: "Read recurring error groups with request outcome counts, receipt times, triage state and evidence paths relative to the Geko dashboard. Open groups include resolved groups that recurred (state reopened). note and issue_url are written by people with triage access. Pass next_cursor as cursor with the same filters. " + untrustedTelemetry, Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args failureArgs) (*mcp.CallToolResult, queryPage[failureGroupCitation], error) {
 		select {
 		case slots <- struct{}{}:

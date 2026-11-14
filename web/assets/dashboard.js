@@ -1,24 +1,46 @@
 "use strict";
 
-const copy = document.querySelector("[data-copy]");
-if (copy && navigator.clipboard) {
-  copy.hidden = false;
-  copy.addEventListener("click", async () => {
-    const text = document.getElementById(copy.dataset.copy);
-    const status = document.getElementById("copy-status");
+// The Clipboard API needs HTTPS or localhost; staging servers reached over
+// plain HTTP copy through a selected, off-screen textarea instead.
+async function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const buffer = document.createElement("textarea");
+  buffer.value = text;
+  buffer.readOnly = true;
+  buffer.className = "sr-only";
+  document.body.append(buffer);
+  buffer.select();
+  const copied = document.execCommand("copy");
+  buffer.remove();
+  if (!copied) throw new Error("copy failed");
+}
+document.querySelectorAll("[data-copy]").forEach((button) => {
+  const source = document.getElementById(button.dataset.copy);
+  const status = document.getElementById(button.dataset.copyStatus || "copy-status");
+  if (!source || !status) return;
+  button.hidden = false;
+  button.addEventListener("click", async () => {
     try {
-      await navigator.clipboard.writeText(text.textContent);
+      await copyText(source.textContent);
       status.textContent = "Copied";
     } catch {
+      if (source.hidden) {
+        status.textContent = "Copy failed";
+        return;
+      }
       const selection = window.getSelection();
       const range = document.createRange();
-      range.selectNodeContents(text);
+      range.selectNodeContents(source);
       selection.removeAllRanges();
       selection.addRange(range);
       status.textContent = "Selected for manual copy";
     }
+    setTimeout(() => { status.textContent = ""; }, 3000);
   });
-}
+});
 
 const traceSearch = document.querySelector("[data-trace-search]");
 document.addEventListener("keydown", (event) => {
@@ -66,6 +88,14 @@ if (graph) {
   if (widthFit < 1 && widthFit >= 0.7) {
     zoom = widthFit;
     renderZoom();
+  } else if (widthFit < 0.7) {
+    const focus = graph.querySelector(".map-node.is-selected .node-body") || graph.querySelector(".map-node.has-errors .node-body");
+    if (focus) {
+      const node = focus.getBoundingClientRect();
+      const view = canvas.getBoundingClientRect();
+      canvas.scrollLeft += node.left - view.left - (view.width - node.width) / 2;
+      canvas.scrollTop += node.top - view.top - (view.height - node.height) / 2;
+    }
   }
   controls.addEventListener("click", (event) => {
     const button = event.target.closest("[data-map-zoom]");

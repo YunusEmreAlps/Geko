@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -49,6 +50,46 @@ func (d *dashboard) changeGroupState(w http.ResponseWriter, r *http.Request) {
 	}
 	d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "group.state", Target: investigation.EncodeGroupKey(key), Detail: detail})
 	http.Redirect(w, r, target, http.StatusSeeOther)
+}
+
+// changeGroupNote saves or clears an error group's note and issue link.
+func (d *dashboard) changeGroupNote(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	if err := r.ParseForm(); err != nil {
+		d.problem(w, r, http.StatusBadRequest, "Invalid request", "Reload the page and try again.")
+		return
+	}
+	key, err := investigation.DecodeGroupKey(r.PostForm.Get("group"))
+	if err != nil {
+		d.problem(w, r, http.StatusBadRequest, "Invalid group change", "Open the group from Error groups and try again.")
+		return
+	}
+	note := strings.TrimSpace(strings.ReplaceAll(r.PostForm.Get("note"), "\r\n", "\n"))
+	issue := strings.TrimSpace(r.PostForm.Get("issue_url"))
+	if investigation.ValidateGroupNote(note, issue) != nil {
+		d.problem(w, r, http.StatusBadRequest, "Invalid note", fmt.Sprintf("Use a note of up to %d bytes and an http or https issue link.", investigation.MaxGroupNote))
+		return
+	}
+	target := r.PostForm.Get("return")
+	if !strings.HasPrefix(target, "/failures") {
+		target = "/failures?view=groups"
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := d.store.SetGroupNote(ctx, key, note, issue, d.changedBy(r), time.Now()); err != nil {
+		d.unavailable(w, r, ctx)
+		return
+	}
+	// The note itself stays out of the audit log, since it can quote customer data.
+	detail := map[string]string{"note": "removed"}
+	if note != "" {
+		detail["note"] = "saved"
+	}
+	if issue != "" {
+		detail["issue_url"] = issue
+	}
+	d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "group.note", Target: investigation.EncodeGroupKey(key), Detail: detail})
+	http.Redirect(w, r, target+"#group-note", http.StatusSeeOther)
 }
 
 func (d *dashboard) testNotification(w http.ResponseWriter, r *http.Request) {

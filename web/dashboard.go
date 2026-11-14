@@ -41,6 +41,7 @@ type Reader interface {
 	Revision() uint64
 	FailureGroups(context.Context, investigation.FailureFilter, *investigation.GroupCursor) (investigation.FailureGroups, error)
 	SetGroupState(context.Context, string, investigation.GroupState, string, string, time.Time) error
+	SetGroupNote(context.Context, string, string, string, string, time.Time) error
 	api.Reader
 	HasTraces(context.Context) (bool, error)
 	Overview(context.Context, time.Time) (investigation.Overview, error)
@@ -60,10 +61,12 @@ type Settings struct {
 	ConfigSource            config.Source
 	ListenAddr              string
 	PublicURL               string
-	AccessToken             bool
-	IngestTokens            []string
-	ReadTokens              []string
-	TriageTokens            []string
+	// TraceLinkURL opens a trace in another tool; {trace_id} is replaced.
+	TraceLinkURL, TraceLinkName string
+	AccessToken                 bool
+	IngestTokens                []string
+	ReadTokens                  []string
+	TriageTokens                []string
 	// ProxyHeader names the header an authenticating proxy sets, if trusted.
 	ProxyHeader string
 	// Audit records changes and sign-ins; nil discards them.
@@ -112,7 +115,7 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 		"duration":    formatDuration, "timestamp": formatTimestamp, "age": func(t time.Time) string { return formatAge(t, time.Now()) }, "classification": classification,
 		"size": formatSize, "evidenceLink": evidenceLink, "signal": signal,
 		"outcome": outcome, "outcomeClass": outcomeClass,
-		"serviceLabel": serviceLabel,
+		"serviceLabel": serviceLabel, "failureTitle": failureTitle, "issueLabel": issueLabel,
 		"attributes": func(label string, values telemetry.Attributes) any {
 			return struct {
 				Label  string
@@ -147,6 +150,7 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	}
 	mux.Handle("POST /applications", protect.Handler(d.local(d.changeApplications)))
 	mux.Handle("POST /groups/state", protect.Handler(d.local(d.changeGroupState)))
+	mux.Handle("POST /groups/note", protect.Handler(d.local(d.changeGroupNote)))
 	if settings.SignIn != nil && settings.SignOut != nil {
 		mux.HandleFunc("GET /login", d.local(d.login))
 		mux.Handle("POST /login", protect.Handler(d.local(d.login)))
@@ -251,6 +255,7 @@ type failureView struct {
 	Path, AllTracesURL, Reset         string
 	Groups                            []failureGroupView
 	GroupSummary                      *investigation.FailureGroup
+	GroupEvidence                     string
 	Mode, Group, GroupsURL, TracesURL string
 	GroupState                        string
 	StateURLs                         map[string]string
@@ -410,6 +415,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 				groups, err = d.store.FailureGroups(ctx, summaryFilter, nil)
 				if err == nil && len(groups.Items) > 0 {
 					view.GroupSummary = &groups.Items[0]
+					view.GroupEvidence = groupBugEvidence(d.baseURL(r), groups.Items[0])
 				}
 			}
 		}

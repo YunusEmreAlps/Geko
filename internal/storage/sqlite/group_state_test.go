@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -152,5 +153,55 @@ func TestResolvedInVersion(t *testing.T) {
 	}
 	if got := groups()[0]; got.State != investigation.GroupReopened {
 		t.Fatalf("after a fixed-version trace = %+v", got)
+	}
+}
+
+func TestGroupNote(t *testing.T) {
+	ctx := t.Context()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "notes.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	received := time.Unix(1_700_000_000, 0).UTC()
+	if err := store.WriteSpans(ctx, received, []telemetry.Span{failingSpan(1)}); err != nil {
+		t.Fatal(err)
+	}
+	group := func() investigation.FailureGroup {
+		t.Helper()
+		result, err := store.FailureGroups(ctx, investigation.FailureFilter{Limit: 10, GroupState: investigation.GroupAll}, nil)
+		if err != nil || len(result.Items) != 1 {
+			t.Fatalf("groups = %+v, %v", result.Items, err)
+		}
+		return result.Items[0]
+	}
+	key := group().Key
+	for _, issue := range []string{"javascript:alert(1)", "/relative", "https://user:pass@jira.example.com/X-1"} {
+		if err := store.SetGroupNote(ctx, key, "", issue, "", received); err == nil {
+			t.Fatalf("accepted issue link %q", issue)
+		}
+	}
+	if err := store.SetGroupNote(ctx, key, strings.Repeat("x", investigation.MaxGroupNote+1), "", "", received); err == nil {
+		t.Fatal("accepted an oversized note")
+	}
+	noted := received.Add(time.Minute)
+	if err := store.SetGroupNote(ctx, key, "Gateway timeout, see runbook", "https://jira.example.com/browse/PAY-12", "qa", noted); err != nil {
+		t.Fatal(err)
+	}
+	if got := group(); got.Note != "Gateway timeout, see runbook" || got.IssueURL != "https://jira.example.com/browse/PAY-12" ||
+		got.NoteBy != "qa" || got.NoteChanged == nil || !got.NoteChanged.Equal(noted) || got.State != investigation.GroupOpen {
+		t.Fatalf("noted group = %+v", got)
+	}
+	if err := store.Prune(ctx, received); err != nil {
+		t.Fatal(err)
+	}
+	if got := group(); got.Note == "" {
+		t.Fatal("a note newer than the cutoff expired")
+	}
+	if err := store.SetGroupNote(ctx, key, "", "", "qa", noted); err != nil {
+		t.Fatal(err)
+	}
+	if got := group(); got.Note != "" || got.IssueURL != "" || got.NoteChanged != nil {
+		t.Fatalf("cleared group = %+v", got)
 	}
 }

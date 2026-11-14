@@ -159,11 +159,12 @@ main { width: 100%; min-width: 0; padding: 0 24px 48px; }
 .text-link { font-size: var(--text-sm); color: var(--text-secondary); }
 
 /* Forms */
-input, select { display: block; width: 100%; min-width: 0; height: var(--control-h); margin-top: 6px; padding: 0 10px; font-size: var(--text-base); font-weight: 400; color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+input, select, textarea { display: block; width: 100%; min-width: 0; height: var(--control-h); margin-top: 6px; padding: 0 10px; font-size: var(--text-base); font-weight: 400; color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 select { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--text-tertiary) 50%), linear-gradient(135deg, var(--text-tertiary) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 11px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
-input::placeholder { color: var(--text-tertiary); }
-input:hover, select:hover { border-color: var(--border-strong); }
-input:focus-visible, select:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+textarea { height: auto; padding: 8px 10px; line-height: 1.5; resize: vertical; font-family: inherit; }
+input::placeholder, textarea::placeholder { color: var(--text-tertiary); }
+input:hover, select:hover, textarea:hover { border-color: var(--border-strong); }
+input:focus-visible, select:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 label { font-size: var(--text-sm); font-weight: 500; color: var(--text-secondary); }
 
 /* Failures toolbar */
@@ -273,6 +274,16 @@ a.operation:hover { text-decoration: underline; }
 .facts { display: flex; flex-wrap: wrap; gap: 8px 32px; margin: 14px 0; }
 .facts dt { font-size: var(--text-sm); color: var(--text-secondary); }
 .facts dd { margin-top: 2px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.group-note { margin-bottom: 14px; }
+.issue-link { font-weight: 500; overflow-wrap: anywhere; }
+.note-text { margin-top: 4px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.group-note .subtle { margin-top: 4px; }
+.summary-links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; }
+.note-editor { margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+.note-editor summary { width: fit-content; cursor: pointer; font-size: var(--text-sm); color: var(--text-secondary); }
+.note-editor form { display: grid; gap: 12px; max-width: 640px; margin-top: 12px; }
+.note-editor label { font-size: var(--text-sm); color: var(--text-secondary); }
+.note-editor form > div { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 
 .properties, .expanders { background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
 .properties > div, .attributes > div { display: grid; grid-template-columns: minmax(140px, 220px) minmax(0, 1fr); gap: 12px; padding: 10px 16px; overflow-wrap: anywhere; }
@@ -394,7 +405,7 @@ a.operation:hover { text-decoration: underline; }
   .properties > div, .attributes > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .theme-preference p:not(:empty) { grid-column: 1; }
   .regression-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .map-canvas { height: 360px; }
+  .map-canvas { max-height: 360px; }
 }
 @media (max-width: 630px) {
   .failure-table { min-width: 0; }

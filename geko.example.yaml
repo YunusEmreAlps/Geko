@@ -25,3 +25,8 @@ on_full: evict_oldest
 # masked; strict stores exception types and message hashes for new spans. The
 # default is best_effort, or strict once GEKO_ACCESS_TOKEN is set.
 # redaction: best_effort
+
+# Optional link from each trace page to the same trace in another tool, such as
+# Grafana Tempo. {trace_id} is replaced with the trace ID.
+# trace_link_url: "https://grafana.example.com/explore?left=...{trace_id}..."
+# trace_link_name: "Tempo"

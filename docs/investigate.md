@@ -59,6 +59,10 @@ For spans exported without a namespace, open **Applications** in the sidebar:
 
 </details>
 
+If your team also sends traces to Grafana Tempo or Jaeger, set
+`trace_link_url` and each trace page gets an **Open in Tempo** button for the
+same trace ID. See [Configuration](configuration.md).
+
 For a trace with failure evidence and a unique entry span, select **Compare
 with success**. Geko picks the most recently received trace with an HTTP 2xx
 entry span and no failure evidence for the same application, namespace,
@@ -100,6 +104,18 @@ a group. Geko then reopens it only for traces whose evidence service reports
 that `service.version`, so failures from instances still running the old version
 during a rollout don't reopen it. The group list shows **Resolved in 1.4.2**
 while no matching trace from that version has arrived.
+
+Use **Add a note or issue link** in the summary to record what the team knows
+and link the Jira, Linear or GitHub issue. The group list shows an **Issue**
+link, and `list_failure_groups` on `/mcp` returns them as `note` and `issue_url`. Notes
+expire with trace retention, like triage states. Anyone who can triage can edit
+them; the audit log records the change without the note's text.
+
+**Copy as bug evidence**, in the summary and on each failing trace, copies a
+Markdown description to paste into an issue: the failure, operation and
+service, request outcome and duration, receipt times and links back to Geko.
+A trace's copy includes its stored exception message; a group's never does.
+Links use `public_url` when it is set.
 
 Groups use each trace's primary evidence. Application, namespace, service,
 environment, operation, error classification, exception type and span HTTP status

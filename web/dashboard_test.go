@@ -59,7 +59,7 @@ func TestDashboardInvestigation(t *testing.T) {
 	get("/assets/dashboard.css", http.StatusOK, ".waterfall")
 	get("/assets/dashboard.js", http.StatusOK, "clipboard.writeText")
 	get("/assets/theme.js", http.StatusOK, "geko.theme")
-	get("/settings", http.StatusOK, "schema 10", "SQLite sidecars", "127.0.0.1:4318", configPath,
+	get("/settings", http.StatusOK, "schema 11", "SQLite sidecars", "127.0.0.1:4318", configPath,
 		"Set by <code>GEKO_DB_PATH</code>", ">yaml</span>", ">default</span>", "Traces evicted at capacity")
 
 	start := time.Now().UTC().Add(-time.Minute)
@@ -266,6 +266,17 @@ func TestFormatAge(t *testing.T) {
 	} {
 		if got := formatAge(now.Add(-test.ago), now); got != test.want {
 			t.Errorf("formatAge(-%s) = %q, want %q", test.ago, got, test.want)
+		}
+	}
+}
+
+func TestFailureTitle(t *testing.T) {
+	for kind, want := range map[string]string{
+		"*errors.errorString": "Exception", "*fmt.wrapError": "Exception", "": "Exception",
+		"*net.OpError": "*net.OpError", "java.lang.IllegalStateException": "java.lang.IllegalStateException",
+	} {
+		if got := failureTitle(kind, "exception"); got != want {
+			t.Errorf("failureTitle(%q) = %q, want %q", kind, got, want)
 		}
 	}
 }

@@ -338,7 +338,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		Shutdown:      ctx.Done(),
 		DashboardAddr: dashboardAddr, GRPCAddr: grpcAddr,
 		ListenAddr: listener.Addr().String(), DBPath: cfg.DBPath, Version: version,
-		PublicURL: cfg.PublicURL, AccessToken: cfg.AccessToken.Enabled(), IngestTokens: cfg.AccessToken.Names(access.ScopeIngest),
+		PublicURL: cfg.PublicURL, TraceLinkURL: cfg.TraceLinkURL, TraceLinkName: cfg.TraceLinkName, AccessToken: cfg.AccessToken.Enabled(), IngestTokens: cfg.AccessToken.Names(access.ScopeIngest),
 		ReadTokens:   cfg.AccessToken.Names(access.ScopeRead),
 		TriageTokens: cfg.AccessToken.Names(access.ScopeTriage),
 		ProxyHeader:  proxyHeader, Audit: auditLog,

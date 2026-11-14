@@ -30,8 +30,12 @@ const ServerRedaction = "strict"
 const DefaultIngestConcurrency = 4
 
 type Config struct {
-	AccessToken   access.Token  `yaml:"-"`
-	PublicURL     string        `yaml:"public_url"`
+	AccessToken access.Token `yaml:"-"`
+	PublicURL   string       `yaml:"public_url"`
+	// TraceLinkURL opens a trace in another tool such as Grafana Tempo;
+	// {trace_id} is replaced with the trace ID. TraceLinkName labels the link.
+	TraceLinkURL  string        `yaml:"trace_link_url"`
+	TraceLinkName string        `yaml:"trace_link_name"`
 	WebhookURL    string        `yaml:"-"`
 	WebhookFormat notify.Format `yaml:"-"`
 	MCPTriage     bool          `yaml:"-"`
@@ -198,6 +202,15 @@ func Load() (Config, error) {
 			return Config{}, err
 		}
 	}
+	if value := os.Getenv("GEKO_TRACE_LINK_URL"); value != "" {
+		cfg.TraceLinkURL = value
+	}
+	if value := os.Getenv("GEKO_TRACE_LINK_NAME"); value != "" {
+		cfg.TraceLinkName = value
+	}
+	if cfg.TraceLinkURL, cfg.TraceLinkName, err = traceLink(cfg.TraceLinkURL, cfg.TraceLinkName); err != nil {
+		return Config{}, err
+	}
 	if cfg.WebhookURL = os.Getenv("GEKO_WEBHOOK_URL"); cfg.WebhookURL != "" {
 		parsed, err := url.Parse(cfg.WebhookURL)
 		if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" {
@@ -286,6 +299,29 @@ func publicURL(value string) (string, error) {
 	return strings.TrimRight(parsed.String(), "/"), nil
 }
 
+// traceLink validates a trace link template and defaults its name to Tempo.
+func traceLink(template, name string) (string, string, error) {
+	template, name = strings.TrimSpace(template), strings.TrimSpace(name)
+	if template == "" {
+		if name != "" {
+			return "", "", errors.New("trace_link_name (GEKO_TRACE_LINK_NAME) requires trace_link_url")
+		}
+		return "", "", nil
+	}
+	sample := strings.NewReplacer("{trace_id}", "0", "%7Btrace_id%7D", "0", "%7btrace_id%7d", "0").Replace(template)
+	parsed, err := url.Parse(sample)
+	if sample == template || err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return "", "", errors.New("trace_link_url (GEKO_TRACE_LINK_URL) must be an http or https URL containing {trace_id}")
+	}
+	if name == "" {
+		name = "Tempo"
+	}
+	if len(name) > 40 {
+		return "", "", errors.New("trace_link_name (GEKO_TRACE_LINK_NAME) is limited to 40 bytes")
+	}
+	return template, name, nil
+}
+
 func envOverride(name string, source *SettingSource) string {
 	value := os.Getenv(name)
 	if value != "" {
@@ -345,6 +381,8 @@ func loadFile(path string, optional bool) (Config, error) {
 		IngestSlots   *int                `yaml:"ingest_concurrency"`
 		OnFull        *storage.FullPolicy `yaml:"on_full"`
 		Redaction     *string             `yaml:"redaction"`
+		TraceLinkURL  *string             `yaml:"trace_link_url"`
+		TraceLinkName *string             `yaml:"trace_link_name"`
 	}
 	err = decoder.Decode(&values)
 	if errors.Is(err, io.EOF) {
@@ -376,6 +414,12 @@ func loadFile(path string, optional bool) (Config, error) {
 	yamlSetting(values.IngestSlots, &cfg.IngestSlots, &cfg.Source.IngestSlots)
 	yamlSetting(values.OnFull, &cfg.OnFull, &cfg.Source.OnFull)
 	yamlSetting(values.Redaction, &cfg.Redaction, &cfg.Source.Redaction)
+	if values.TraceLinkURL != nil {
+		cfg.TraceLinkURL = *values.TraceLinkURL
+	}
+	if values.TraceLinkName != nil {
+		cfg.TraceLinkName = *values.TraceLinkName
+	}
 	return cfg, nil
 }
 

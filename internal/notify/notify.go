@@ -225,8 +225,8 @@ func (e event) text() string {
 	}
 	g := e.Group
 	failure := map[string]string{"exception": "Exception", "http_5xx": "HTTP 5xx", "span_error": "Span error"}[g.Classification]
-	if g.ExceptionType != "" {
-		failure = g.ExceptionType
+	if kind := investigation.NamedExceptionType(g.ExceptionType); kind != "" {
+		failure = kind
 	}
 	where := g.Service
 	if g.Application != "" {

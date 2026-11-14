@@ -50,7 +50,10 @@ var groupStateSchema string
 //go:embed migrations/010_group_state_actor.sql
 var groupStateActorSchema string
 
-var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema, groupStateActorSchema}
+//go:embed migrations/011_group_notes.sql
+var groupNoteSchema string
+
+var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema, groupStateActorSchema, groupNoteSchema}
 
 type Store struct {
 	revision   atomic.Uint64

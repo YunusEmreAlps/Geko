@@ -7,9 +7,12 @@
   </div>
   <div class="actions">
     {{if and .Trace.Evidence .Trace.EntrySpan}}<a class="button" href="/traces/{{.Trace.TraceID}}/compare"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Compare with success</a>{{end}}
+    {{if .BugEvidence}}<button type="button" class="button" data-copy="bug-evidence" data-copy-status="bug-evidence-status" hidden><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>Copy as bug evidence</button><span role="status" class="sr-only" id="bug-evidence-status"></span>{{end}}
+    {{if .TraceLink}}<a class="button" href="{{.TraceLink}}" target="_blank" rel="noopener noreferrer"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in {{.TraceLinkName}}</a>{{end}}
     <a class="button" href="/traces/{{.Trace.TraceID}}/otlp.json" download><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Download OTLP JSON</a>
   </div>
 </header>
+{{with .BugEvidence}}<pre id="bug-evidence" hidden>{{.}}</pre>{{end}}
 <div class="trace-meta">
   <dl class="trace-facts">
     <div><dt>Duration</dt><dd>{{with .Trace.EntrySpan}}{{duration .DurationNS}}{{else}}Unavailable{{end}}</dd></div>

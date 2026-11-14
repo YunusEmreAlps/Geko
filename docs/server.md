@@ -126,7 +126,7 @@ Every signed-in caller has one of three roles. Each includes the ones before it.
 | Role | Who | Can |
 | --- | --- | --- |
 | `viewer` | Read tokens | Open the dashboard, the query API, `/metrics` and the read-only tools on `/mcp`. |
-| `triager` | Triage tokens | Also resolve, mute and reopen error groups, in the dashboard and, with `GEKO_MCP_TRIAGE=true`, through `set_group_state` on `/mcp`. |
+| `triager` | Triage tokens | Also resolve, mute and reopen error groups and edit their notes, in the dashboard and, with `GEKO_MCP_TRIAGE=true`, through `set_group_state` on `/mcp`. |
 | `admin` | The access token | Also map services to applications, restore traces and send test notifications. |
 
 The sidebar shows who is signed in and their role. Pages hide actions the role
@@ -200,6 +200,7 @@ unit write `audit.jsonl` next to the database.
 | `sign_in` | Someone signs in to the dashboard. A rejected token has actor `unknown` and result `denied`. |
 | `sign_out` | A browser session ends. |
 | `group.state` | An error group is resolved, muted or reopened. `detail.client` is `mcp` for changes made through `/mcp`. |
+| `group.note` | A group's note or issue link is saved or removed. `detail` has the issue link but never the note's text. |
 | `applications.mapping`, `applications.mapping-remove`, `applications.assign`, `applications.assign-clear`, `applications.assign-discard` | A service mapping or a historical assignment changes. |
 | `trace.restore` | A trace is restored from OTLP JSON. |
 | `notifications.test` | A test notification is sent. |

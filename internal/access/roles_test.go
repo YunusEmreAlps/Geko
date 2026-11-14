@@ -53,6 +53,8 @@ func TestTriageTokens(t *testing.T) {
 	}{
 		{"GET", "/failures", triageSecret, 204, Principal{"qa", RoleTriager, "token"}},
 		{"POST", "/groups/state", triageSecret, 204, Principal{"qa", RoleTriager, "token"}},
+		{"POST", "/groups/note", triageSecret, 204, Principal{"qa", RoleTriager, "token"}},
+		{"POST", "/groups/note", readSecret, 401, Principal{}},
 		{"POST", "/mcp", triageSecret, 204, Principal{"qa", RoleTriager, "token"}},
 		{"POST", "/applications", triageSecret, 401, Principal{}},
 		{"POST", "/traces/import", triageSecret, 401, Principal{}},

@@ -45,12 +45,14 @@ func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
 		}
 	}
 
-	result, err := s.db.ExecContext(ctx, "DELETE FROM group_states WHERE changed_ns < ?", cutoff.UnixNano())
-	if err != nil {
-		return fmt.Errorf("expire group states: %w", err)
-	}
-	if deleted, err := result.RowsAffected(); err == nil && deleted > 0 {
-		s.revision.Add(1)
+	for _, table := range []string{"group_states", "group_notes"} {
+		result, err := s.db.ExecContext(ctx, "DELETE FROM "+table+" WHERE changed_ns < ?", cutoff.UnixNano())
+		if err != nil {
+			return fmt.Errorf("expire %s: %w", table, err)
+		}
+		if deleted, err := result.RowsAffected(); err == nil && deleted > 0 {
+			s.revision.Add(1)
+		}
 	}
 
 	if !removed {
@@ -62,8 +64,7 @@ func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
 			return nil
 		}
 	}
-	_, err = s.truncateJournal(ctx)
-	if err != nil {
+	if _, err := s.truncateJournal(ctx); err != nil {
 		return fmt.Errorf("checkpoint trace storage: %w", err)
 	}
 	// An external reader can defer truncation until the next maintenance run.
