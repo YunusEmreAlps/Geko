@@ -9,6 +9,7 @@
   const url = results.dataset.liveUrl;
   let source, timer, inFlight, pending = false, paused = false;
   toggle.hidden = false;
+  document.querySelector("[data-manual-refresh]")?.setAttribute("hidden", "");
 
   function setStatus(text, state) {
     status.textContent = text;

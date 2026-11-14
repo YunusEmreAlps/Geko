@@ -109,7 +109,7 @@ type screen struct {
 func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	t, err := template.New("dashboard").Funcs(template.FuncMap{
 		"sourceLinks": sourceLinks,
-		"duration":    formatDuration, "timestamp": formatTimestamp, "classification": classification,
+		"duration":    formatDuration, "timestamp": formatTimestamp, "age": func(t time.Time) string { return formatAge(t, time.Now()) }, "classification": classification,
 		"size": formatSize, "evidenceLink": evidenceLink, "signal": signal,
 		"outcome": outcome, "outcomeClass": outcomeClass,
 		"serviceLabel": serviceLabel,

@@ -50,6 +50,8 @@
 </body>
 </html>{{end}}
 
+{{define "age"}}<time datetime="{{.UTC.Format "2006-01-02T15:04:05Z"}}" title="{{timestamp .}}" data-age>{{age .}}</time>{{end}}
+
 {{define "error"}}
 <header class="page-head"><div class="title"><h1>{{.Title}}</h1></div></header>
 <section class="empty">

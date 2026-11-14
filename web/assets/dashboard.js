@@ -131,6 +131,26 @@ if (groupRows.length && !new URLSearchParams(location.search).has("state") && !n
   try { localStorage.setItem(key, String(Date.now())); } catch {}
 }
 
+// Mirrors formatAge in web/trace.go.
+const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function age(then, now) {
+  const seconds = (now - then) / 1000;
+  if (seconds < 45) return "just now";
+  if (seconds < 3600) return Math.max(1, Math.floor(seconds / 60)) + " min ago";
+  if (seconds < 86400) return Math.floor(seconds / 3600) + " h ago";
+  if (seconds < 604800) return Math.floor(seconds / 86400) + " d ago";
+  const date = new Date(then);
+  const day = String(date.getUTCDate()).padStart(2, "0") + " " + months[date.getUTCMonth()];
+  return date.getUTCFullYear() === new Date(now).getUTCFullYear() ? day : day + " " + date.getUTCFullYear();
+}
+setInterval(() => {
+  const now = Date.now();
+  document.querySelectorAll("time[data-age]").forEach((time) => {
+    const then = Date.parse(time.dateTime);
+    if (!Number.isNaN(then)) time.textContent = age(then, now);
+  });
+}, 30000);
+
 const waterfall = document.querySelector(".waterfall-disclosure");
 if (waterfall) {
   const key = "geko.waterfall:" + location.pathname;

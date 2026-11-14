@@ -17,7 +17,7 @@
     <div><dt>First received</dt><dd>{{timestamp .Trace.FirstObserved}}</dd></div>
     {{if ne (timestamp .Trace.FirstObserved) (timestamp .Trace.LastObserved)}}<div><dt>Last received</dt><dd>{{timestamp .Trace.LastObserved}}</dd></div>{{end}}
   </dl>
-  <div class="trace-id"><code id="trace-id">{{.Trace.TraceID}}</code><button type="button" class="button ghost quiet" data-copy="trace-id" hidden>Copy</button><span role="status" id="copy-status"></span></div>
+  <div class="trace-id"><code id="trace-id">{{.Trace.TraceID}}</code><button type="button" class="button quiet" data-copy="trace-id" hidden>Copy</button><span role="status" id="copy-status"></span></div>
 </div>
 {{if .Trace.Evidence}}
 <section class="section" id="evidence" aria-labelledby="evidence-title">
@@ -46,7 +46,7 @@
 <div class="trace-workspace">
 <section class="section timeline">
   {{template "service-map" .ServiceMap}}
-  <details class="waterfall-disclosure"{{if .First}} open{{end}}>
+  <details class="waterfall-disclosure" open>
   <summary>Span waterfall</summary>
   <h2 class="sr-only">Span waterfall</h2>
   {{if .Rows}}
@@ -75,7 +75,6 @@
   {{if .MissingSpan}}<h2>Span unavailable</h2><p class="muted">The selected span is unavailable. Its parent or child may have arrived separately.</p>
   {{else if .Selected}}
   <h2>Span details</h2>
-  <p class="muted">One representative span. Use the waterfall for others.</p>
   <dl class="properties">
     <div><dt>Operation</dt><dd>{{.Selected.Operation}}</dd></div>
     <div><dt>Service</dt><dd>{{.Selected.Service}}</dd></div>

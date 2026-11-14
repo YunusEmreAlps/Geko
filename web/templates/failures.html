@@ -4,7 +4,7 @@
   <div class="actions">
     {{if .Live}}<span class="live-status" role="status" data-live-status></span><button class="button ghost" type="button" data-live-toggle hidden>Pause</button><button class="button" type="button" data-live-refresh hidden>Refresh results</button>
     {{else}}<span class="live-status" title="Live updates run on the first page only.">Live updates paused on this page</span>{{end}}
-    <a class="button" href="{{.Refresh}}" data-loading>Refresh</a>
+    <a class="button" href="{{.Refresh}}" data-loading{{if .Live}} data-manual-refresh{{end}}>Refresh</a>
   </div>
 </header>
 <div class="toolbar">
@@ -48,7 +48,7 @@
       <label>HTTP status <input name="status" type="number" min="100" max="599" value="{{.Status}}" placeholder="Any"></label>
     </div>
   </details>
-  <div class="filter-actions"><button class="button primary" type="submit">Apply</button>{{if .Filtered}}<a class="text-link" href="{{.Reset}}">Reset</a>{{end}}</div>
+  <div class="filter-actions"><button class="button" type="submit">Apply</button>{{if .Filtered}}<a class="text-link" href="{{.Reset}}">Reset</a>{{end}}</div>
 </form>
 <section id="failure-results"{{if .Live}} data-live-url="{{.Refresh}}"{{end}}>
 {{with .GroupSummary}}
@@ -114,9 +114,9 @@
 <table class="group-table"><thead><tr><th scope="col">Error / Operation</th><th scope="col">Service / Environment</th><th scope="col" class="num">Traces</th><th scope="col">First received</th><th scope="col">Last received</th></tr></thead><tbody>
 {{range .}}<tr data-first-received="{{.FirstObserved.UnixMilli}}">
   <td><a class="operation" href="{{.TracesURL}}">{{if .ExceptionType}}{{.ExceptionType}}{{else}}{{classification .Classification}}{{end}}</a> {{template "group-state" .FailureGroup}}<span class="subtle">{{.Operation}}{{if .HTTPStatus}} · HTTP {{.HTTPStatus}}{{end}} · <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Latest example</a></span></td>
-  <td>{{serviceLabel .Application .Service}}<span class="subtle">{{if .Namespace}}{{.Namespace}} · {{end}}{{or .Environment "Environment unspecified"}}</span></td>
+  <td>{{serviceLabel .Application .Service}}{{$namespace := and .Namespace (ne .Namespace .Application)}}{{if or $namespace .Environment}}<span class="subtle">{{if $namespace}}{{.Namespace}}{{if .Environment}} · {{end}}{{end}}{{.Environment}}</span>{{end}}</td>
   <td class="num"><a class="operation" href="{{.TracesURL}}">{{.Count}}</a></td>
-  <td class="time">{{timestamp .FirstObserved}}</td><td class="time">{{timestamp .LastObserved}}</td>
+  <td class="time">{{template "age" .FirstObserved}}</td><td class="time">{{template "age" .LastObserved}}</td>
 </tr>{{end}}</tbody></table>
 </div>
 {{end}}
@@ -126,23 +126,23 @@
   <table class="failure-table">
     <thead><tr><th scope="col">Operation</th><th scope="col" title="The entry span's HTTP outcome. A request can succeed even when one of its spans records an error.">Result</th><th scope="col">Evidence</th><th scope="col">Last received</th></tr></thead>
     <tbody>
-    {{range .}}
+    {{range .}}{{$entry := .EntrySpan}}
       <tr>
         <td class="operation-cell">
           <a class="operation" href="{{evidenceLink .}}">
           {{if .EntrySpan}}{{.EntrySpan.Operation}}{{else if .Evidence}}{{.Evidence.Operation}}{{else}}{{.TraceID}}{{end}}
           </a>
           <span class="subtle">{{with .EntrySpan}}{{serviceLabel .Application .Service}}{{else}}{{with .Evidence}}{{serviceLabel .Application .Service}}{{end}}{{end}}</span>
-          <time class="time mobile-observed" datetime="{{.LastObserved.Format "2006-01-02T15:04:05Z07:00"}}">{{timestamp .LastObserved}}</time>
+          <span class="time mobile-observed">{{template "age" .LastObserved}}</span>
         </td>
         <td><span class="pill {{outcomeClass .}}">{{outcome .}}</span></td>
         <td class="evidence-cell">
-          {{with .Evidence}}
+          {{with .Evidence}}{{$same := and $entry (eq .Service $entry.Service) (eq .Application $entry.Application)}}{{$detail := or .ExceptionMessage .ExceptionType}}
             <span class="evidence-label">{{classification .Classification}}</span>
-            <span class="subtle">{{serviceLabel .Application .Service}}{{if .ExceptionMessage}} · {{.ExceptionMessage}}{{else if .ExceptionType}} · {{.ExceptionType}}{{end}}</span>
+            {{if or $detail (not $same)}}<span class="subtle">{{if not $same}}{{serviceLabel .Application .Service}}{{if $detail}} · {{end}}{{end}}{{$detail}}</span>{{end}}
           {{else}}<span class="subtle">None recorded</span>{{end}}
         </td>
-        <td class="time"><time datetime="{{.LastObserved.Format "2006-01-02T15:04:05Z07:00"}}">{{timestamp .LastObserved}}</time></td>
+        <td class="time">{{template "age" .LastObserved}}</td>
       </tr>
     {{end}}
     </tbody>

@@ -17,7 +17,7 @@
       <a href="{{.URL}}" class="map-node{{if .Errors}} has-errors{{end}}{{if .Selected}} is-selected{{end}}" {{if .Selected}}aria-current="true"{{end}} aria-label="{{.Name}}: {{.Count}} spans, {{.Errors}} with failure evidence. Open span details.">
         <title>{{.Name}} · {{.Count}} spans · {{.Errors}} with failure evidence</title>
         <g transform="translate({{.X}} {{.Y}})">
-          <rect class="node-body" width="204" height="80" rx="8"/><circle class="node-port" cx="0" cy="40" r="3.5"/><circle class="node-port" cx="204" cy="40" r="3.5"/>
+          <rect class="node-body" width="204" height="80" rx="8"/>
           <circle class="node-indicator" cx="19" cy="25" r="3.5"/>
           <text class="node-name" x="31" y="29">{{.Label}}</text>
           <text class="node-count" x="15" y="52">{{.Count}} {{if eq .Count 1}}span{{else}}spans{{end}}{{if .Errors}} · <tspan class="node-errors">{{.Errors}} with errors</tspan>{{end}}</text>
@@ -31,6 +31,6 @@
     <summary>Service list</summary>
     <ul>{{range .Nodes}}<li><a href="{{.URL}}"{{if .Selected}} aria-current="true"{{end}}>{{if .Name}}{{.Name}}{{else}}Unknown service{{end}}</a><span>{{.Count}} {{if eq .Count 1}}span{{else}}spans{{end}} · {{.Errors}} with failure evidence{{with .Instances}} · {{len .}} {{if eq (len .) 1}}instance{{else}}instances{{end}}{{end}}</span></li>{{end}}</ul>
   </details>
-  <footer class="map-legend"><span><i class="legend-error"></i>Failure evidence</span><span>→ Parent to child</span><span>Select a service to inspect a span</span></footer>
+  <footer class="map-legend"><span><i class="legend-error"></i>Failure evidence</span><span>→ Parent to child</span></footer>
 </section>
 {{end}}

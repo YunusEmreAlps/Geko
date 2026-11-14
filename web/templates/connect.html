@@ -12,7 +12,7 @@
   {{if .Tokens}}<label>Ingest token
     <select name="token">{{range .Tokens}}<option value="{{.}}"{{if eq . $.Token}} selected{{end}}>{{.}}</option>{{end}}</select>
   </label>{{end}}
-  <div class="filter-actions"><button class="button primary" type="submit">Update</button></div>
+  <div class="filter-actions"><button class="button" type="submit">Update</button></div>
 </form>
 {{if .Error}}<p class="notice" role="alert">{{.Error}}</p>
 {{else}}
@@ -30,9 +30,12 @@
   <h2>Instrument the application</h2>
   <dl class="properties">
     <div><dt>Go</dt><dd>Add the SDK and an OTLP exporter in code. See <code>examples/go</code> in the Geko repository.</dd></div>
-    <div><dt>Node.js</dt><dd><code>npm install @opentelemetry/api @opentelemetry/auto-instrumentations-node</code>, then <code>node --require @opentelemetry/auto-instrumentations-node/register app.js</code></dd></div>
-    <div><dt>Python</dt><dd><code>pip install opentelemetry-distro opentelemetry-exporter-otlp</code>, <code>opentelemetry-bootstrap -a install</code>, then <code>opentelemetry-instrument python app.py</code></dd></div>
-    <div><dt>Java</dt><dd><code>java -javaagent:opentelemetry-javaagent.jar -jar app.jar</code></dd></div>
+    <div><dt>Node.js</dt><dd><pre class="snippet"><code>npm install @opentelemetry/api @opentelemetry/auto-instrumentations-node
+node --require @opentelemetry/auto-instrumentations-node/register app.js</code></pre></dd></div>
+    <div><dt>Python</dt><dd><pre class="snippet"><code>pip install opentelemetry-distro opentelemetry-exporter-otlp
+opentelemetry-bootstrap -a install
+opentelemetry-instrument python app.py</code></pre></dd></div>
+    <div><dt>Java</dt><dd><pre class="snippet"><code>java -javaagent:opentelemetry-javaagent.jar -jar app.jar</code></pre></dd></div>
     <div><dt>.NET</dt><dd>Install OpenTelemetry .NET Automatic Instrumentation, or add the SDK with the OTLP exporter.</dd></div>
   </dl>
   <p class="note">More languages: <a href="https://opentelemetry.io/docs/zero-code/">OpenTelemetry zero-code instrumentation</a>.</p>

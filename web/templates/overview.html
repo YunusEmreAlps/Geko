@@ -1,13 +1,9 @@
 {{define "overview"}}
 <header class="page-head">
-  <div class="title"><h1>Overview</h1><span class="chip">Last 24 hours</span></div>
+  <div class="title"><h1>Overview</h1><span class="muted">{{if .TraceCount}}{{.TraceCount}} {{if eq .TraceCount 1}}trace{{else}}traces{{end}} with failure evidence across {{.ServiceCount}} {{if eq .ServiceCount 1}}service{{else}}services{{end}} in the last 24 hours{{else}}No failure evidence in the last 24 hours{{end}}</span></div>
   <div class="actions"><a class="button" href="/failures?range=24h">Browse failures <span aria-hidden="true">→</span></a></div>
 </header>
-<dl class="metrics">
-  <div><dt>Traces with evidence</dt><dd>{{.TraceCount}}</dd></div>
-  <div><dt>Affected services</dt><dd>{{.ServiceCount}}</dd></div>
-</dl>
-<section class="section">
+<section class="section first">
   <h2>Most frequent operations</h2>
   {{if .Operations}}
   <div class="table-wrap" tabindex="0" role="region" aria-label="Most frequent operations">

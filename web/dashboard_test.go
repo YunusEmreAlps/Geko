@@ -253,3 +253,19 @@ func TestMetrics(t *testing.T) {
 		t.Fatalf("metrics on a non-loopback Host = %d", w.Code)
 	}
 }
+
+func TestFormatAge(t *testing.T) {
+	now := time.Date(2026, time.November, 14, 12, 0, 0, 0, time.UTC)
+	for _, test := range []struct {
+		ago  time.Duration
+		want string
+	}{
+		{-time.Minute, "just now"}, {44 * time.Second, "just now"}, {50 * time.Second, "1 min ago"},
+		{59*time.Minute + 59*time.Second, "59 min ago"}, {time.Hour, "1 h ago"}, {23 * time.Hour, "23 h ago"},
+		{6 * 24 * time.Hour, "6 d ago"}, {8 * 24 * time.Hour, "06 Nov"}, {400 * 24 * time.Hour, "10 Oct 2025"},
+	} {
+		if got := formatAge(now.Add(-test.ago), now); got != test.want {
+			t.Errorf("formatAge(-%s) = %q, want %q", test.ago, got, test.want)
+		}
+	}
+}

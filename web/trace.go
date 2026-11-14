@@ -281,6 +281,25 @@ func formatTimestamp(t time.Time) string {
 	return t.UTC().Format("02 Jan 2006, 15:04:05 UTC")
 }
 
+// formatAge says how long before now t was. dashboard.js applies the same
+// rules to keep open pages current.
+func formatAge(t, now time.Time) string {
+	switch d := now.Sub(t); {
+	case d < 45*time.Second:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%d min ago", max(1, int(d/time.Minute)))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%d h ago", int(d/time.Hour))
+	case d < 7*24*time.Hour:
+		return fmt.Sprintf("%d d ago", int(d/(24*time.Hour)))
+	}
+	if t.UTC().Year() == now.UTC().Year() {
+		return t.UTC().Format("02 Jan")
+	}
+	return t.UTC().Format("02 Jan 2006")
+}
+
 func formatDuration(ns *int64) string {
 	if ns == nil {
 		return "Unavailable"
