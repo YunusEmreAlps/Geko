@@ -22,6 +22,7 @@ import (
 
 	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
@@ -39,7 +40,7 @@ type Reader interface {
 	Traces(context.Context, investigation.FailureFilter) (investigation.Page[investigation.TraceSummary], error)
 	Revision() uint64
 	FailureGroups(context.Context, investigation.FailureFilter, *investigation.GroupCursor) (investigation.FailureGroups, error)
-	SetGroupState(context.Context, string, investigation.GroupState, string, time.Time) error
+	SetGroupState(context.Context, string, investigation.GroupState, string, string, time.Time) error
 	api.Reader
 	HasTraces(context.Context) (bool, error)
 	Overview(context.Context, time.Time) (investigation.Overview, error)
@@ -62,13 +63,18 @@ type Settings struct {
 	AccessToken             bool
 	IngestTokens            []string
 	ReadTokens              []string
+	TriageTokens            []string
+	// ProxyHeader names the header an authenticating proxy sets, if trusted.
+	ProxyHeader string
+	// Audit records changes and sign-ins; nil discards them.
+	Audit *audit.Log
 	// Tokens, when set, supplies current token names after a reload.
 	Tokens            access.Token
 	IngestConcurrency int
 	Notifications     *Notifications
 	// SignIn and SignOut manage browser sessions when a token is configured.
-	SignIn              func(http.ResponseWriter, *http.Request, string) bool
-	SignOut             func(http.ResponseWriter, *http.Request)
+	SignIn              func(http.ResponseWriter, *http.Request, string) (access.Principal, bool)
+	SignOut             func(http.ResponseWriter, *http.Request) (access.Principal, bool)
 	DBPath              string
 	Version             string
 	ReceiverDiagnostics func() otlp.Diagnostics
@@ -96,6 +102,8 @@ type screen struct {
 	Page, Title string
 	Data        any
 	SignOut     bool
+	// Caller is who is signed in, when a token is configured.
+	Caller *access.Principal
 }
 
 func Register(mux *http.ServeMux, store Reader, settings Settings) error {
@@ -169,9 +177,13 @@ func (d *dashboard) local(handler http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func (d *dashboard) render(w http.ResponseWriter, status int, page, title string, data any) {
+func (d *dashboard) render(w http.ResponseWriter, r *http.Request, status int, page, title string, data any) {
+	view := screen{Page: page, Title: title, Data: data, SignOut: d.settings.SignOut != nil && access.SessionAuthenticated(r)}
+	if caller, ok := access.Caller(r.Context()); ok {
+		view.Caller = &caller
+	}
 	var body bytes.Buffer
-	if err := d.templates.ExecuteTemplate(&body, "layout", screen{Page: page, Title: title, Data: data, SignOut: d.settings.SignOut != nil}); err != nil {
+	if err := d.templates.ExecuteTemplate(&body, "layout", view); err != nil {
 		log.Printf("render dashboard %s: %v", page, err)
 		http.Error(w, "Dashboard rendering failed", http.StatusInternalServerError)
 		return
@@ -182,7 +194,7 @@ func (d *dashboard) render(w http.ResponseWriter, status int, page, title string
 }
 
 func (d *dashboard) problem(w http.ResponseWriter, r *http.Request, status int, title, message string) {
-	d.render(w, status, "error", title, struct {
+	d.render(w, r, status, "error", title, struct {
 		Title, Message, Retry string
 	}{title, message, r.URL.RequestURI()})
 }
@@ -209,10 +221,28 @@ func (d *dashboard) unavailable(w http.ResponseWriter, r *http.Request, ctx cont
 	d.problem(w, r, http.StatusInternalServerError, "Could not load telemetry", "Check the local database with geko doctor and try again.")
 }
 
-// readOnly reports whether the request used a read token, so pages hide
+// caller is who made the request: a token, session or proxy user, or Local
+// without a token.
+func (d *dashboard) caller(r *http.Request) access.Principal {
+	if !d.settings.Tokens.Enabled() {
+		return access.Local
+	}
+	principal, _ := access.Caller(r.Context())
+	return principal
+}
+
+// readOnly reports whether the caller lacks the admin role, so pages hide
 // actions that would be refused.
 func (d *dashboard) readOnly(r *http.Request) bool {
-	return d.settings.Tokens.Enabled() && !access.FullAccess(r.Context())
+	return d.caller(r).Role != access.RoleAdmin
+}
+
+// changedBy names the caller for stored changes; nobody is named without a token.
+func (d *dashboard) changedBy(r *http.Request) string {
+	if !d.settings.Tokens.Enabled() {
+		return ""
+	}
+	return d.caller(r).Name
 }
 
 type failureView struct {
@@ -260,7 +290,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 	}
 	view := failureView{
 		CanRestore: allTraces && d.settings.RestoreTrace != nil && !d.readOnly(r),
-		CanTriage:  !d.readOnly(r),
+		CanTriage:  d.caller(r).Role >= access.RoleTriager,
 		AllTraces:  allTraces, Path: path, Reset: path,
 		Mode: params.Get("view"), Group: params.Get("group"), GroupState: params.Get("state"),
 		Search: params.Get("q"), Service: params.Get("service"), Status: params.Get("status"), Range: params.Get("range"),
@@ -405,7 +435,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 			params.Set("cursor", api.EncodeCursor(page.Next))
 			view.Next = route(path, params)
 		}
-		d.render(w, http.StatusOK, pageName, title, view)
+		d.render(w, r, http.StatusOK, pageName, title, view)
 	})
 }
 
@@ -422,7 +452,7 @@ func (d *dashboard) overview(w http.ResponseWriter, r *http.Request) {
 			d.unavailable(w, r, ctx)
 			return
 		}
-		d.render(w, http.StatusOK, "overview", "Overview", struct {
+		d.render(w, r, http.StatusOK, "overview", "Overview", struct {
 			investigation.Overview
 			Items []investigation.TraceSummary
 		}{overview, recent.Items})
@@ -441,7 +471,7 @@ func (d *dashboard) status(w http.ResponseWriter, r *http.Request) {
 			value := snapshot()
 			receiver = &value
 		}
-		d.render(w, http.StatusOK, "settings", "Settings", struct {
+		d.render(w, r, http.StatusOK, "settings", "Settings", struct {
 			Settings
 			Storage       storage.Status
 			Receiver      *otlp.Diagnostics
@@ -458,6 +488,7 @@ func (d *dashboard) currentSettings() Settings {
 	if settings.Tokens.Enabled() {
 		settings.IngestTokens = settings.Tokens.Names(access.ScopeIngest)
 		settings.ReadTokens = settings.Tokens.Names(access.ScopeRead)
+		settings.TriageTokens = settings.Tokens.Names(access.ScopeTriage)
 	}
 	return settings
 }

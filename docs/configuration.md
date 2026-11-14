@@ -19,7 +19,13 @@ even if YAML configures a separate address.
 | — | `GEKO_ALLOW_PLAINTEXT` | `false`. Geko doesn't terminate TLS; set `true` to allow non-loopback listeners behind a TLS proxy or on a trusted network. |
 | `public_url` | `GEKO_PUBLIC_URL` | Empty. External URL of the OTLP/HTTP listener, such as `https://geko.example.com`, shown as the trace endpoint and used in notification links. |
 | — | `GEKO_READ_TOKENS` | Empty. Read-only tokens for the dashboard, query API and `/mcp`, as comma-separated `name=token` pairs. Requires `GEKO_ACCESS_TOKEN`. |
-| — | `GEKO_TOKENS_FILE` | Empty. YAML file with `access`, `ingest` and `read` tokens, reloaded when it changes. Replaces the three token variables. |
+| — | `GEKO_TRIAGE_TOKENS` | Empty. Tokens with read access that can also resolve, mute and reopen error groups, as comma-separated `name=token` pairs. Read and triage token names must differ. Requires `GEKO_ACCESS_TOKEN`. |
+| — | `GEKO_TOKENS_FILE` | Empty. YAML file with `access`, `ingest`, `read` and `triage` tokens, reloaded when it changes. Replaces the four token variables. |
+| — | `GEKO_PROXY_USER_HEADER` | Empty. Header in which an authenticating proxy, such as oauth2-proxy, names the signed-in user. Requires `GEKO_ACCESS_TOKEN` and `GEKO_PROXY_TRUSTED_IPS`. See [Sign in through a proxy](server.md#sign-in-through-a-proxy). |
+| — | `GEKO_PROXY_TRUSTED_IPS` | Empty. Comma-separated IP addresses or CIDR prefixes of that proxy. The header is ignored on requests from other addresses. |
+| — | `GEKO_PROXY_ROLES` | Empty. Proxy users' roles as comma-separated `user=role` pairs, where the role is `viewer`, `triager` or `admin`. Names compare without case. |
+| — | `GEKO_PROXY_DEFAULT_ROLE` | `viewer`. Role of proxy users not in `GEKO_PROXY_ROLES`; `none` refuses them. |
+| — | `GEKO_AUDIT_LOG` | Empty. File that receives one JSON line per sign-in and change, or `-` for standard error. See [Audit log](server.md#audit-log). |
 | — | `GEKO_WEBHOOK_URL` | Empty. Webhook for new and reopened error groups. |
 | — | `GEKO_WEBHOOK_FORMAT` | Inferred from the URL: `slack`, `discord`, `ntfy`, otherwise `json`. |
 | `db_path` | `GEKO_DB_PATH` | `geko/geko.db` in the OS user configuration directory |
@@ -28,9 +34,9 @@ even if YAML configures a separate address.
 | `grpc_addr` | `GEKO_GRPC_ADDR` | Empty: disabled; set `127.0.0.1:4317` to enable |
 | `max_db_mib` | `GEKO_MAX_DB_MIB` | `256` MiB for the main SQLite file (8–65536) |
 | `ingest_concurrency` | `GEKO_INGEST_CONCURRENCY` | `4` exports decoded at once across OTLP/HTTP and gRPC (1–64). Each can hold a 4 MiB payload and its spans in memory. Raise it when slow clients over a WAN get `Receiver busy` rejections. |
-| — | `GEKO_MCP_TRIAGE` | `false`. Offer `set_group_state` on `/mcp` to clients with full access. |
+| — | `GEKO_MCP_TRIAGE` | `false`. Offer `set_group_state` on `/mcp` to clients with the triager or admin role. |
 | `on_full` | `GEKO_ON_FULL` | `evict_oldest`; `evict_fair` to evict from the application holding the most spans first; or `reject` to keep stored traces and return HTTP 503 |
-| `redaction` | `GEKO_REDACTION` | `best_effort`, or `strict` |
+| `redaction` | `GEKO_REDACTION` | `best_effort`, or `strict`. The default is `strict` once `GEKO_ACCESS_TOKEN` is set, because other people can then read the data. |
 
 A relative `db_path` in YAML resolves from the YAML file's directory. A
 relative `GEKO_DB_PATH` resolves from the working directory.
@@ -58,15 +64,22 @@ relative `GEKO_DB_PATH` resolves from the working directory.
 
 Telemetry is filtered before it is stored or indexed.
 
-- **`best_effort` (default):** an allowlist keeps service, scope, HTTP method,
-  route, `url.path`, and `db.*`/`rpc.*` operation attributes. Headers, cookies,
-  request and response bodies, full URLs, and custom attributes are dropped.
-  Text that matches recognizable credential or payload patterns is redacted.
+- **`best_effort` (default without an access token):** an allowlist keeps
+  service, scope, HTTP method, route, `url.path`, and `db.*`/`rpc.*` operation
+  attributes. Headers, cookies, request and response bodies, full URLs, and
+  custom attributes are dropped. A value that matches a recognizable credential
+  or payload pattern is replaced by `[redacted]`. E-mail addresses, payment card
+  numbers (Luhn check), IBANs (mod-97 check) and Turkish identity numbers
+  (TCKN check digits) are masked in place as `[email]`, `[card]`, `[iban]` and
+  `[tckn]`, so the rest of a message stays readable. Card masking covers 13–19
+  digit numbers that start with 2 to 6; about one in ten unrelated numbers of
+  that shape also passes the check and is masked. Searching for a masked value
+  doesn't find it.
   Exception messages are limited to 1,024 bytes and stack traces to 32 KiB.
   Text that doesn't match a pattern can still contain sensitive data, so keep
   secrets out of your telemetry.
-- **`strict`:** new spans store only the exception type and a SHA-256 hash of
-  the message. Stack traces, status descriptions, and the extra `url`, `db`,
+- **`strict` (default with an access token):** new spans store only the
+  exception type and a SHA-256 hash of the message. Stack traces, status descriptions, and the extra `url`, `db`,
   and `rpc` attributes are dropped. Search matches the type, the exact original
   message, or the full hex digest. Search terms appear in the URL, so search by
   digest to keep a message out of browser history.

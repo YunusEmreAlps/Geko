@@ -43,7 +43,7 @@ func (s *Store) FailureGroups(ctx context.Context, f investigation.FailureFilter
  FROM matching GROUP BY group_key)
  SELECT * FROM (SELECT g.*,CASE WHEN gs.state IS NULL THEN 'open' WHEN gs.state = 'muted' THEN 'muted'
  WHEN rc.group_key IS NOT NULL THEN 'reopened' ELSE 'resolved' END AS state,
- coalesce(gs.changed_ns,0) AS changed_ns,coalesce(gs.version,'') AS resolved_version
+ coalesce(gs.changed_ns,0) AS changed_ns,coalesce(gs.version,'') AS resolved_version,coalesce(gs.changed_by,'') AS changed_by
  FROM grouped g LEFT JOIN group_states gs USING (group_key) LEFT JOIN recurred rc USING (group_key))
  WHERE ` + groupStateCondition[f.GroupState]
 	if after != nil {
@@ -69,7 +69,7 @@ func (s *Store) FailureGroups(ctx context.Context, f investigation.FailureFilter
 		if err := rows.Scan(&group.Key, &group.Application, &group.Namespace, &group.Service, &group.Environment,
 			&group.Operation, &rank, &group.ExceptionType, &group.HTTPStatus, &group.Count, &first, &last, &group.TraceID, &group.SpanID,
 			&group.Outcomes.HTTP2xx, &group.Outcomes.HTTP5xx, &group.Outcomes.HTTPOther, &group.Outcomes.HTTPUnknown,
-			&group.State, &changed, &group.ResolvedVersion,
+			&group.State, &changed, &group.ResolvedVersion, &group.ChangedBy,
 		); err != nil {
 			return result, err
 		}
@@ -94,20 +94,25 @@ var groupStateCondition = map[investigation.GroupState]string{
 
 // SetGroupState resolves or mutes a group, or reopens it when state is open.
 // A resolved group with a version reopens only for traces from that version.
-func (s *Store) SetGroupState(ctx context.Context, key string, state investigation.GroupState, version string, now time.Time) error {
+// by names who made the change.
+func (s *Store) SetGroupState(ctx context.Context, key string, state investigation.GroupState, version, by string, now time.Time) error {
 	if _, err := investigation.DecodeGroupKey(investigation.EncodeGroupKey(key)); err != nil {
 		return err
 	}
 	if len(version) > 256 || version != "" && state != investigation.GroupResolved {
 		return errors.New("a version of up to 256 bytes applies to resolved groups only")
 	}
+	if len(by) > 256 {
+		return errors.New("the name of who changed a group is limited to 256 bytes")
+	}
 	switch state {
 	case investigation.GroupOpen:
 		_, err := s.db.ExecContext(ctx, "DELETE FROM group_states WHERE group_key = ?", key)
 		return s.changed(writeError(err))
 	case investigation.GroupResolved, investigation.GroupMuted:
-		_, err := s.db.ExecContext(ctx, `INSERT INTO group_states (group_key, state, changed_ns, version) VALUES (?, ?, ?, ?)
- ON CONFLICT (group_key) DO UPDATE SET state = excluded.state, changed_ns = excluded.changed_ns, version = excluded.version`, key, string(state), now.UnixNano(), version)
+		_, err := s.db.ExecContext(ctx, `INSERT INTO group_states (group_key, state, changed_ns, version, changed_by) VALUES (?, ?, ?, ?, ?)
+ ON CONFLICT (group_key) DO UPDATE SET state = excluded.state, changed_ns = excluded.changed_ns, version = excluded.version,
+ changed_by = excluded.changed_by`, key, string(state), now.UnixNano(), version, by)
 		return s.changed(writeError(err))
 	default:
 		return errors.New("state must be open, resolved or muted")

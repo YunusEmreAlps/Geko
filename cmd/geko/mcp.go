@@ -11,7 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -152,7 +154,7 @@ type investigationReader interface {
 
 // groupTriage changes error group state; only a running server provides it.
 type groupTriage interface {
-	SetGroupState(context.Context, string, investigation.GroupState, string, time.Time) error
+	SetGroupState(context.Context, string, investigation.GroupState, string, string, time.Time) error
 }
 
 type failureGroupCitation struct {
@@ -346,9 +348,10 @@ func investigationServer(store investigationReader) *mcp.Server {
 	return server
 }
 
-// addTriageTool lets an agent resolve, mute or reopen a group. It is added only
-// for callers with full access on a server that set GEKO_MCP_TRIAGE.
-func addTriageTool(server *mcp.Server, triage groupTriage) {
+// addTriageTool lets an agent resolve, mute or reopen a group on behalf of
+// caller. It is added only for triagers and admins on a server that set
+// GEKO_MCP_TRIAGE. by is stored as who changed the group.
+func addTriageTool(server *mcp.Server, triage groupTriage, caller access.Principal, by string, auditLog *audit.Log) {
 	notDestructive := false
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "set_group_state",
@@ -365,9 +368,16 @@ func addTriageTool(server *mcp.Server, triage groupTriage) {
 		}
 		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if err := triage.SetGroupState(ctx, key, state, args.Version, time.Now()); err != nil {
+		if err := triage.SetGroupState(ctx, key, state, args.Version, by, time.Now()); err != nil {
 			return nil, groupStateResult{}, err
 		}
+		detail := map[string]string{"state": args.State, "client": "mcp"}
+		if args.Version != "" {
+			detail["version"] = args.Version
+		}
+		auditLog.Record(ctx, nil, audit.Event{
+			Action: "group.state", Actor: caller.Name, Role: caller.Role.String(), Via: caller.Via, Target: args.GroupID, Detail: detail,
+		})
 		return nil, groupStateResult{GroupID: args.GroupID, State: args.State}, nil
 	})
 }

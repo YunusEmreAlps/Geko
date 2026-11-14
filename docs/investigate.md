@@ -133,7 +133,7 @@ escalation, and a failure in a trace that never reaches Geko sends nothing.
 ## Transfer a trace
 
 Open a trace and select **Download OTLP JSON**. To load it into another Geko
-instance, choose **Restore trace from OTLP JSON** at the bottom of **All traces**. Each file
+instance, choose **Restore a trace** at the bottom of **All traces**. Each file
 contains one trace and is limited to 4 MiB and 2,048 spans. A trace over the
 limit cannot be downloaded through this feature.
 

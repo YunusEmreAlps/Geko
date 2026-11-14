@@ -82,3 +82,20 @@ no multi-user accounts, no built-in ACME, no external databases.
 - [ ] Resource comparison with Jaeger and the five-developer usability study
       from `competitive-research.md`. Both need people and a test setup.
 - [ ] Visual regression coverage for both themes. Needs a browser in CI.
+
+## Phase 6: trustworthy for a team
+
+- [ ] Tag and verify `v0.1.0`; the release workflow now also publishes a
+      multi-arch image to `ghcr.io/yunusemrealps/geko`. Tagging is a manual
+      step, see [Releasing](releasing.md).
+- [x] Triage tokens and `viewer`, `triager` and `admin` roles, in the dashboard,
+      the API and `/mcp`.
+- [x] Users from an authenticating proxy (oauth2-proxy or Caddy `forward_auth`)
+      with per-user roles, trusted only from configured addresses.
+- [x] Who resolved or muted a group is stored and shown.
+- [x] JSON audit log of sign-ins and changes (`GEKO_AUDIT_LOG`).
+- [x] E-mail, card number (Luhn), IBAN (mod-97) and TCKN masking before storage.
+- [x] `strict` redaction by default once an access token is configured.
+
+Not in scope: Geko keeps no user or password database; people sign in with a
+token or through your identity provider's proxy.

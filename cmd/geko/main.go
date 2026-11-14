@@ -18,6 +18,7 @@ import (
 
 	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 	"github.com/YunusEmreAlps/geko/internal/notify"
@@ -49,11 +50,17 @@ Environment:
   GEKO_ACCESS_TOKEN    Protect all HTTP and gRPC listeners with an access token
   GEKO_INGEST_TOKENS   Export-only tokens as name=token pairs, comma-separated
   GEKO_READ_TOKENS     Read-only tokens (dashboard, API, /mcp) as name=token pairs
-  GEKO_TOKENS_FILE     YAML file with access, ingest and read tokens, reloaded on change
+  GEKO_TRIAGE_TOKENS   Read tokens that also resolve, mute and reopen error groups
+  GEKO_TOKENS_FILE     YAML file with access, ingest, read and triage tokens, reloaded on change
+  GEKO_PROXY_USER_HEADER  Trust the user an authenticating proxy names in this header
+  GEKO_PROXY_TRUSTED_IPS  Addresses of that proxy (IPs or CIDR prefixes)
+  GEKO_PROXY_ROLES        Proxy users' roles as user=viewer|triager|admin pairs
+  GEKO_PROXY_DEFAULT_ROLE Role of unlisted proxy users (default viewer, or none)
+  GEKO_AUDIT_LOG       Append a JSON line per change and sign-in to this file (- for stderr)
   GEKO_TOKEN           Token that failures --server sends
   GEKO_WEBHOOK_URL     Notify on new and reopened error groups
   GEKO_WEBHOOK_FORMAT  json, slack, discord or ntfy (inferred from the URL)
-  GEKO_MCP_TRIAGE      Let MCP clients with full access resolve and mute groups
+  GEKO_MCP_TRIAGE      Let MCP clients with the triager or admin role resolve and mute groups
   GEKO_ALLOW_PLAINTEXT Allow non-loopback listeners behind a TLS proxy (true/false)
   GEKO_PUBLIC_URL      External URL of the OTLP/HTTP listener, e.g. https://geko.example.com
   GEKO_GRPC_ADDR       Optional OTLP/gRPC address (e.g. 127.0.0.1:4317)
@@ -61,7 +68,7 @@ Environment:
   GEKO_RETENTION_DAYS  Trace retention in days (default 7)
   GEKO_MAX_DB_MIB      Main database size limit in MiB (default 256)
   GEKO_ON_FULL         evict_oldest (default), evict_fair or reject
-  GEKO_REDACTION       best_effort (default) or strict
+  GEKO_REDACTION       best_effort, or strict (default once GEKO_ACCESS_TOKEN is set)
   GEKO_INGEST_CONCURRENCY  Exports decoded at once (default 4, up to 64)
 `
 
@@ -304,23 +311,37 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 			<-stopped
 		}()
 	}
-	var signIn func(http.ResponseWriter, *http.Request, string) bool
-	var signOut func(http.ResponseWriter, *http.Request)
+	var auditLog *audit.Log
+	if cfg.AuditLog != "" {
+		var closeAudit func() error
+		if auditLog, closeAudit, err = audit.Open(cfg.AuditLog); err != nil {
+			return err
+		}
+		defer func() { err = errors.Join(err, closeAudit()) }()
+	}
+	var signIn func(http.ResponseWriter, *http.Request, string) (access.Principal, bool)
+	var signOut func(http.ResponseWriter, *http.Request) (access.Principal, bool)
+	proxyHeader := ""
 	if cfg.AccessToken.Enabled() {
 		signIn, signOut = cfg.AccessToken.SignIn, cfg.AccessToken.SignOut
+		if proxy := cfg.AccessToken.Proxy(); proxy != nil {
+			proxyHeader = proxy.Header
+		}
 	}
 	api.Register(dashboardMux, db)
 	var triage groupTriage
 	if cfg.MCPTriage {
 		triage = db
 	}
-	dashboardMux.Handle("/mcp", mcpHandler(db, triage, cfg.AccessToken.Enabled()))
+	dashboardMux.Handle("/mcp", mcpHandler(db, triage, cfg.AccessToken.Enabled(), auditLog))
 	if err := web.Register(dashboardMux, db, web.Settings{
 		Shutdown:      ctx.Done(),
 		DashboardAddr: dashboardAddr, GRPCAddr: grpcAddr,
 		ListenAddr: listener.Addr().String(), DBPath: cfg.DBPath, Version: version,
 		PublicURL: cfg.PublicURL, AccessToken: cfg.AccessToken.Enabled(), IngestTokens: cfg.AccessToken.Names(access.ScopeIngest),
-		ReadTokens:    cfg.AccessToken.Names(access.ScopeRead),
+		ReadTokens:   cfg.AccessToken.Names(access.ScopeRead),
+		TriageTokens: cfg.AccessToken.Names(access.ScopeTriage),
+		ProxyHeader:  proxyHeader, Audit: auditLog,
 		Notifications: notifications,
 		SignIn:        signIn, SignOut: signOut, Tokens: cfg.AccessToken,
 		ReceiverDiagnostics: receiver.Diagnostics,

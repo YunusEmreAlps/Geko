@@ -153,7 +153,7 @@ func startEmbedded(ctx context.Context, cfg config.Config, base string) (func(),
 	return func() { cancel(); <-done }, nil
 }
 
-var errTokenRequired = errors.New("Geko requires a token: set GEKO_ACCESS_TOKEN to its access token")
+var errTokenRequired = errors.New("set GEKO_ACCESS_TOKEN to the access token required by Geko")
 
 // receiverCounts are receiver counters from Geko's /metrics. They count all
 // clients of the server since it started.
@@ -187,7 +187,7 @@ func readReceiverCounts(ctx context.Context, base, token string) (receiverCounts
 		}
 	}
 	if !found {
-		return counts, errors.New("Geko did not report receiver counters")
+		return counts, errors.New("missing receiver counters in the Geko metrics response")
 	}
 	return counts, nil
 }

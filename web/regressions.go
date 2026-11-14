@@ -40,7 +40,7 @@ func (d *dashboard) regressions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if view.Baseline == "" && view.Candidate == "" {
-		d.render(w, http.StatusOK, "regressions", "Version regressions", view)
+		d.render(w, r, http.StatusOK, "regressions", "Version regressions", view)
 		return
 	}
 	if view.Baseline == "" || view.Candidate == "" || view.Baseline == view.Candidate {
@@ -75,6 +75,6 @@ func (d *dashboard) regressions(w http.ResponseWriter, r *http.Request) {
 				fmt.Sprintf("%.1f%%", 100*float64(row.Baseline.Failures)/float64(row.Baseline.Traces)),
 				fmt.Sprintf("%.1f%%", 100*float64(row.Candidate.Failures)/float64(row.Candidate.Traces)), signal})
 		}
-		d.render(w, http.StatusOK, "regressions", "Version regressions", view)
+		d.render(w, r, http.StatusOK, "regressions", "Version regressions", view)
 	})
 }

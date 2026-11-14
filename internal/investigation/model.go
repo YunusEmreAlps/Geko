@@ -82,6 +82,8 @@ type FailureGroup struct {
 	StateChanged   *time.Time      `json:"state_changed,omitempty"`
 	// ResolvedVersion is the service.version a resolved group was fixed in.
 	ResolvedVersion string `json:"resolved_version,omitempty"`
+	// ChangedBy names who resolved or muted the group, when known.
+	ChangedBy string `json:"state_changed_by,omitempty"`
 }
 
 type RequestOutcomes struct {

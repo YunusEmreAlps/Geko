@@ -59,7 +59,7 @@ func TestDashboardInvestigation(t *testing.T) {
 	get("/assets/dashboard.css", http.StatusOK, ".waterfall")
 	get("/assets/dashboard.js", http.StatusOK, "clipboard.writeText")
 	get("/assets/theme.js", http.StatusOK, "geko.theme")
-	get("/settings", http.StatusOK, "schema 9", "SQLite sidecars", "127.0.0.1:4318", configPath,
+	get("/settings", http.StatusOK, "schema 10", "SQLite sidecars", "127.0.0.1:4318", configPath,
 		"Set by <code>GEKO_DB_PATH</code>", ">yaml</span>", ">default</span>", "Traces evicted at capacity")
 
 	start := time.Now().UTC().Add(-time.Minute)

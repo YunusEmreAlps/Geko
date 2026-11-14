@@ -51,7 +51,7 @@ func (d *dashboard) connect(w http.ResponseWriter, r *http.Request) {
 		view.Error = "Choose a configured ingest token."
 	}
 	if view.Error != "" {
-		d.render(w, http.StatusBadRequest, "connect", "Connect an application", view)
+		d.render(w, r, http.StatusBadRequest, "connect", "Connect an application", view)
 		return
 	}
 
@@ -81,7 +81,7 @@ func (d *dashboard) connect(w http.ResponseWriter, r *http.Request) {
 	}
 	view.Bash, view.PowerShell, view.Compose = bash.String(), powershell.String(), compose.String()
 	view.TracesURL = route("/traces", url.Values{"service": {view.Service}})
-	d.render(w, http.StatusOK, "connect", "Connect an application", view)
+	d.render(w, r, http.StatusOK, "connect", "Connect an application", view)
 }
 
 // otlpBase returns the exporter base URL; SDKs append /v1/traces for HTTP.

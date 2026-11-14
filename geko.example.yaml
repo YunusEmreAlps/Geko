@@ -21,5 +21,7 @@ max_db_mib: 256
 # Evict the oldest traces at capacity, or set reject to keep existing traces.
 on_full: evict_oldest
 
-# strict stores exception types and message hashes for new spans.
-redaction: best_effort
+# best_effort keeps exception messages and stack traces with personal data
+# masked; strict stores exception types and message hashes for new spans. The
+# default is best_effort, or strict once GEKO_ACCESS_TOKEN is set.
+# redaction: best_effort

@@ -14,6 +14,7 @@ import (
 
 	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -23,20 +24,27 @@ import (
 // rebinding; the SDK's own check is disabled because it also rejects a TLS
 // proxy on the same host that forwards the public Host name.
 //
-// With triage, callers with full access (the access token, or any caller when no
-// token is configured) also get set_group_state; read tokens never do.
-func mcpHandler(store investigationReader, triage groupTriage, tokenEnabled bool) http.Handler {
+// With triage, triagers and admins (or any caller when no token is configured)
+// also get set_group_state; viewers never do. Each triager gets a server that
+// names them in the group state and the audit log.
+func mcpHandler(store investigationReader, triage groupTriage, tokenEnabled bool, auditLog *audit.Log) http.Handler {
 	readOnly := investigationServer(store)
-	var triageServer *mcp.Server
-	if triage != nil {
-		triageServer = investigationServer(store)
-		addTriageTool(triageServer, triage)
+	var local *mcp.Server
+	if triage != nil && !tokenEnabled {
+		local = investigationServer(store)
+		addTriageTool(local, triage, access.Local, "", auditLog)
 	}
 	choose := func(r *http.Request) *mcp.Server {
-		if triageServer != nil && (!tokenEnabled || access.FullAccess(r.Context())) {
-			return triageServer
+		if local != nil {
+			return local
 		}
-		return readOnly
+		caller, ok := access.Caller(r.Context())
+		if triage == nil || !ok || caller.Role < access.RoleTriager {
+			return readOnly
+		}
+		server := investigationServer(store)
+		addTriageTool(server, triage, caller, caller.Name, auditLog)
+		return server
 	}
 	handler := mcp.NewStreamableHTTPHandler(choose, &mcp.StreamableHTTPOptions{
 		Stateless: true, JSONResponse: true, DisableLocalhostProtection: true, MaxRequestBodyBytes: maxProtocolLine,

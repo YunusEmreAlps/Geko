@@ -56,7 +56,7 @@ func TestDoctorReportsBusyListener(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "GEKO_LISTEN_ADDR") {
 		t.Fatalf("doctor error = %v, want a listener configuration hint", err)
 	}
-	if !strings.Contains(out.String(), "schema 9") {
+	if !strings.Contains(out.String(), "schema 10") {
 		t.Fatalf("doctor output %q does not include the database result", out.String())
 	}
 	if _, err := os.Stat("doctor.db"); err != nil {

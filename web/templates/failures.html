@@ -94,17 +94,20 @@
 </section>
 {{if .CanRestore}}
 <details class="restore">
-  <summary>Restore trace from OTLP JSON</summary>
+  <summary>Restore a trace</summary>
   <form action="/traces/import" method="post" enctype="multipart/form-data" data-loading>
-    <label>OTLP JSON file <input type="file" name="trace_file" accept=".json,application/json" required></label>
-    <button class="button" type="submit">Restore trace</button>
+    <div class="restore-controls">
+      <label class="sr-only" for="restore-trace-file">OTLP JSON file</label>
+      <input id="restore-trace-file" type="file" name="trace_file" accept=".json,application/json" aria-describedby="restore-trace-limits" required>
+      <button class="button" type="submit">Restore trace</button>
+    </div>
+    <p id="restore-trace-limits">One OTLP JSON trace per file, up to 4 MiB and 2,048 spans.</p>
   </form>
-  <p class="subtle">One trace per file, up to 4 MiB and 2,048 spans.</p>
 </details>
 {{end}}
 {{end}}
 
-{{define "group-state"}}{{if eq .State "reopened"}}<span class="pill server_error" title="Resolved {{timestamp .StateChanged}}, then received again{{with .ResolvedVersion}} from {{.}}{{end}}">Reopened{{with .ResolvedVersion}} in {{.}}{{end}}</span>{{else if eq .State "resolved"}}<span class="pill neutral" title="Resolved {{timestamp .StateChanged}}{{with .ResolvedVersion}}; no matching trace from {{.}} since{{end}}">Resolved{{with .ResolvedVersion}} in {{.}}{{end}}</span>{{else if eq .State "muted"}}<span class="pill neutral" title="{{timestamp .StateChanged}}">Muted</span>{{end}}{{end}}
+{{define "group-state"}}{{if eq .State "reopened"}}<span class="pill server_error" title="Resolved {{timestamp .StateChanged}}{{with .ChangedBy}} by {{.}}{{end}}, then received again{{with .ResolvedVersion}} from {{.}}{{end}}">Reopened{{with .ResolvedVersion}} in {{.}}{{end}}</span>{{else if eq .State "resolved"}}<span class="pill neutral" title="Resolved {{timestamp .StateChanged}}{{with .ChangedBy}} by {{.}}{{end}}{{with .ResolvedVersion}}; no matching trace from {{.}} since{{end}}">Resolved{{with .ResolvedVersion}} in {{.}}{{end}}</span>{{else if eq .State "muted"}}<span class="pill neutral" title="Muted {{timestamp .StateChanged}}{{with .ChangedBy}} by {{.}}{{end}}">Muted</span>{{end}}{{end}}
 
 {{define "group-table"}}
 <div class="table-wrap" tabindex="0" role="region" aria-label="Error groups">

@@ -35,13 +35,14 @@ func TestGroupStateLifecycle(t *testing.T) {
 	key := open[0].Key
 
 	resolvedAt := received.Add(time.Minute)
-	if err := store.SetGroupState(ctx, key, investigation.GroupResolved, "", resolvedAt); err != nil {
+	if err := store.SetGroupState(ctx, key, investigation.GroupResolved, "", "qa@example.com", resolvedAt); err != nil {
 		t.Fatal(err)
 	}
 	if got := groups(""); len(got) != 0 {
 		t.Fatalf("resolved group still open: %+v", got)
 	}
-	if got := groups(investigation.GroupResolved); len(got) != 1 || got[0].State != investigation.GroupResolved || !got[0].StateChanged.Equal(resolvedAt) {
+	if got := groups(investigation.GroupResolved); len(got) != 1 || got[0].State != investigation.GroupResolved || !got[0].StateChanged.Equal(resolvedAt) ||
+		got[0].ChangedBy != "qa@example.com" {
 		t.Fatalf("resolved groups = %+v", got)
 	}
 
@@ -66,7 +67,7 @@ func TestGroupStateLifecycle(t *testing.T) {
 		t.Fatalf("notified = %v, %v", notified, err)
 	}
 
-	if err := store.SetGroupState(ctx, key, investigation.GroupMuted, "", resolvedAt.Add(3*time.Minute)); err != nil {
+	if err := store.SetGroupState(ctx, key, investigation.GroupMuted, "", "", resolvedAt.Add(3*time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	if got := groups(""); len(got) != 0 {
@@ -79,18 +80,18 @@ func TestGroupStateLifecycle(t *testing.T) {
 		t.Fatalf("all groups = %+v", got)
 	}
 
-	if err := store.SetGroupState(ctx, key, investigation.GroupOpen, "", time.Now()); err != nil {
+	if err := store.SetGroupState(ctx, key, investigation.GroupOpen, "", "", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := groups(""); len(got) != 1 || got[0].State != investigation.GroupOpen {
 		t.Fatalf("reopened by user = %+v", got)
 	}
-	if err := store.SetGroupState(ctx, key, investigation.GroupReopened, "", time.Now()); err == nil {
+	if err := store.SetGroupState(ctx, key, investigation.GroupReopened, "", "", time.Now()); err == nil {
 		t.Fatal("accepted reopened as a stored state")
 	}
 
 	// Retention removes states older than the cutoff with the traces.
-	if err := store.SetGroupState(ctx, key, investigation.GroupMuted, "", received); err != nil {
+	if err := store.SetGroupState(ctx, key, investigation.GroupMuted, "", "", received); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Prune(ctx, received.Add(time.Second)); err != nil {
@@ -133,10 +134,10 @@ func TestResolvedInVersion(t *testing.T) {
 		return result.Items
 	}
 	key := groups()[0].Key
-	if err := store.SetGroupState(ctx, key, investigation.GroupMuted, "1.2.0", received); err == nil {
+	if err := store.SetGroupState(ctx, key, investigation.GroupMuted, "1.2.0", "", received); err == nil {
 		t.Fatal("accepted a version for a muted group")
 	}
-	if err := store.SetGroupState(ctx, key, investigation.GroupResolved, "1.2.0", received.Add(time.Minute)); err != nil {
+	if err := store.SetGroupState(ctx, key, investigation.GroupResolved, "1.2.0", "", received.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	// Instances still running the old version don't reopen the group.

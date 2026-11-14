@@ -118,6 +118,8 @@ summary { cursor: pointer; }
 .sidebar nav a, .nav-button { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: var(--radius-sm); color: var(--text-secondary); text-decoration: none; }
 .sidebar nav a:hover, .nav-button:hover { background: var(--bg-hover); color: var(--text); }
 .nav-button { width: 100%; font: inherit; background: none; border: 0; cursor: pointer; }
+.nav-identity { margin: 0 0 4px; padding: 4px 8px; font-size: var(--text-sm); color: var(--text); overflow-wrap: anywhere; }
+.nav-identity .subtle { display: inline; margin: 0 0 0 4px; }
 .login-page { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto; place-items: center; min-height: 100vh; padding: 16px; }
 .login-card { width: min(100%, 360px); padding: 28px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-md); }
 .login-card .brand { margin-bottom: 20px; padding: 0; }
@@ -158,7 +160,6 @@ main { width: 100%; min-width: 0; padding: 0 24px 48px; }
 
 /* Forms */
 input, select { display: block; width: 100%; min-width: 0; height: var(--control-h); margin-top: 6px; padding: 0 10px; font-size: var(--text-base); color: var(--text); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-sm); }
-input[type="file"] { padding: 5px 10px; }
 select { appearance: none; padding-right: 28px; background-image: linear-gradient(45deg, transparent 50%, var(--text-tertiary) 50%), linear-gradient(135deg, var(--text-tertiary) 50%, transparent 50%); background-position: calc(100% - 15px) 50%, calc(100% - 11px) 50%; background-size: 4px 4px; background-repeat: no-repeat; }
 input::placeholder { color: var(--text-tertiary); }
 input:hover, select:hover { border-color: var(--border-strong); }
@@ -189,10 +190,16 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--text-secondary
 .popover { position: absolute; z-index: 4; top: calc(100% + 6px); right: 0; width: 280px; display: grid; gap: 12px; padding: 14px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-popover); }
 .filter-actions { display: flex; align-items: center; gap: 10px; }
 .active-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: var(--text-sm); color: var(--text-secondary); }
-.restore { margin-top: 24px; color: var(--text-secondary); }
-.restore > summary { font-size: var(--text-sm); }
-.restore form { display: flex; align-items: end; gap: 8px; margin-top: 12px; max-width: 520px; }
-.restore .subtle { margin-top: 8px; }
+.restore { margin-top: 24px; border-top: 1px solid var(--border); }
+.restore > summary { display: flex; align-items: center; gap: 10px; width: fit-content; min-height: var(--control-h); padding: 0 6px; list-style: none; font-weight: 500; }
+.restore > summary::-webkit-details-marker { display: none; }
+.restore > summary:hover { color: var(--accent); }
+.restore form { max-width: 440px; padding: 4px 0 12px; }
+.restore-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.restore input[type="file"] { flex: 1 1 230px; margin: 0; padding: 0; color: var(--text-secondary); }
+.restore input::file-selector-button { height: 100%; margin-inline-end: 10px; padding: 0 10px; border: 0; border-inline-end: 1px solid var(--border); background: var(--bg-surface); color: var(--text); font: inherit; cursor: pointer; }
+.restore input::file-selector-button:hover { background: var(--bg-hover); }
+.restore form p { margin-top: 8px; color: var(--text-secondary); font-size: var(--text-sm); }
 /* Fields and their buttons share a row and wrap together on narrow screens. */
 .application-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 12px 0 16px; }
 .application-form > label { flex: 0 1 220px; min-width: 160px; }
@@ -386,6 +393,7 @@ a.operation:hover { text-decoration: underline; }
   .sidebar nav { display: flex; gap: 2px; }
   .sidebar .nav-secondary { margin: 0; padding: 0; border: 0; }
   .sidebar nav a { white-space: nowrap; }
+  .nav-identity { display: none; }
   .nav-icon { display: none; }
   main { padding: 0 16px 32px; }
   .page-head { position: static; flex-wrap: wrap; margin-inline: -16px; padding: 12px 16px; }

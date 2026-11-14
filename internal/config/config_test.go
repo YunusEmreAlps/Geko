@@ -162,6 +162,11 @@ func clearConfigEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("GEKO_INGEST_TOKENS", "")
 	t.Setenv("GEKO_READ_TOKENS", "")
+	t.Setenv("GEKO_TRIAGE_TOKENS", "")
+	t.Setenv("GEKO_AUDIT_LOG", "")
+	for _, key := range []string{"GEKO_PROXY_USER_HEADER", "GEKO_PROXY_TRUSTED_IPS", "GEKO_PROXY_ROLES", "GEKO_PROXY_DEFAULT_ROLE"} {
+		t.Setenv(key, "")
+	}
 	t.Setenv("GEKO_WEBHOOK_URL", "")
 	t.Setenv("GEKO_WEBHOOK_FORMAT", "")
 	t.Setenv("GEKO_MCP_TRIAGE", "")
@@ -231,6 +236,66 @@ func TestIngestTokens(t *testing.T) {
 	cfg, err := Load()
 	if err != nil || strings.Join(cfg.AccessToken.Names(access.ScopeIngest), ",") != "storefront" {
 		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+}
+
+func TestTriageTokensAndServerRedaction(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	t.Setenv("GEKO_ACCESS_TOKEN", "3f9c1e7a0b5d48e2c6a1f0d9b7e4c2a8")
+	t.Setenv("GEKO_TRIAGE_TOKENS", "qa=a1b2c3d4e5f60718293a4b5c6d7e8f90")
+	t.Setenv("GEKO_AUDIT_LOG", "-")
+	cfg, err := Load()
+	if err != nil || strings.Join(cfg.AccessToken.Names(access.ScopeTriage), ",") != "qa" || cfg.AuditLog != "-" {
+		t.Fatalf("config=%+v, %v", cfg, err)
+	}
+	// Other people can read a token-protected instance, so strict is its default.
+	if cfg.Redaction != ServerRedaction || cfg.Source.Redaction.Kind != "default with an access token" {
+		t.Fatalf("redaction = %q from %+v", cfg.Redaction, cfg.Source.Redaction)
+	}
+	t.Setenv("GEKO_REDACTION", "best_effort")
+	if cfg, err = Load(); err != nil || cfg.Redaction != DefaultRedaction {
+		t.Fatalf("explicit redaction = %q, %v", cfg.Redaction, err)
+	}
+	t.Setenv("GEKO_REDACTION", "")
+	writeConfig(t, defaultConfigPath, "redaction: best_effort\n")
+	if cfg, err = Load(); err != nil || cfg.Redaction != DefaultRedaction {
+		t.Fatalf("YAML redaction = %q, %v", cfg.Redaction, err)
+	}
+}
+
+func TestProxyAuth(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	t.Setenv("GEKO_PROXY_ROLES", "alice@example.com=admin")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GEKO_PROXY_USER_HEADER") {
+		t.Fatalf("proxy roles without a header: %v", err)
+	}
+	t.Setenv("GEKO_PROXY_USER_HEADER", "X-Auth-Request-Email")
+	if _, err := Load(); err == nil {
+		t.Fatal("proxy header accepted without an access token")
+	}
+	t.Setenv("GEKO_ACCESS_TOKEN", "3f9c1e7a0b5d48e2c6a1f0d9b7e4c2a8")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GEKO_PROXY_TRUSTED_IPS") {
+		t.Fatalf("proxy header without trusted addresses: %v", err)
+	}
+	t.Setenv("GEKO_PROXY_TRUSTED_IPS", "172.16.0.0/12")
+	for _, role := range []string{"owner", "None"} {
+		t.Setenv("GEKO_PROXY_DEFAULT_ROLE", role)
+		if _, err := Load(); err == nil {
+			t.Fatalf("default role %q accepted", role)
+		}
+	}
+	for role, want := range map[string]access.Role{"": access.RoleViewer, "none": 0, "triager": access.RoleTriager} {
+		t.Setenv("GEKO_PROXY_DEFAULT_ROLE", role)
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		proxy := cfg.AccessToken.Proxy()
+		if proxy == nil || proxy.Header != "X-Auth-Request-Email" || proxy.Default != want || proxy.Roles["alice@example.com"] != access.RoleAdmin {
+			t.Fatalf("proxy = %+v", proxy)
+		}
 	}
 }
 

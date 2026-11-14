@@ -12,6 +12,7 @@ import (
 
 	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,7 +21,12 @@ import (
 const (
 	remoteAdmin = "3f9c1e7a0b5d48e2c6a1f0d9b7e4c2a8"
 	remoteRead  = "b7e4c2a83f9c1e7a0b5d48e2c6a1f0d9"
+	// remoteTriage may resolve groups, like a QA engineer's token.
+	remoteTriage = "c6a1f0d9b7e4c2a83f9c1e7a0b5d48e2"
 )
+
+// remoteAudit receives the audit log of remoteServer.
+var remoteAudit bytes.Buffer
 
 type bearerTransport string
 
@@ -51,12 +57,15 @@ func remoteServer(t *testing.T) *httptest.Server {
 	if err == nil {
 		token, err = token.WithReadTokens("agent=" + remoteRead)
 	}
+	if err == nil {
+		token, err = token.WithTriageTokens("qa=" + remoteTriage)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
 	api.Register(mux, store)
-	mux.Handle("/mcp", mcpHandler(store, store, true))
+	mux.Handle("/mcp", mcpHandler(store, store, true, audit.New(&remoteAudit)))
 	server := httptest.NewServer(token.Protect(mux))
 	t.Cleanup(server.Close)
 	return server
@@ -95,7 +104,7 @@ func TestMCPRequiresLoopbackHostWithoutToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	handler := mcpHandler(store, nil, false)
+	handler := mcpHandler(store, nil, false, nil)
 	body := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
 	for host, want := range map[string]int{"evil.example": http.StatusForbidden, "127.0.0.1:4318": http.StatusOK} {
 		r := httptest.NewRequest(http.MethodPost, "http://"+host+"/mcp", strings.NewReader(body))
@@ -176,11 +185,15 @@ func TestRemoteMCPTriageAndComparisons(t *testing.T) {
 		return strings.Join(names, ",")
 	}
 	reader, admin := connectMCP(t, server, remoteRead), connectMCP(t, server, remoteAdmin)
+	triager := connectMCP(t, server, remoteTriage)
 	if names := toolNames(reader); strings.Contains(names, "set_group_state") || !strings.Contains(names, "compare_versions") {
 		t.Fatalf("read token tools = %s", names)
 	}
 	if names := toolNames(admin); !strings.Contains(names, "set_group_state") {
 		t.Fatalf("access token tools = %s", names)
+	}
+	if names := toolNames(triager); !strings.Contains(names, "set_group_state") {
+		t.Fatalf("triage token tools = %s", names)
 	}
 
 	var compared struct {
@@ -218,9 +231,20 @@ func TestRemoteMCPTriageAndComparisons(t *testing.T) {
 	if result := callTool(t, admin, "set_group_state", map[string]any{"group_id": groups.Items[0].GroupID, "state": "reopened"}, nil); !result.IsError {
 		t.Fatal("set_group_state accepted a derived state")
 	}
-	callTool(t, admin, "set_group_state", map[string]any{"group_id": groups.Items[0].GroupID, "state": "resolved", "version": "2.0"}, nil)
-	callTool(t, reader, "list_failure_groups", map[string]any{"state": "resolved"}, &groups)
-	if len(groups.Items) != 1 || groups.Items[0].State != "resolved" {
-		t.Fatalf("resolved groups = %+v", groups)
+	remoteAudit.Reset()
+	callTool(t, triager, "set_group_state", map[string]any{"group_id": groups.Items[0].GroupID, "state": "resolved", "version": "2.0"}, nil)
+	var resolved struct {
+		Items []struct {
+			State     string `json:"state"`
+			ChangedBy string `json:"state_changed_by"`
+		} `json:"items"`
+	}
+	callTool(t, reader, "list_failure_groups", map[string]any{"state": "resolved"}, &resolved)
+	if len(resolved.Items) != 1 || resolved.Items[0].State != "resolved" || resolved.Items[0].ChangedBy != "qa" {
+		t.Fatalf("resolved groups = %+v", resolved)
+	}
+	if line := remoteAudit.String(); !strings.Contains(line, `"action":"group.state","actor":"qa","role":"triager","via":"token"`) ||
+		!strings.Contains(line, `"client":"mcp"`) || !strings.Contains(line, `"version":"2.0"`) {
+		t.Fatalf("audit = %s", line)
 	}
 }

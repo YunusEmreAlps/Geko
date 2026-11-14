@@ -35,8 +35,10 @@ online store with separate order, inventory, and payment services.*
   stores spans in SQLite with retention and a size limit, and serves the
   dashboard on a loopback address by default.
 - **Is careful with data.** An attribute allowlist drops headers, cookies,
-  bodies, and full URLs before anything is stored. A `strict` mode keeps only
-  exception types and message hashes.
+  bodies, and full URLs before anything is stored, and e-mail addresses, card
+  numbers, IBANs and Turkish identity numbers are masked. A `strict` mode, the
+  default on a token-protected server, keeps only exception types and message
+  hashes.
 
 ## Quick start
 
@@ -76,7 +78,7 @@ Refresh **Failures** and open **POST /checkout**. More examples:
 | --- | --- |
 | Release binary | Download the archive for your platform from [GitHub Releases](https://github.com/YunusEmreAlps/geko/releases), extract it, and run `./geko serve` (`.\geko.exe serve` on Windows). |
 | Go | `go install github.com/YunusEmreAlps/geko/cmd/geko@latest`, then `geko serve`. Replace `latest` with a tag to pin a version. |
-| Docker | `docker build -t geko .` then `docker run --rm --network host -v geko-data:/data geko` |
+| Docker | `docker run --rm --network host -v geko-data:/data ghcr.io/yunusemrealps/geko`, or build it with `docker build -t geko .` |
 
 To run Geko for a team, in Docker with a token or on a server behind TLS, see
 [Run Geko for a team](docs/server.md).
@@ -112,7 +114,7 @@ OTLP/gRPC, a separate dashboard port and receiver limits are in
 | Guide | Covers |
 | --- | --- |
 | [Investigate a failure](docs/investigate.md) | Failures, the service map and waterfall, applications, comparing with a success, version regressions, error groups and triage, notifications, moving a trace |
-| [Run Geko for a team](docs/server.md) | Docker with a token, Compose with Caddy, access, ingest and read tokens, sign-in, token reload |
+| [Run Geko for a team](docs/server.md) | Docker with a token, Compose with Caddy, access, ingest, read and triage tokens, roles, sign-in through a proxy, the audit log, token reload |
 | [Coding agents and test runs](docs/agents.md) | `geko failures --json`, MCP over stdio and HTTP, `geko run` |
 | [Connect your application](docs/connect.md) | Ports, OTLP/gRPC, receiver limits |
 | [Configuration and reference](docs/configuration.md) | Every setting, retention and capacity, privacy modes, upgrades, CLI, JSON API |
@@ -143,7 +145,8 @@ Docker smoke test with the JSON exporters. CI also builds a release snapshot,
 verifies the archive checksums, and runs the Linux amd64 binary. Run
 `goreleaser release --snapshot --clean` locally to generate the same archives
 in `dist/`. Pushing a `v*` tag publishes checksummed archives for Linux, macOS,
-and Windows on amd64 and arm64.
+and Windows on amd64 and arm64, and a `linux/amd64` and `linux/arm64` image to
+`ghcr.io/yunusemrealps/geko`. See [Releasing](docs/releasing.md).
 
 ## License
 

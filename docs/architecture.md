@@ -72,7 +72,10 @@ cookies, body fields, raw URLs, and other attributes outside the allowlists
 are discarded. The default allowlist includes database and RPC operation
 metadata and URL paths. Stack traces are limited to 32 KiB. Text is bounded
 and redacted when it matches recognizable
-credential or payload markers. Arbitrary exception messages, stack traces, and
+credential or payload markers. E-mail addresses, and numbers that pass the
+check digits of a payment card, an IBAN or a Turkish identity number, are
+replaced in place with a marker before truncation, so a cut can't leave part of
+one behind. Arbitrary exception messages, stack traces, and
 values of allowed attributes can still contain sensitive data without recognizable
 markers. Instrumentation should keep secrets out of telemetry.
 Strict mode stores only exception type and a SHA-256 message digest on new

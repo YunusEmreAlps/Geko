@@ -31,6 +31,7 @@
       <a href="/connect"{{if eq .Page "connect"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7V3M15 7V3"/><path d="M6 7h12v4a6 6 0 0 1-12 0z"/><path d="M12 17v4"/></svg>Connect</a>
       <a href="/applications"{{if eq .Page "applications"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 9 4.5-9 4.5-9-4.5z"/><path d="m3 12 9 4.5 9-4.5"/><path d="m3 16.5 9 4.5 9-4.5"/></svg>Applications</a>
       <a href="/settings"{{if eq .Page "settings"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 7h-9M14 17H4"/><circle cx="17" cy="17" r="3"/><circle cx="7" cy="7" r="3"/></svg>Settings</a>
+      {{with .Caller}}<p class="nav-identity" title="Signed in with {{if eq .Via "proxy"}}the sign-in proxy{{else if eq .Name "access"}}the access token{{else}}a token{{end}}"><span class="nav-identity-name">{{if eq .Name "access"}}Access token{{else}}{{.Name}}{{end}}</span> <span class="subtle">{{.Role}}</span></p>{{end}}
       {{if .SignOut}}<form action="/logout" method="post"><button class="nav-button" type="submit"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Sign out</button></form>{{end}}
     </nav>
   </aside>

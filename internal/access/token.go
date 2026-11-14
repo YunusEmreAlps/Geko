@@ -23,10 +23,13 @@ const (
 	ScopeIngest Scope = iota + 1
 	// ScopeRead reads the dashboard, the query API and the MCP endpoint.
 	ScopeRead
+	// ScopeTriage also changes error group state.
+	ScopeTriage
 )
 
 // Token protects the listeners. The access token grants full access; scoped
-// tokens let applications export and agents read without the access token.
+// tokens let applications export, and agents and people read or triage,
+// without the access token.
 // Copies share state, so Reload changes the credentials every copy checks.
 type Token struct {
 	state *tokenState
@@ -36,6 +39,7 @@ type tokenState struct {
 	credentials atomic.Pointer[credentials]
 	sessions    *sessions
 	failures    *failureLog
+	proxy       *ProxyAuth
 }
 
 type credentials struct {
@@ -114,6 +118,16 @@ func (t Token) WithReadTokens(spec string) (Token, error) {
 	return t.withScoped(pairs, "GEKO_READ_TOKENS", ScopeRead)
 }
 
+// WithTriageTokens adds tokens that read and resolve, mute or reopen error
+// groups, from comma-separated name=token pairs.
+func (t Token) WithTriageTokens(spec string) (Token, error) {
+	pairs, err := parseSpec(spec, "GEKO_TRIAGE_TOKENS")
+	if err != nil {
+		return Token{}, err
+	}
+	return t.withScoped(pairs, "GEKO_TRIAGE_TOKENS", ScopeTriage)
+}
+
 func parseSpec(spec, variable string) ([]pair, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
@@ -139,10 +153,14 @@ func (t Token) withScoped(pairs []pair, label string, scope Scope) (Token, error
 		return Token{}, fmt.Errorf("%s requires an access token", label)
 	}
 	seen := map[[sha256.Size]byte]bool{c.digest: true}
+	// Read and triage token names identify callers, so they share one namespace.
+	sameNames := func(other Scope) bool {
+		return other == scope || scopeRole(other) != 0 && scopeRole(scope) != 0
+	}
 	names := make(map[string]bool)
 	for _, token := range c.scoped {
 		seen[token.digest] = true
-		if token.scope == scope {
+		if sameNames(token.scope) {
 			names[token.name] = true
 		}
 	}
@@ -152,7 +170,7 @@ func (t Token) withScoped(pairs []pair, label string, scope Scope) (Token, error
 			return Token{}, fmt.Errorf("%s: token names use 1 to 64 letters, digits, dots, hyphens or underscores", label)
 		}
 		if names[entry.name] {
-			return Token{}, fmt.Errorf("%s names %q more than once", label, entry.name)
+			return Token{}, fmt.Errorf("%s names %q more than once, or a read or triage token has that name", label, entry.name)
 		}
 		if err := validate(entry.value, label+" token "+entry.name); err != nil {
 			return Token{}, err
@@ -164,7 +182,9 @@ func (t Token) withScoped(pairs []pair, label string, scope Scope) (Token, error
 		seen[digest], names[entry.name] = true, true
 		next.scoped = append(next.scoped, scopedToken{name: entry.name, scope: scope, digest: digest})
 	}
-	return newToken(next), nil
+	token := newToken(next)
+	token.state.proxy = t.state.proxy
+	return token, nil
 }
 
 func validName(name string) bool {
@@ -218,6 +238,26 @@ func (t Token) matches(value string) bool {
 	return subtle.ConstantTimeCompare(digest[:], c.digest[:]) == 1
 }
 
+// identify returns the principal of the access token or a read or triage
+// token. Every configured digest is compared to keep timing independent of the match.
+func (t Token) identify(value string) (Principal, bool) {
+	c := t.current()
+	if c == nil {
+		return Principal{}, false
+	}
+	digest := sha256.Sum256([]byte(value))
+	var principal Principal
+	if subtle.ConstantTimeCompare(digest[:], c.digest[:]) == 1 {
+		principal = Principal{Name: accessName, Role: RoleAdmin, Via: "token"}
+	}
+	for _, token := range c.scoped {
+		if subtle.ConstantTimeCompare(digest[:], token.digest[:]) == 1 && scopeRole(token.scope) != 0 {
+			principal = Principal{Name: token.name, Role: scopeRole(token.scope), Via: "token"}
+		}
+	}
+	return principal, principal.Role != 0
+}
+
 // allows reports whether value is the access token or a token with the scope.
 // Every configured digest is compared to keep timing independent of the match.
 func (t Token) allows(value string, scope Scope) bool {
@@ -254,8 +294,6 @@ func (t Token) IngestBearer(header string) bool {
 
 type authenticatedKey struct{}
 
-type fullAccessKey struct{}
-
 type publicKey struct{}
 
 // Public reports whether the request reached a page that needs no sign-in,
@@ -270,11 +308,11 @@ func Authenticated(ctx context.Context) bool {
 	return authenticated
 }
 
-// FullAccess reports whether the request used the access token rather than a
-// scoped token.
+// FullAccess reports whether the request has the admin role: the access token,
+// or a proxy user with that role.
 func FullAccess(ctx context.Context) bool {
-	full, _ := ctx.Value(fullAccessKey{}).(bool)
-	return full
+	principal, _ := Caller(ctx)
+	return principal.Role == RoleAdmin
 }
 
 // readRequest reports whether a read-only token may make the request. The MCP
@@ -310,28 +348,57 @@ func (t Token) Protect(next http.Handler) http.Handler {
 		}
 		headers := r.Header.Values("Authorization")
 		bearerOnly := r.URL.Path == "/v1/traces"
-		scope := ScopeRead
-		if bearerOnly {
-			scope = ScopeIngest
+		admit := func(principal Principal) {
+			ctx := context.WithValue(r.Context(), authenticatedKey{}, true)
+			protected.ServeHTTP(w, r.WithContext(WithCaller(ctx, principal)))
 		}
 		serve := func(value string) bool {
-			full := t.matches(value)
-			if !full && !((bearerOnly || readRequest(r)) && t.allows(value, scope)) {
+			if bearerOnly {
+				if principal, ok := t.identify(value); ok && principal.Role == RoleAdmin {
+					admit(principal)
+					return true
+				}
+				if t.allows(value, ScopeIngest) {
+					ctx := context.WithValue(r.Context(), authenticatedKey{}, true)
+					protected.ServeHTTP(w, r.WithContext(ctx))
+					return true
+				}
 				return false
 			}
-			ctx := context.WithValue(r.Context(), authenticatedKey{}, true)
-			protected.ServeHTTP(w, r.WithContext(context.WithValue(ctx, fullAccessKey{}, full)))
+			principal, ok := t.identify(value)
+			if !ok || !permitted(principal.Role, r) {
+				return false
+			}
+			admit(principal)
 			return true
+		}
+		if proxy := t.state.proxy; proxy != nil && !bearerOnly {
+			principal, present, err := proxy.identify(r)
+			if err != nil {
+				t.state.failures.record(r)
+				http.Error(w, "The sign-in proxy's user has no access to Geko", http.StatusForbidden)
+				return
+			}
+			if present {
+				if !permitted(principal.Role, r) {
+					http.Error(w, "Your Geko role doesn't allow this action", http.StatusForbidden)
+					return
+				}
+				admit(principal)
+				return
+			}
 		}
 		if cookie, err := r.Cookie(sessionCookie); err == nil && len(headers) == 0 && !bearerOnly {
 			if current, ok := t.state.sessions.lookup(cookie.Value); ok {
-				if !current.full && !readRequest(r) {
-					http.Error(w, "Signed in with a read-only token", http.StatusForbidden)
+				if !permitted(current.principal.Role, r) {
+					http.Error(w, "Your Geko role doesn't allow this action", http.StatusForbidden)
 					return
 				}
-				ctx := context.WithValue(r.Context(), authenticatedKey{}, true)
-				ctx = context.WithValue(context.WithValue(ctx, fullAccessKey{}, current.full), sessionKey{}, true)
-				protected.ServeHTTP(w, r.WithContext(ctx))
+				principal := current.principal
+				principal.Via = "session"
+				ctx := context.WithValue(r.Context(), sessionKey{}, true)
+				r = r.WithContext(ctx)
+				admit(principal)
 				return
 			}
 		}

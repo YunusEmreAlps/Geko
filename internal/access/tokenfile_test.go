@@ -27,13 +27,16 @@ func writeTokens(t *testing.T, path, content string) {
 
 func TestLoadTokenFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tokens.yaml")
-	writeTokens(t, path, "access: "+fileAccess+"\ningest:\n  storefront: "+fileIngest+"\nread:\n  agent: "+fileRead+"\n")
+	writeTokens(t, path, "access: "+fileAccess+"\ningest:\n  storefront: "+fileIngest+"\nread:\n  agent: "+fileRead+"\ntriage:\n  qa: "+rotated+"\n")
 	token, err := LoadTokenFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !token.Bearer("Bearer "+fileAccess) || !token.IngestBearer("Bearer "+fileIngest) || !token.allows(fileRead, ScopeRead) {
 		t.Fatal("file tokens not accepted")
+	}
+	if principal, ok := token.identify(rotated); !ok || principal != (Principal{"qa", RoleTriager, "token"}) {
+		t.Fatalf("triage token = %+v", principal)
 	}
 	if strings.Join(token.Names(ScopeIngest), ",") != "storefront" || strings.Join(token.Names(ScopeRead), ",") != "agent" {
 		t.Fatalf("names = %v, %v", token.Names(ScopeIngest), token.Names(ScopeRead))
@@ -45,6 +48,7 @@ func TestLoadTokenFile(t *testing.T) {
 		"weak access":    "access: " + strings.Repeat("ab", 16) + "\n",
 		"reused token":   "access: " + fileAccess + "\nread:\n  agent: " + fileAccess + "\n",
 		"bad name":       "access: " + fileAccess + "\nread:\n  \"a b\": " + fileRead + "\n",
+		"shared name":    "access: " + fileAccess + "\nread:\n  qa: " + fileRead + "\ntriage:\n  qa: " + rotated + "\n",
 		"invalid syntax": "access: [" + fileAccess + "\n",
 	} {
 		writeTokens(t, path, content)
@@ -68,7 +72,7 @@ func TestReloadUpdatesCopiesAndEndsSessions(t *testing.T) {
 	copied := token
 	handler := copied.Protect(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	signIn := httptest.NewRecorder()
-	if !token.SignIn(signIn, httptest.NewRequest(http.MethodPost, "/login", nil), fileAccess) {
+	if _, ok := token.SignIn(signIn, httptest.NewRequest(http.MethodPost, "/login", nil), fileAccess); !ok {
 		t.Fatal("sign-in failed")
 	}
 	cookie := signIn.Result().Cookies()[0]
@@ -135,7 +139,7 @@ func TestWatchTokenFile(t *testing.T) {
 		}
 	}
 	waitFor(func() bool { return token.allows(fileRead, ScopeRead) })
-	session := token.state.sessions.create(true)
+	session := token.state.sessions.create(Principal{Name: accessName, Role: RoleAdmin})
 	// An invalid file keeps the tokens in use.
 	writeTokens(t, path, "access: short\n")
 	time.Sleep(100 * time.Millisecond)

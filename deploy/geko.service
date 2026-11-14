@@ -10,10 +10,12 @@ Wants=network-online.target
 
 [Service]
 # geko.env sets GEKO_ACCESS_TOKEN, GEKO_INGEST_TOKENS, GEKO_READ_TOKENS,
-# GEKO_PUBLIC_URL and optionally GEKO_WEBHOOK_URL.
+# GEKO_TRIAGE_TOKENS, GEKO_PUBLIC_URL and optionally GEKO_WEBHOOK_URL. With the
+# access token set, redaction defaults to strict.
 EnvironmentFile=/etc/geko/geko.env
 Environment=GEKO_DB_PATH=/var/lib/geko/geko.db
 Environment=GEKO_LISTEN_ADDR=127.0.0.1:4318
+Environment=GEKO_AUDIT_LOG=/var/lib/geko/audit.jsonl
 ExecStart=/usr/local/bin/geko serve
 Restart=on-failure
 DynamicUser=yes

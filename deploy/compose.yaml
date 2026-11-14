@@ -1,13 +1,21 @@
 # Geko behind Caddy, which obtains a TLS certificate for GEKO_DOMAIN.
-# Copy .env.example to .env, fill it in, then run: docker compose up -d --build
+# Copy .env.example to .env and fill it in. Then either pull the published
+# image:   docker compose pull geko && docker compose up -d
+# or build this checkout instead:   docker compose up -d --build
 services:
   geko:
+    image: ghcr.io/yunusemrealps/geko:${GEKO_VERSION:-latest}
     build: ..
     restart: unless-stopped
     environment:
       GEKO_ACCESS_TOKEN: ${GEKO_ACCESS_TOKEN:?set GEKO_ACCESS_TOKEN in .env}
       GEKO_INGEST_TOKENS: ${GEKO_INGEST_TOKENS:-}
       GEKO_READ_TOKENS: ${GEKO_READ_TOKENS:-}
+      GEKO_TRIAGE_TOKENS: ${GEKO_TRIAGE_TOKENS:-}
+      GEKO_PROXY_USER_HEADER: ${GEKO_PROXY_USER_HEADER:-}
+      GEKO_PROXY_TRUSTED_IPS: ${GEKO_PROXY_TRUSTED_IPS:-}
+      GEKO_PROXY_ROLES: ${GEKO_PROXY_ROLES:-}
+      GEKO_PROXY_DEFAULT_ROLE: ${GEKO_PROXY_DEFAULT_ROLE:-}
       GEKO_WEBHOOK_URL: ${GEKO_WEBHOOK_URL:-}
       GEKO_WEBHOOK_FORMAT: ${GEKO_WEBHOOK_FORMAT:-}
       GEKO_PUBLIC_URL: https://${GEKO_DOMAIN:?set GEKO_DOMAIN in .env}
@@ -18,6 +26,11 @@ services:
       GEKO_RETENTION_DAYS: ${GEKO_RETENTION_DAYS:-14}
       GEKO_MAX_DB_MIB: ${GEKO_MAX_DB_MIB:-4096}
       GEKO_ON_FULL: ${GEKO_ON_FULL:-evict_fair}
+      # Other people read this instance: store exception types and message
+      # hashes only. Set best_effort to keep messages and stack traces, with
+      # e-mail addresses, card numbers, IBANs and TCKNs masked.
+      GEKO_REDACTION: ${GEKO_REDACTION:-strict}
+      GEKO_AUDIT_LOG: /data/audit.jsonl
     volumes:
       - geko-data:/data
 

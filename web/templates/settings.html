@@ -23,7 +23,10 @@
     <div><dt>Trace endpoint</dt><dd><code>{{.TraceEndpoint}}</code>{{if .PublicURL}}{{template "settings-source" .ConfigSource.PublicURL}}{{end}}</dd></div>
     <div><dt>Authentication</dt><dd>{{if .AccessToken}}Access token required{{else}}None; loopback only{{end}}</dd></div>
     {{if .AccessToken}}<div><dt>Ingest tokens</dt><dd>{{range $i, $name := .IngestTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{else}}None; exporters use the access token{{end}}</dd></div>
-    <div><dt>Read tokens</dt><dd>{{range $i, $name := .ReadTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{else}}None{{end}} <span class="subtle">Dashboard, query API and <code>/mcp</code></span></dd></div>{{end}}
+    <div><dt>Read tokens</dt><dd>{{range $i, $name := .ReadTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{else}}None{{end}} <span class="subtle">Dashboard, query API and <code>/mcp</code></span></dd></div>
+    <div><dt>Triage tokens</dt><dd>{{range $i, $name := .TriageTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{else}}None{{end}} <span class="subtle">Read access, plus resolving, muting and reopening error groups</span></dd></div>
+    <div><dt>Sign-in proxy</dt><dd>{{with .ProxyHeader}}Users named in <code>{{.}}</code> by a trusted proxy <span class="subtle">Set by <code>GEKO_PROXY_USER_HEADER</code></span>{{else}}Not configured{{end}}</dd></div>
+    <div><dt>Audit log</dt><dd>{{if .Audit}}Records changes and sign-ins <span class="subtle">Set by <code>GEKO_AUDIT_LOG</code></span>{{else}}Not configured <span class="subtle">Set <code>GEKO_AUDIT_LOG</code> to record who changed what</span>{{end}}</dd></div>{{end}}
     <div><dt>Protocol</dt><dd>OTLP/HTTP protobuf and JSON{{if .GRPCAddr}}, OTLP/gRPC{{end}}</dd></div>
     <div><dt>Dashboard listener</dt><dd><code>{{or .DashboardAddr .ListenAddr}}</code>{{template "settings-source" .ConfigSource.DashboardAddr}}{{if not .ConfigSource.DashboardAddr.Kind}} <span class="subtle">Shared HTTP listener unless configured separately</span>{{end}}</dd></div>
     <div><dt>OTLP/gRPC listener</dt><dd>{{if .GRPCAddr}}<code>{{.GRPCAddr}}</code>{{else}}Disabled{{end}}{{template "settings-source" .ConfigSource.GRPCAddr}}</dd></div>

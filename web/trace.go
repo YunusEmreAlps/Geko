@@ -150,7 +150,7 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 		if page.Next != nil {
 			view.Next = traceRoute(path, url.Values{"cursor": {api.EncodeCursor(page.Next)}}, mergeEnvironments)
 		}
-		d.render(w, http.StatusOK, "trace", "Trace details", view)
+		d.render(w, r, http.StatusOK, "trace", "Trace details", view)
 	})
 }
 

@@ -11,6 +11,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 )
@@ -50,7 +51,7 @@ func (d *dashboard) applications(w http.ResponseWriter, r *http.Request) {
 		if changed, err := strconv.ParseInt(params.Get("changed"), 10, 64); err == nil && changed >= 0 {
 			view.Changed = &changed
 		}
-		d.render(w, http.StatusOK, "applications", "Applications", view)
+		d.render(w, r, http.StatusOK, "applications", "Applications", view)
 	})
 }
 
@@ -88,6 +89,7 @@ func (d *dashboard) changeApplications(w http.ResponseWriter, r *http.Request) {
 				d.applicationWriteError(w, r, ctx, err)
 				return
 			}
+			d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "applications." + action, Target: service, Detail: map[string]string{"application": application}})
 			http.Redirect(w, r, "/applications?saved=1", http.StatusSeeOther)
 		})
 	case "assign", "assign-clear":
@@ -111,6 +113,9 @@ func (d *dashboard) changeApplications(w http.ResponseWriter, r *http.Request) {
 				d.applicationWriteError(w, r, ctx, err)
 				return
 			}
+			d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "applications." + action, Target: service, Detail: map[string]string{
+				"application": application, "from": from.Format(time.RFC3339), "to": to.Format(time.RFC3339), "traces": strconv.FormatInt(changed, 10),
+			}})
 			http.Redirect(w, r, route("/applications", url.Values{"changed": {strconv.FormatInt(changed, 10)}}), http.StatusSeeOther)
 		})
 	case "assign-discard":
@@ -119,6 +124,7 @@ func (d *dashboard) changeApplications(w http.ResponseWriter, r *http.Request) {
 				d.applicationWriteError(w, r, ctx, err)
 				return
 			}
+			d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "applications.assign-discard"})
 			http.Redirect(w, r, "/applications", http.StatusSeeOther)
 		})
 	default:

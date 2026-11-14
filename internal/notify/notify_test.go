@@ -101,7 +101,7 @@ func TestNewAndReopenedGroups(t *testing.T) {
 		t.Fatalf("groups = %+v, %v", groups, err)
 	}
 	key := groups.Items[0].Key
-	if err := store.SetGroupState(ctx, key, investigation.GroupResolved, "", start.Add(4*time.Second)); err != nil {
+	if err := store.SetGroupState(ctx, key, investigation.GroupResolved, "", "", start.Add(4*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	record(t, store, 2, "POST /pay", start.Add(5*time.Second))
@@ -116,7 +116,7 @@ func TestNewAndReopenedGroups(t *testing.T) {
 		t.Fatalf("reopened group notified twice, err %v", err)
 	}
 
-	if err := store.SetGroupState(ctx, key, investigation.GroupMuted, "", start.Add(9*time.Second)); err != nil {
+	if err := store.SetGroupState(ctx, key, investigation.GroupMuted, "", "", start.Add(9*time.Second)); err != nil {
 		t.Fatal(err)
 	}
 	record(t, store, 4, "POST /pay", start.Add(10*time.Second))

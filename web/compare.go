@@ -42,6 +42,6 @@ func (d *dashboard) compareTrace(w http.ResponseWriter, r *http.Request) {
 				view.DurationDifference = "Same duration"
 			}
 		}
-		d.render(w, http.StatusOK, "compare", "Compare traces", view)
+		d.render(w, r, http.StatusOK, "compare", "Compare traces", view)
 	})
 }

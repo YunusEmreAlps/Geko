@@ -42,9 +42,11 @@ API instead of a local file, with the token from `GEKO_TOKEN`. Without a token,
 `/mcp` only answers requests to a loopback Host, like the rest of the dashboard.
 
 With `GEKO_MCP_TRIAGE=true`, `/mcp` also offers `set_group_state` to clients
-using the access token, or to any local client when no token is configured. An
-agent can then resolve the group it fixed, with the version that contains the
-fix. Read tokens and `geko mcp` over stdio never get it. Telemetry text can
+using a triage token or the access token, or to any local client when no token
+is configured. An agent can then resolve the group it fixed, with the version
+that contains the fix. The group shows the token's name as who resolved it, and
+the [audit log](server.md#audit-log) records the change. Read tokens and
+`geko mcp` over stdio never get it. Telemetry text can
 contain instructions planted by whoever controls a service's input, so enable
 this only for agents you supervise.
 

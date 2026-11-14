@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/YunusEmreAlps/geko/internal/storage"
@@ -79,6 +80,7 @@ func (d *dashboard) restoreTrace(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		d.unavailable(w, r, r.Context())
 	default:
+		d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "trace.restore", Target: hex.EncodeToString(id[:])})
 		http.Redirect(w, r, "/traces/"+hex.EncodeToString(id[:]), http.StatusSeeOther)
 	}
 }

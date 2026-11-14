@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 )
 
@@ -38,10 +39,15 @@ func (d *dashboard) changeGroupState(w http.ResponseWriter, r *http.Request) {
 		d.problem(w, r, http.StatusBadRequest, "Invalid version", "Use a version of up to 256 bytes.")
 		return
 	}
-	if err := d.store.SetGroupState(ctx, key, state, version, time.Now()); err != nil {
+	if err := d.store.SetGroupState(ctx, key, state, version, d.changedBy(r), time.Now()); err != nil {
 		d.unavailable(w, r, ctx)
 		return
 	}
+	detail := map[string]string{"state": string(state)}
+	if version != "" {
+		detail["version"] = version
+	}
+	d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "group.state", Target: investigation.EncodeGroupKey(key), Detail: detail})
 	http.Redirect(w, r, target, http.StatusSeeOther)
 }
 
@@ -51,5 +57,6 @@ func (d *dashboard) testNotification(w http.ResponseWriter, r *http.Request) {
 		log.Printf("notifications: %v", err)
 		result = "failed"
 	}
+	d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "notifications.test", Result: result})
 	http.Redirect(w, r, "/settings?notification="+result+"#notifications", http.StatusSeeOther)
 }

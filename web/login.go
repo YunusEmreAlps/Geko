@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	"github.com/YunusEmreAlps/geko/internal/audit"
 )
 
 type loginView struct {
@@ -29,11 +31,13 @@ func (d *dashboard) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		view.Next = safeNext(r.PostForm.Get("next"))
-		if d.settings.SignIn(w, r, strings.TrimSpace(r.PostForm.Get("token"))) {
+		if principal, ok := d.settings.SignIn(w, r, strings.TrimSpace(r.PostForm.Get("token"))); ok {
+			d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "sign_in", Actor: principal.Name, Role: principal.Role.String(), Via: principal.Via})
 			http.Redirect(w, r, view.Next, http.StatusSeeOther)
 			return
 		}
-		view.Error, status = "That token isn't valid. Use the access token or a read token.", http.StatusUnauthorized
+		d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "sign_in", Actor: "unknown", Result: "denied"})
+		view.Error, status = "That token isn't valid. Use the access token, a read token or a triage token.", http.StatusUnauthorized
 	}
 	var body bytes.Buffer
 	if err := d.templates.ExecuteTemplate(&body, "login", view); err != nil {
@@ -47,6 +51,8 @@ func (d *dashboard) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (d *dashboard) logout(w http.ResponseWriter, r *http.Request) {
-	d.settings.SignOut(w, r)
+	if principal, ok := d.settings.SignOut(w, r); ok {
+		d.settings.Audit.Record(r.Context(), r, audit.Event{Action: "sign_out", Actor: principal.Name, Role: principal.Role.String(), Via: principal.Via})
+	}
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }

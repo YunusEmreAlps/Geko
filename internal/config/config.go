@@ -23,6 +23,10 @@ const defaultConfigPath = "geko.yaml"
 const DefaultRetentionDays = 7
 const DefaultMaxDBMiB = 256
 const DefaultRedaction = "best_effort"
+
+// ServerRedaction is the default redaction once an access token is configured,
+// since other people can then read the data.
+const ServerRedaction = "strict"
 const DefaultIngestConcurrency = 4
 
 type Config struct {
@@ -31,6 +35,9 @@ type Config struct {
 	WebhookURL    string        `yaml:"-"`
 	WebhookFormat notify.Format `yaml:"-"`
 	MCPTriage     bool          `yaml:"-"`
+	// AuditLog is a file that receives one JSON line per change and sign-in,
+	// or "-" for standard error.
+	AuditLog string `yaml:"-"`
 	// TokensFile holds the tokens instead of environment variables and is
 	// reloaded when it changes.
 	TokensFile    string             `yaml:"-"`
@@ -70,7 +77,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if path := os.Getenv("GEKO_TOKENS_FILE"); path != "" {
-		for _, variable := range []string{"GEKO_ACCESS_TOKEN", "GEKO_INGEST_TOKENS", "GEKO_READ_TOKENS"} {
+		for _, variable := range []string{"GEKO_ACCESS_TOKEN", "GEKO_INGEST_TOKENS", "GEKO_READ_TOKENS", "GEKO_TRIAGE_TOKENS"} {
 			if os.Getenv(variable) != "" {
 				return Config{}, fmt.Errorf("set tokens in GEKO_TOKENS_FILE or in %s, not both", variable)
 			}
@@ -86,10 +93,17 @@ func Load() (Config, error) {
 		if err == nil {
 			cfg.AccessToken, err = cfg.AccessToken.WithReadTokens(os.Getenv("GEKO_READ_TOKENS"))
 		}
+		if err == nil {
+			cfg.AccessToken, err = cfg.AccessToken.WithTriageTokens(os.Getenv("GEKO_TRIAGE_TOKENS"))
+		}
 	}
 	if err != nil {
 		return Config{}, err
 	}
+	if cfg.AccessToken, err = proxyAuth(cfg.AccessToken); err != nil {
+		return Config{}, err
+	}
+	cfg.AuditLog = os.Getenv("GEKO_AUDIT_LOG")
 	allowPlaintext := false
 	if value := os.Getenv("GEKO_ALLOW_PLAINTEXT"); value != "" {
 		if allowPlaintext, err = strconv.ParseBool(value); err != nil {
@@ -220,11 +234,46 @@ func Load() (Config, error) {
 	}
 	if override := envOverride("GEKO_REDACTION", &cfg.Source.Redaction); override != "" {
 		cfg.Redaction = override
+	} else if cfg.Source.Redaction.Kind == "default" && cfg.AccessToken.Enabled() {
+		cfg.Redaction, cfg.Source.Redaction = ServerRedaction, SettingSource{Kind: "default with an access token"}
 	}
 	if cfg.Redaction != DefaultRedaction && cfg.Redaction != "strict" {
 		return Config{}, errors.New("redaction (GEKO_REDACTION) must be best_effort or strict")
 	}
 	return cfg, nil
+}
+
+// proxyAuth trusts users named by an authenticating proxy when
+// GEKO_PROXY_USER_HEADER is set.
+func proxyAuth(token access.Token) (access.Token, error) {
+	header := os.Getenv("GEKO_PROXY_USER_HEADER")
+	if header == "" {
+		for _, variable := range []string{"GEKO_PROXY_TRUSTED_IPS", "GEKO_PROXY_ROLES", "GEKO_PROXY_DEFAULT_ROLE"} {
+			if os.Getenv(variable) != "" {
+				return access.Token{}, fmt.Errorf("%s requires GEKO_PROXY_USER_HEADER", variable)
+			}
+		}
+		return token, nil
+	}
+	trusted, err := access.ParsePrefixes(os.Getenv("GEKO_PROXY_TRUSTED_IPS"))
+	if err != nil {
+		return access.Token{}, fmt.Errorf("GEKO_PROXY_TRUSTED_IPS: %w", err)
+	}
+	roles, err := access.ParseProxyRoles(os.Getenv("GEKO_PROXY_ROLES"))
+	if err != nil {
+		return access.Token{}, err
+	}
+	defaultRole := access.RoleViewer
+	switch value := os.Getenv("GEKO_PROXY_DEFAULT_ROLE"); value {
+	case "":
+	case "none":
+		defaultRole = 0
+	default:
+		if defaultRole, err = access.ParseRole(value); err != nil {
+			return access.Token{}, fmt.Errorf("GEKO_PROXY_DEFAULT_ROLE: %w, or none", err)
+		}
+	}
+	return token.WithProxy(access.ProxyAuth{Header: header, Trusted: trusted, Roles: roles, Default: defaultRole})
 }
 
 // publicURL validates the external base URL, such as https://geko.example.com.
