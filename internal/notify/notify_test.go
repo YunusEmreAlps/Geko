@@ -139,6 +139,69 @@ func TestNewAndReopenedGroups(t *testing.T) {
 	}
 }
 
+func TestApplicationWebhooks(t *testing.T) {
+	ctx := t.Context()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "routes.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	start := time.Now().UTC().Truncate(time.Second)
+	recordIn := func(trace byte, application, operation string, at time.Time) {
+		t.Helper()
+		if err := store.WriteSpans(ctx, at, []telemetry.Span{{
+			TraceID: telemetry.TraceID{trace}, ID: telemetry.SpanID{1}, Kind: telemetry.KindServer,
+			ServiceName: "api", Name: operation, StatusCode: telemetry.StatusError,
+			StartTime: at, EndTime: at.Add(time.Millisecond),
+			ResourceAttributes: telemetry.Attributes{"service.namespace": application},
+		}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	shared, sharedMessages := webhook(t, http.StatusOK)
+	storefront, storefrontMessages := webhook(t, http.StatusOK)
+	routes := map[string]Webhook{"Storefront": {storefront.URL, JSON}}
+
+	n := New(shared.URL, JSON, "https://geko.example.com", store, start).WithApplications(routes)
+	recordIn(1, "Storefront", "POST /pay", start.Add(time.Second))
+	recordIn(2, "Reporting", "GET /report", start.Add(time.Second))
+	if err := n.Check(ctx, start.Add(2*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if got := storefrontMessages(); len(got) != 1 || !strings.Contains(got[0].body, "POST /pay") {
+		t.Fatalf("storefront messages = %+v", got)
+	}
+	if got := sharedMessages(); len(got) != 1 || !strings.Contains(got[0].body, "GET /report") {
+		t.Fatalf("shared messages = %+v", got)
+	}
+
+	// Without a shared webhook, other applications' groups send nothing.
+	n = New("", JSON, "https://geko.example.com", store, start.Add(3*time.Second)).WithApplications(routes)
+	recordIn(3, "Reporting", "GET /export", start.Add(4*time.Second))
+	for i := range 7 {
+		recordIn(byte(20+i), "Storefront", "GET /burst/"+string(rune('a'+i)), start.Add(4*time.Second))
+	}
+	if err := n.Check(ctx, start.Add(5*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if got := sharedMessages(); len(got) != 0 {
+		t.Fatalf("shared webhook used without a URL: %+v", got)
+	}
+	// The new notifier's overlap window also covers POST /pay: 8 new groups.
+	got := storefrontMessages()
+	if len(got) != maxMessages+1 || !strings.Contains(got[maxMessages].body, `"count":3`) ||
+		!strings.Contains(got[maxMessages].body, "application=group%3AStorefront") {
+		t.Fatalf("storefront burst = %d: %+v", len(got), got)
+	}
+
+	if err := n.Test(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := storefrontMessages(); len(got) != 1 || !strings.Contains(got[0].body, "working for Storefront") {
+		t.Fatalf("test messages = %+v", got)
+	}
+}
+
 func TestFormats(t *testing.T) {
 	group := investigation.FailureGroup{
 		Application: "Storefront", Service: "checkout", Operation: "<!channel> POST /pay\nnext",
@@ -168,7 +231,7 @@ func TestFormats(t *testing.T) {
 		t.Run(string(tc.format), func(t *testing.T) {
 			server, messages := webhook(t, http.StatusOK)
 			n := New(server.URL, tc.format, "https://geko.example.com", nil, time.Now())
-			if err := n.send(t.Context(), event{Kind: "new_group", Group: group, URL: n.groupURL("[]")}); err != nil {
+			if err := n.send(t.Context(), n.webhook, event{Kind: "new_group", Group: group, URL: n.groupURL("[]")}); err != nil {
 				t.Fatal(err)
 			}
 			tc.check(t, messages()[0])

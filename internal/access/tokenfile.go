@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"os"
 	"slices"
 	"time"
@@ -23,6 +24,7 @@ const maxTokenFile = 64 << 10
 //	ingest: {storefront: <token>}
 //	read: {agent: <token>}
 //	triage: {qa: <token>}
+//	ingest_applications: {storefront: Storefront}
 func LoadTokenFile(path string) (Token, error) {
 	data, err := readTokenFile(path)
 	if err != nil {
@@ -53,6 +55,8 @@ func parseTokenFile(data []byte, path string) (Token, error) {
 		Ingest map[string]string `yaml:"ingest"`
 		Read   map[string]string `yaml:"read"`
 		Triage map[string]string `yaml:"triage"`
+		// IngestApplications binds ingest token names to applications.
+		IngestApplications map[string]string `yaml:"ingest_applications"`
 	}
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -61,7 +65,7 @@ func parseTokenFile(data []byte, path string) (Token, error) {
 			return Token{}, fmt.Errorf("token file %q is empty; set access", path)
 		}
 		// The decoder can quote the offending line, which may hold a token.
-		return Token{}, fmt.Errorf("token file %q is not valid YAML with access, ingest, read and triage keys", path)
+		return Token{}, fmt.Errorf("token file %q is not valid YAML with access, ingest, read, triage and ingest_applications keys", path)
 	}
 	if values.Access == "" {
 		return Token{}, fmt.Errorf("token file %q must set access", path)
@@ -88,7 +92,12 @@ func parseTokenFile(data []byte, path string) (Token, error) {
 			return Token{}, err
 		}
 	}
-	return token, nil
+	names := slices.Sorted(maps.Keys(values.IngestApplications))
+	pairs := make([]pair, 0, len(names))
+	for _, name := range names {
+		pairs = append(pairs, pair{name, values.IngestApplications[name]})
+	}
+	return token.withApplications(pairs, "ingest_applications in "+path)
 }
 
 // WatchTokenFile reloads token whenever the file's content changes, until ctx

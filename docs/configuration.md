@@ -16,6 +16,7 @@ even if YAML configures a separate address.
 | `listen_addr` | `GEKO_LISTEN_ADDR` | `127.0.0.1:4318`. Non-loopback listeners require an access token and `GEKO_ALLOW_PLAINTEXT=true`. |
 | — | `GEKO_ACCESS_TOKEN` | Empty. A token of 32–256 ASCII letters, digits, hyphens or underscores, with at least 10 different characters, enables authentication on all listeners. Generate one with `openssl rand -hex 32`. |
 | — | `GEKO_INGEST_TOKENS` | Empty. Export-only tokens as comma-separated `name=token` pairs, with the same token rules. Requires `GEKO_ACCESS_TOKEN`. |
+| — | `GEKO_INGEST_APPLICATIONS` | Empty. Binds ingest tokens to applications as comma-separated `name=application` pairs. See [Run on a server](server.md#run-on-a-server). |
 | — | `GEKO_ALLOW_PLAINTEXT` | `false`. Geko doesn't terminate TLS; set `true` to allow non-loopback listeners behind a TLS proxy or on a trusted network. |
 | `public_url` | `GEKO_PUBLIC_URL` | Empty. External URL of the OTLP/HTTP listener, such as `https://geko.example.com`, shown as the trace endpoint and used in notification links. |
 | `trace_link_url` | `GEKO_TRACE_LINK_URL` | Empty. Link that opens a trace in another tool, with `{trace_id}` in place of the trace ID, such as a Grafana Explore URL for Tempo or `https://jaeger.example.com/trace/{trace_id}`. Adds an **Open in** button to trace pages. |
@@ -30,6 +31,7 @@ even if YAML configures a separate address.
 | — | `GEKO_AUDIT_LOG` | Empty. File that receives one JSON line per sign-in and change, or `-` for standard error. See [Audit log](server.md#audit-log). |
 | — | `GEKO_WEBHOOK_URL` | Empty. Webhook for new and reopened error groups. |
 | — | `GEKO_WEBHOOK_FORMAT` | Inferred from the URL: `slack`, `discord`, `ntfy`, otherwise `json`. |
+| — | `GEKO_APPLICATION_WEBHOOKS` | Empty. Comma-separated `application=url` pairs; each application's groups go to its own webhook instead of `GEKO_WEBHOOK_URL`. See [Notifications](investigate.md#notifications). |
 | `db_path` | `GEKO_DB_PATH` | `geko/geko.db` in the OS user configuration directory |
 | `retention_days` | `GEKO_RETENTION_DAYS` | `7` (1–3650) |
 | `dashboard_addr` | `GEKO_DASHBOARD_ADDR` | Empty: share the HTTP listener |
@@ -58,6 +60,10 @@ relative `GEKO_DB_PATH` resolves from the working directory.
   oldest traces of any application instead.
 - If you lower the limit below the current file size, eviction reuses
   existing pages and evicts traces as needed without growing the file.
+- Pinned traces are neither expired nor evicted, and still count toward the
+  size limit. When only pinned traces remain to evict, exports get HTTP 503
+  until you unpin some. After unpinning, a trace older than the retention
+  period is removed within a minute.
 - The WAL and shared-memory files use space beyond the limit. Stop the server
   and run `geko compact` to shrink the main file. `geko doctor` reports each
   file's size and the reusable pages.
@@ -122,6 +128,9 @@ accepts these filters:
 | `status` | The entry span's HTTP status |
 | `q` | Up to 4,096 bytes: a trace ID prefix, or a case-insensitive substring of the operation, service, or exception message or type. Also a full exception hash, or the exact original message in strict mode. |
 | `from`, `to` | Last receipt time, in RFC 3339. `from` is inclusive and `to` is exclusive. |
+| `pinned` | `true` for pinned traces only |
+
+Trace summaries of pinned traces include `pin` with `pinned_at` and `pinned_by`.
 
 ## Upgrade an existing installation
 

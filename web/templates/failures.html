@@ -41,11 +41,12 @@
     </select>
   </label>
   <details class="more-filters">
-    <summary class="button">More filters{{if or .Service .EvidenceService .Status}} <span class="filter-count">{{len (print (and .Service "1") (and .EvidenceService "1") (and .Status "1"))}}</span>{{end}}</summary>
+    <summary class="button">More filters{{if or .Service .EvidenceService .Status .Pinned}} <span class="filter-count">{{len (print (and .Service "1") (and .EvidenceService "1") (and .Status "1") (and .Pinned "1"))}}</span>{{end}}</summary>
     <div class="popover">
       <label>Request service <input name="service" value="{{.Service}}" maxlength="256" placeholder="Any service"></label>
       <label>Evidence service <input name="evidence_service" value="{{.EvidenceService}}" maxlength="256" placeholder="Any service"></label>
       <label>HTTP status <input name="status" type="number" min="100" max="599" value="{{.Status}}" placeholder="Any"></label>
+      <label class="check"><input name="pinned" type="checkbox" value="true"{{if .Pinned}} checked{{end}}> Pinned traces only</label>
     </div>
   </details>
   <div class="filter-actions"><button class="button" type="submit">Apply</button>{{if .Filtered}}<a class="text-link" href="{{.Reset}}">Reset</a>{{end}}</div>
@@ -154,6 +155,7 @@
           <a class="operation" href="{{evidenceLink .}}">
           {{if .EntrySpan}}{{.EntrySpan.Operation}}{{else if .Evidence}}{{.Evidence.Operation}}{{else}}{{.TraceID}}{{end}}
           </a>
+          {{with .Pin}}<span class="pill neutral" title="Pinned {{timestamp .PinnedAt}}{{with .PinnedBy}} by {{.}}{{end}}; kept past retention">Pinned</span>{{end}}
           <span class="subtle">{{with .EntrySpan}}{{serviceLabel .Application .Service}}{{else}}{{with .Evidence}}{{serviceLabel .Application .Service}}{{end}}{{end}}</span>
           <span class="time mobile-observed">{{template "age" .LastObserved}}</span>
         </td>

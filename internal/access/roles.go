@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 // Role is what a signed-in caller may do. Each role includes the ones before it.
@@ -12,7 +13,7 @@ type Role int
 const (
 	// RoleViewer reads the dashboard, the query API and the MCP endpoint.
 	RoleViewer Role = iota + 1
-	// RoleTriager also resolves, mutes and reopens error groups.
+	// RoleTriager also resolves, mutes and reopens error groups and pins traces.
 	RoleTriager
 	// RoleAdmin also restores traces, maps applications and tests notifications.
 	RoleAdmin
@@ -80,9 +81,17 @@ func scopeRole(scope Scope) Role {
 	return 0
 }
 
-// triageRequest changes an error group's state or note, which triagers may do.
+// triageRequest changes an error group's state or note, or pins a trace,
+// which triagers may do.
 func triageRequest(r *http.Request) bool {
-	return r.Method == http.MethodPost && (r.URL.Path == "/groups/state" || r.URL.Path == "/groups/note")
+	if r.Method != http.MethodPost {
+		return false
+	}
+	if id, ok := strings.CutPrefix(r.URL.Path, "/traces/"); ok {
+		id, ok = strings.CutSuffix(id, "/pin")
+		return ok && id != "" && !strings.Contains(id, "/")
+	}
+	return r.URL.Path == "/groups/state" || r.URL.Path == "/groups/note"
 }
 
 // permitted reports whether role may make the request. Ingest is checked separately.

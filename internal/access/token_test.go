@@ -111,6 +111,64 @@ func TestIngestTokens(t *testing.T) {
 	}
 }
 
+func TestIngestApplications(t *testing.T) {
+	admin, err := ParseToken(strings.Repeat("0123456789abcdef", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := "f0e1d2c3b4a5968778695a4b3c2d1e0f"
+	token, err := admin.WithIngestTokens("storefront=" + ingestSecret + ",reporting=" + other)
+	if err == nil {
+		token, err = token.WithIngestApplications(" storefront = Store Front ")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := token.IngestApplications(); len(got) != 1 || got["storefront"] != "Store Front" {
+		t.Fatalf("applications = %v", got)
+	}
+	for header, want := range map[string]string{
+		"Bearer " + ingestSecret:                          "Store Front",
+		"Bearer " + other:                                 "",
+		"Bearer " + strings.Repeat("0123456789abcdef", 2): "",
+	} {
+		if application, ok := token.IngestCaller(header); !ok || application != want {
+			t.Errorf("%s = %q, %v; want %q", header, application, ok, want)
+		}
+	}
+	var got string
+	handler := token.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = IngestApplication(r.Context())
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	r := httptest.NewRequest(http.MethodPost, "http://geko.example/v1/traces", nil)
+	r.Header.Set("Authorization", "Bearer "+ingestSecret)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != http.StatusNoContent || got != "Store Front" {
+		t.Fatalf("bound export = %d, application %q", w.Code, got)
+	}
+
+	for _, spec := range []string{
+		"storefront",
+		"storefront=",
+		"unknown=Storefront",
+		"storefront=a,storefront=b",
+		"storefront=" + strings.Repeat("x", 257),
+		"storefront=a\tb",
+	} {
+		if _, err := token.WithIngestApplications(spec); err == nil {
+			t.Errorf("accepted %q", spec)
+		}
+	}
+	reader, err := admin.WithReadTokens("agent=" + other)
+	if err == nil {
+		if _, err = reader.WithIngestApplications("agent=Storefront"); err == nil {
+			t.Error("bound a read token to an application")
+		}
+	}
+}
+
 func TestReadTokens(t *testing.T) {
 	secret := strings.Repeat("0123456789abcdef", 2)
 	read := "f0e1d2c3b4a5968778695a4b3c2d1e0f"

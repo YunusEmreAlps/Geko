@@ -22,7 +22,7 @@
     <div><dt>Listener</dt><dd><code>{{.ListenAddr}}</code>{{template "settings-source" .ConfigSource.ListenAddr}}</dd></div>
     <div><dt>Trace endpoint</dt><dd><code>{{.TraceEndpoint}}</code>{{if .PublicURL}}{{template "settings-source" .ConfigSource.PublicURL}}{{end}}</dd></div>
     <div><dt>Authentication</dt><dd>{{if .AccessToken}}Access token required{{else}}None; loopback only{{end}}</dd></div>
-    {{if .AccessToken}}<div><dt>Ingest tokens</dt><dd>{{range $i, $name := .IngestTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{else}}None; exporters use the access token{{end}}</dd></div>
+    {{if .AccessToken}}<div><dt>Ingest tokens</dt><dd>{{range $i, $name := .IngestTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{with index $.IngestApplications $name}} → {{.}}{{end}}{{else}}None; exporters use the access token{{end}}</dd></div>
     <div><dt>Read tokens</dt><dd>{{range $i, $name := .ReadTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{else}}None{{end}} <span class="subtle">Dashboard, query API and <code>/mcp</code></span></dd></div>
     <div><dt>Triage tokens</dt><dd>{{range $i, $name := .TriageTokens}}{{if $i}}, {{end}}<code>{{$name}}</code>{{else}}None{{end}} <span class="subtle">Read access, plus resolving, muting and reopening error groups</span></dd></div>
     <div><dt>Sign-in proxy</dt><dd>{{with .ProxyHeader}}Users named in <code>{{.}}</code> by a trusted proxy <span class="subtle">Set by <code>GEKO_PROXY_USER_HEADER</code></span>{{else}}Not configured{{end}}</dd></div>
@@ -45,7 +45,8 @@
   {{if eq .Notification "sent"}}<p class="notice" role="status">Test notification sent.</p>{{else if eq .Notification "failed"}}<p class="notice" role="alert">The test notification failed. The server log has the reason.</p>{{end}}
   <dl class="properties">
     {{with .Notifications}}
-    <div><dt>Webhook</dt><dd><code>{{.Format}}</code> to <code>{{.Host}}</code> <span class="subtle">Set by <code>GEKO_WEBHOOK_URL</code></span></dd></div>
+    <div><dt>Webhook</dt><dd>{{if .Host}}<code>{{.Format}}</code> to <code>{{.Host}}</code> <span class="subtle">Set by <code>GEKO_WEBHOOK_URL</code>{{if .Applications}}; groups of other applications{{end}}</span>{{else}}None for other applications <span class="subtle">Set <code>GEKO_WEBHOOK_URL</code> to notify about them</span>{{end}}</dd></div>
+    {{range .Applications}}<div><dt>{{.Application}}</dt><dd><code>{{.Format}}</code> to <code>{{.Host}}</code> <span class="subtle">Set by <code>GEKO_APPLICATION_WEBHOOKS</code></span></dd></div>{{end}}
     <div><dt>Sends</dt><dd>New error groups and resolved groups that recur. Muted groups never notify.</dd></div>
     {{else}}
     <div><dt>Webhook</dt><dd>Not configured <span class="subtle">Set <code>GEKO_WEBHOOK_URL</code> to a Slack, Discord, ntfy or JSON webhook</span></dd></div>
@@ -63,6 +64,7 @@
     {{if .MaxDBBytes}}<div><dt>Main database limit</dt><dd>{{size .MaxDBBytes}}{{template "settings-source" .ConfigSource.MaxDBMiB}}</dd></div>{{end}}
     <div><dt>When storage is full</dt><dd><code>{{or .OnFull "evict_oldest"}}</code>{{template "settings-source" .ConfigSource.OnFull}}</dd></div>
     <div><dt>Traces evicted at capacity</dt><dd>{{.Storage.EvictedTraces}}</dd></div>
+    <div><dt>Pinned traces</dt><dd>{{.Storage.PinnedTraces}}</dd></div>
     <div><dt>Exports rejected at capacity</dt><dd>{{.Storage.RejectedExports}}</dd></div>
     <div><dt>SQLite</dt><dd>{{.Storage.SQLiteVersion}} · schema {{.Storage.SchemaVersion}}</dd></div>
     <div><dt>Database status</dt><dd><span class="status-ok">Reachable</span></dd></div>

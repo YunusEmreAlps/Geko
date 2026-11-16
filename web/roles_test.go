@@ -102,6 +102,16 @@ func TestTriagerSession(t *testing.T) {
 	if body := do(http.MethodGet, "/failures?view=groups&state=resolved", nil, session).Body.String(); !strings.Contains(body, " by qa;") {
 		t.Fatalf("resolved group does not name who resolved it: %s", body)
 	}
+	trace := "/traces/01" + strings.Repeat("0", 30)
+	if page := do(http.MethodGet, trace, nil, session).Body.String(); !strings.Contains(page, ">Pin trace</button>") {
+		t.Fatal("triager does not see the pin action")
+	}
+	if w := do(http.MethodPost, trace+"/pin", url.Values{"pinned": {"true"}}, session); w.Code != http.StatusSeeOther || w.Header().Get("Location") != trace {
+		t.Fatalf("triager pin = %d, Location %q", w.Code, w.Header().Get("Location"))
+	}
+	if page := do(http.MethodGet, trace, nil, session).Body.String(); !strings.Contains(page, ">Unpin</button>") || !strings.Contains(page, " by qa</dd>") {
+		t.Fatalf("pinned trace does not name who pinned it: %s", page)
+	}
 	do(http.MethodPost, "/logout", url.Values{}, session)
 	do(http.MethodPost, "/login", url.Values{"token": {"wrong-token-wrong-token-wrong-tok"}}, nil)
 
@@ -109,6 +119,7 @@ func TestTriagerSession(t *testing.T) {
 	for i, want := range []string{
 		`"action":"sign_in","actor":"qa","role":"triager","via":"session"`,
 		`"action":"group.state","actor":"qa","role":"triager","via":"session"`,
+		`"action":"trace.pin","actor":"qa","role":"triager","via":"session"`,
 		`"action":"sign_out","actor":"qa","role":"triager","via":"session"`,
 		`"action":"sign_in","actor":"unknown"`,
 	} {
@@ -116,7 +127,7 @@ func TestTriagerSession(t *testing.T) {
 			t.Fatalf("audit line %d lacks %s:\n%s", i, want, log.String())
 		}
 	}
-	if !strings.Contains(lines[1], `"detail":{"state":"resolved","version":"2.1"}`) || !strings.Contains(lines[3], `"result":"denied"`) ||
+	if !strings.Contains(lines[1], `"detail":{"state":"resolved","version":"2.1"}`) || !strings.Contains(lines[4], `"result":"denied"`) ||
 		strings.Contains(log.String(), triager) {
 		t.Fatalf("audit log = %s", log.String())
 	}

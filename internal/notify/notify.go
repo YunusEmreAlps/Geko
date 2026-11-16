@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -65,34 +67,62 @@ type Store interface {
 	MarkGroupNotified(context.Context, string, time.Time) error
 }
 
-type Notifier struct {
-	webhook string
-	format  Format
-	baseURL string
-	store   Store
-	client  *http.Client
-	since   time.Time
-	recent  map[string]time.Time
+// Webhook is a destination for notifications.
+type Webhook struct {
+	URL    string
+	Format Format
 }
-
-// New returns a notifier that reports groups first received after start.
-// baseURL is the dashboard URL used in links.
-func New(webhook string, format Format, baseURL string, store Store, start time.Time) *Notifier {
-	return &Notifier{
-		webhook: webhook, format: format, baseURL: strings.TrimRight(baseURL, "/"), store: store,
-		client: &http.Client{Timeout: 10 * time.Second}, since: start, recent: make(map[string]time.Time),
-	}
-}
-
-func (n *Notifier) Format() Format { return n.format }
 
 // Host names the webhook's host without revealing its secret path.
-func (n *Notifier) Host() string {
-	parsed, err := url.Parse(n.webhook)
+func (w Webhook) Host() string {
+	parsed, err := url.Parse(w.URL)
 	if err != nil {
 		return ""
 	}
 	return parsed.Host
+}
+
+type Notifier struct {
+	// webhook receives groups of applications without their own webhook. Its
+	// URL is empty when only application webhooks are configured.
+	webhook      Webhook
+	applications map[string]Webhook
+	baseURL      string
+	store        Store
+	client       *http.Client
+	since        time.Time
+	recent       map[string]time.Time
+}
+
+// New returns a notifier that reports groups first received after start.
+// baseURL is the dashboard URL used in links. webhook may be empty when
+// WithApplications adds application webhooks.
+func New(webhook string, format Format, baseURL string, store Store, start time.Time) *Notifier {
+	return &Notifier{
+		webhook: Webhook{webhook, format}, baseURL: strings.TrimRight(baseURL, "/"), store: store,
+		client: &http.Client{Timeout: 10 * time.Second}, since: start, recent: make(map[string]time.Time),
+	}
+}
+
+// WithApplications sends groups of these applications to their own webhook
+// instead of the shared one.
+func (n *Notifier) WithApplications(webhooks map[string]Webhook) *Notifier {
+	n.applications = webhooks
+	return n
+}
+
+func (n *Notifier) Format() Format { return n.webhook.Format }
+
+// Host names the shared webhook's host without revealing its secret path.
+func (n *Notifier) Host() string { return n.webhook.Host() }
+
+// destination returns the webhook for an application's groups, and false
+// when none is configured.
+func (n *Notifier) destination(application string) (Webhook, bool) {
+	if webhook, ok := n.applications[application]; ok {
+		return webhook, true
+	}
+	return n.webhook, n.webhook.URL != ""
 }
 
 func (n *Notifier) Run(ctx context.Context, interval time.Duration) {
@@ -115,6 +145,8 @@ type event struct {
 	Group investigation.FailureGroup
 	URL   string
 	More  int
+	// Application names whose webhook a test message is for.
+	Application string
 }
 
 // Check sends notifications for groups first received, or reopened, since the
@@ -155,14 +187,31 @@ func (n *Notifier) Check(ctx context.Context, now time.Time) error {
 		after = page.Next
 	}
 
+	// Each webhook gets at most maxMessages, then one summary of the rest.
 	var sendErr error
-	for i, e := range events {
-		if i == maxMessages {
-			sendErr = errors.Join(sendErr, n.send(ctx, n.summary(len(events)-maxMessages)))
-			break
+	var order []string
+	pending := make(map[string][]event)
+	for _, e := range events {
+		webhook, ok := n.destination(e.Group.Application)
+		if !ok {
+			continue
 		}
-		e.URL = n.groupURL(e.Group.Key)
-		sendErr = errors.Join(sendErr, n.send(ctx, e))
+		if _, seen := pending[webhook.URL]; !seen {
+			order = append(order, webhook.URL)
+		}
+		pending[webhook.URL] = append(pending[webhook.URL], e)
+	}
+	for _, target := range order {
+		queued := pending[target]
+		webhook, _ := n.destination(queued[0].Group.Application)
+		for i, e := range queued {
+			if i == maxMessages {
+				sendErr = errors.Join(sendErr, n.send(ctx, webhook, n.summary(len(queued)-maxMessages, n.ownApplication(e.Group.Application))))
+				break
+			}
+			e.URL = n.groupURL(e.Group.Key)
+			sendErr = errors.Join(sendErr, n.send(ctx, webhook, e))
+		}
 	}
 	// Record every event, including summarized ones, so none repeats.
 	for _, e := range events {
@@ -181,15 +230,34 @@ func (n *Notifier) Check(ctx context.Context, now time.Time) error {
 	return sendErr
 }
 
-// Test sends a sample message to confirm the webhook works.
+// Test sends a sample message to every webhook to confirm they work.
 func (n *Notifier) Test(ctx context.Context) error {
-	return n.send(ctx, event{Kind: "test", URL: n.baseURL})
+	var err error
+	if n.webhook.URL != "" {
+		err = n.send(ctx, n.webhook, event{Kind: "test", URL: n.baseURL})
+	}
+	for _, application := range slices.Sorted(maps.Keys(n.applications)) {
+		err = errors.Join(err, n.send(ctx, n.applications[application], event{Kind: "test", URL: n.baseURL, Application: application}))
+	}
+	return err
 }
 
-func (n *Notifier) summary(more int) event {
+// ownApplication returns application if it has its own webhook.
+func (n *Notifier) ownApplication(application string) *string {
+	if _, ok := n.applications[application]; ok {
+		return &application
+	}
+	return nil
+}
+
+// summary links to the open groups, of one application when it is set.
+func (n *Notifier) summary(more int, application *string) event {
 	e := event{Kind: "summary", More: more}
 	if n.baseURL != "" {
 		e.URL = n.baseURL + "/failures?view=groups"
+		if application != nil {
+			e.URL += "&application=" + url.QueryEscape("group:"+*application)
+		}
 	}
 	return e
 }
@@ -218,6 +286,9 @@ func (e event) title() string {
 // secrets. Names come from instrumented services and are shortened.
 func (e event) text() string {
 	if e.Kind == "test" {
+		if e.Application != "" {
+			return "Webhook notifications from Geko are working for " + clip(e.Application) + "."
+		}
 		return "Webhook notifications from Geko are working."
 	}
 	if e.Kind == "summary" {
@@ -265,12 +336,12 @@ func clip(value string) string {
 
 var slackEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
-func (n *Notifier) send(ctx context.Context, e event) error {
+func (n *Notifier) send(ctx context.Context, webhook Webhook, e event) error {
 	text := e.text()
 	var body []byte
 	var err error
 	contentType := "application/json"
-	switch n.format {
+	switch webhook.Format {
 	case Slack:
 		message := "*" + e.title() + "*\n" + slackEscaper.Replace(text)
 		if e.URL != "" {
@@ -303,13 +374,13 @@ func (n *Notifier) send(ctx context.Context, e event) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, n.webhook, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, webhook.URL, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", contentType)
 	req.Header.Set("User-Agent", "Geko")
-	if n.format == Ntfy {
+	if webhook.Format == Ntfy {
 		req.Header.Set("Title", e.title())
 		req.Header.Set("Tags", "warning")
 		if e.URL != "" {
@@ -322,12 +393,12 @@ func (n *Notifier) send(ctx context.Context, e event) error {
 		if errors.As(err, &urlErr) {
 			err = urlErr.Err // The URL can contain a secret.
 		}
-		return fmt.Errorf("send webhook to %s: %w", n.Host(), err)
+		return fmt.Errorf("send webhook to %s: %w", webhook.Host(), err)
 	}
 	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 64<<10))
 	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return fmt.Errorf("send webhook to %s: %s", n.Host(), response.Status)
+		return fmt.Errorf("send webhook to %s: %s", webhook.Host(), response.Status)
 	}
 	return nil
 }

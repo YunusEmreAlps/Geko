@@ -1,7 +1,7 @@
 # Implementation status
 
 This checklist distinguishes implemented functionality from planned work.
-Release workflow configuration does not mean a release has been published.
+The latest release is [v0.1.0](https://github.com/YunusEmreAlps/geko/releases/tag/v0.1.0).
 
 ## Phase 1
 
@@ -16,8 +16,7 @@ Release workflow configuration does not mean a release has been published.
 - [x] CI configuration for staticcheck, govulncheck, race, tidy and fuzz.
 
 The non-Go examples demonstrate the wire protocol, not full application SDK
-instrumentation. Arbitrary custom attributes are not retained. Publishing and
-verification of a tagged release remain a separate release operation.
+instrumentation. Arbitrary custom attributes are not retained.
 
 ## Phase 2
 
@@ -49,7 +48,7 @@ reaches their developers and coding agents. Scope: side projects, dev and
 staging. Not production monitoring: no logs or metrics, no threshold alerts,
 no multi-user accounts, no built-in ACME, no external databases.
 
-- [ ] Tag and verify a first release (`v0.1`).
+- [x] Tag and verify a first release (`v0.1`).
 - [x] Export-only ingest tokens per application (`GEKO_INGEST_TOKENS`).
 - [x] Non-loopback listeners require `GEKO_ALLOW_PLAINTEXT=true`.
 - [x] `public_url` for the trace endpoint shown behind a proxy.
@@ -85,9 +84,8 @@ no multi-user accounts, no built-in ACME, no external databases.
 
 ## Phase 6: trustworthy for a team
 
-- [ ] Tag and verify `v0.1.0`; the release workflow now also publishes a
-      multi-arch image to `ghcr.io/yunusemrealps/geko`. Tagging is a manual
-      step, see [Releasing](releasing.md).
+- [x] Tag and verify `v0.1.0`, with a multi-arch image at
+      `ghcr.io/yunusemrealps/geko`. See [Releasing](releasing.md).
 - [x] Triage tokens and `viewer`, `triager` and `admin` roles, in the dashboard,
       the API and `/mcp`.
 - [x] Users from an authenticating proxy (oauth2-proxy or Caddy `forward_auth`)
@@ -106,9 +104,10 @@ no multi-user accounts, no built-in ACME, no external databases.
 - [x] **Open in Tempo**: a configurable link from a trace to another trace tool.
 - [ ] Allowlisted attributes, such as a tenant or order number, stored as HMAC
       hashes and searchable by their value.
-- [ ] Tokens bound to one application, and a webhook per application.
+- [x] Ingest tokens bound to one application (`GEKO_INGEST_APPLICATIONS`).
+- [x] A webhook per application (`GEKO_APPLICATION_WEBHOOKS`).
 - [ ] `geko run --server` and matching traces to a test run ID.
-- [ ] Pinned traces that outlive retention.
+- [x] Pinned traces that outlive retention and capacity eviction.
 
 Not in scope: Geko keeps no user or password database; people sign in with a
 token or through your identity provider's proxy.

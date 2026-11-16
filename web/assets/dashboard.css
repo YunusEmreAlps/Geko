@@ -189,6 +189,8 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--text-secondary
 .more-filters[open] > summary { background: var(--bg-active); }
 .filter-count { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; font-size: var(--text-xs); line-height: 18px; text-align: center; color: var(--text-on-accent); background: var(--accent); }
 .popover { position: absolute; z-index: 4; top: calc(100% + 6px); right: 0; width: 280px; display: grid; gap: 12px; padding: 14px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-md); box-shadow: var(--shadow-popover); }
+.check { display: flex; align-items: center; gap: 8px; }
+.check input { width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--accent); }
 .filter-actions { display: flex; align-items: center; gap: 10px; }
 .active-filter { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: var(--text-sm); color: var(--text-secondary); }
 .restore { margin-top: 24px; border-top: 1px solid var(--border); }

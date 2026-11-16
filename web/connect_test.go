@@ -62,5 +62,16 @@ func TestConnectPage(t *testing.T) {
 	page(Settings{ListenAddr: "127.0.0.1:4318"}, "?service=bad%22name", http.StatusBadRequest)
 	page(Settings{ListenAddr: "127.0.0.1:4318"}, "?service=ok&application=a%20b", http.StatusBadRequest)
 	page(remote, "?service=checkout&token=unknown", http.StatusBadRequest)
+
+	bound := remote
+	bound.IngestApplications = map[string]string{"reporting": "Reporting"}
+	body = page(bound, "?service=checkout&token=reporting", http.StatusOK)
+	if !strings.Contains(body, "under <strong>Reporting</strong>, the application the <code>reporting</code> token is bound to") || strings.Contains(body, "OTEL_RESOURCE_ATTRIBUTES") {
+		t.Errorf("bound token page = %s", body)
+	}
+	page(bound, "?service=checkout&token=reporting&application=Reporting", http.StatusOK)
+	if body := page(bound, "?service=checkout&token=reporting&application=Storefront", http.StatusBadRequest); !strings.Contains(body, "only accepts the application Reporting") {
+		t.Errorf("mismatched application page = %s", body)
+	}
 	page(Settings{ListenAddr: "127.0.0.1:4318", GRPCAddr: "127.0.0.1:4317"}, "?service=checkout&protocol=grpc", http.StatusOK)
 }

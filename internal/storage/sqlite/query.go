@@ -30,13 +30,15 @@ SELECT t.trace_id, t.first_observed_ns, t.last_observed_ns,
 ` + rootApplication + `,
        s.span_id, s.service_name, s.name, s.http_status, s.start_ns, s.end_ns,
 ` + evidenceApplication + `,
-       e.rank, e.exception_message, e.exception_type, e.exception_hash
+       e.rank, e.exception_message, e.exception_type, e.exception_hash,
+       p.pinned_ns, p.pinned_by
 `
 
 const traceSummaryJoinStart = `
 FROM traces t
 LEFT JOIN spans r ON r.trace_id = t.trace_id AND r.span_id = t.entry_span_id
 LEFT JOIN trace_applications ta ON ta.trace_id = t.trace_id
+LEFT JOIN trace_pins p ON p.trace_id = t.trace_id
 LEFT JOIN service_applications ra ON ra.service_name = r.service_name
 LEFT JOIN span_evidence e ON e.trace_id = t.trace_id AND e.span_id = `
 
@@ -162,6 +164,9 @@ func traceListQuery(f investigation.FailureFilter, failuresOnly bool) (string, [
                 ELSE coalesce(nullif(primary_span.service_namespace, ''), ta.application, pa.application, '') END = ?`)
 			args = append(args, *f.Application)
 		}
+	}
+	if f.Pinned {
+		query.WriteString(" AND p.trace_id IS NOT NULL")
 	}
 	if f.HTTPStatus != 0 {
 		query.WriteString(" AND r.http_status = ?")
@@ -416,9 +421,11 @@ func scanTraceSummary(row scanner) (investigation.TraceSummary, investigation.Cu
 	var first, last int64
 	var rank sql.NullInt64
 	var exception exceptionRow
+	var pinned sql.NullInt64
+	var pinnedBy sql.NullString
 	fields := append([]any{&id, &first, &last}, entry.fields()...)
 	fields = append(fields, evidence.fields()...)
-	fields = append(fields, &rank, &exception.message, &exception.kind, &exception.hash)
+	fields = append(fields, &rank, &exception.message, &exception.kind, &exception.hash, &pinned, &pinnedBy)
 	if err := row.Scan(fields...); err != nil {
 		return summary, investigation.Cursor{}, err
 	}
@@ -429,6 +436,9 @@ func scanTraceSummary(row scanner) (investigation.TraceSummary, investigation.Cu
 	summary.EntrySpan = entry.summary()
 	summary.HTTPOutcome = investigation.HTTPOutcome(summary.EntrySpan)
 	summary.Evidence = evidence.evidence(rank, exception)
+	if pinned.Valid {
+		summary.Pin = &investigation.TracePin{PinnedAt: time.Unix(0, pinned.Int64).UTC(), PinnedBy: pinnedBy.String}
+	}
 	return summary, investigation.Cursor{TimeNS: last, ID: id}, nil
 }
 

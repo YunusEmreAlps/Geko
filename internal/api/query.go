@@ -180,6 +180,13 @@ func ParseFailureFilter(params url.Values) (investigation.FailureFilter, error) 
 		}
 		filter.HTTPStatus = code
 	}
+	switch params.Get("pinned") {
+	case "", "false":
+	case "true":
+		filter.Pinned = true
+	default:
+		return filter, errors.New("pinned must be true or false")
+	}
 	filter.From, err = parseTime(params.Get("from"))
 	if err != nil {
 		return filter, errors.New("from must be an RFC3339 timestamp within the nanosecond range")

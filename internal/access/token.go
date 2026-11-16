@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"unicode"
+	"unicode/utf8"
 )
 
 const minDistinctTokenChars = 10
@@ -51,6 +53,8 @@ type scopedToken struct {
 	name   string
 	scope  Scope
 	digest [sha256.Size]byte
+	// application binds an ingest token: its spans belong to this application.
+	application string
 }
 
 type pair struct{ name, value string }
@@ -187,6 +191,53 @@ func (t Token) withScoped(pairs []pair, label string, scope Scope) (Token, error
 	return token, nil
 }
 
+// WithIngestApplications binds ingest tokens to applications, from
+// comma-separated name=application pairs. A bound token's spans without a
+// service.namespace get the application; exports naming another are refused.
+func (t Token) WithIngestApplications(spec string) (Token, error) {
+	pairs, err := parseSpec(spec, "GEKO_INGEST_APPLICATIONS")
+	if err != nil {
+		return Token{}, err
+	}
+	return t.withApplications(pairs, "GEKO_INGEST_APPLICATIONS")
+}
+
+func (t Token) withApplications(pairs []pair, label string) (Token, error) {
+	if len(pairs) == 0 {
+		return t, nil
+	}
+	c := t.current()
+	if c == nil {
+		return Token{}, fmt.Errorf("%s requires an access token", label)
+	}
+	next := &credentials{digest: c.digest, scoped: append([]scopedToken(nil), c.scoped...)}
+	bound := make(map[string]bool)
+	for _, entry := range pairs {
+		name, application := strings.TrimSpace(entry.name), strings.TrimSpace(entry.value)
+		if !ValidApplication(application) {
+			return Token{}, fmt.Errorf("%s: the application for %q must be 1 to 256 bytes of text", label, name)
+		}
+		if bound[name] {
+			return Token{}, fmt.Errorf("%s binds %q more than once", label, name)
+		}
+		i := slices.IndexFunc(next.scoped, func(token scopedToken) bool { return token.scope == ScopeIngest && token.name == name })
+		if i < 0 {
+			return Token{}, fmt.Errorf("%s names %q, which is not an ingest token", label, name)
+		}
+		next.scoped[i].application, bound[name] = application, true
+	}
+	token := newToken(next)
+	token.state.proxy = t.state.proxy
+	return token, nil
+}
+
+// ValidApplication reports whether name can be an application: 1 to 256 bytes
+// of valid UTF-8 without control characters or surrounding space.
+func ValidApplication(name string) bool {
+	return name != "" && len(name) <= 256 && utf8.ValidString(name) && strings.TrimSpace(name) == name &&
+		!strings.ContainsFunc(name, unicode.IsControl)
+}
+
 func validName(name string) bool {
 	return len(name) > 0 && len(name) <= 64 && !strings.ContainsFunc(name, func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' || r == '.')
@@ -206,6 +257,19 @@ func (t Token) Names(scope Scope) []string {
 		}
 	}
 	return names
+}
+
+// IngestApplications maps bound ingest token names to their applications.
+func (t Token) IngestApplications() map[string]string {
+	applications := make(map[string]string)
+	if c := t.current(); c != nil {
+		for _, token := range c.scoped {
+			if token.scope == ScopeIngest && token.application != "" {
+				applications[token.name] = token.application
+			}
+		}
+	}
+	return applications
 }
 
 // Reload replaces the credentials of t and every copy of it. Protection can't
@@ -259,20 +323,27 @@ func (t Token) identify(value string) (Principal, bool) {
 }
 
 // allows reports whether value is the access token or a token with the scope.
-// Every configured digest is compared to keep timing independent of the match.
 func (t Token) allows(value string, scope Scope) bool {
+	_, ok := t.match(value, scope)
+	return ok
+}
+
+// match reports whether value is the access token or a token with the scope,
+// and the application a matching ingest token is bound to. Every configured
+// digest is compared to keep timing independent of the match.
+func (t Token) match(value string, scope Scope) (application string, ok bool) {
 	c := t.current()
 	if c == nil {
-		return false
+		return "", false
 	}
 	digest := sha256.Sum256([]byte(value))
 	match := subtle.ConstantTimeCompare(digest[:], c.digest[:])
 	for _, token := range c.scoped {
 		if subtle.ConstantTimeCompare(digest[:], token.digest[:]) == 1 && token.scope == scope {
-			match = 1
+			match, application = 1, token.application
 		}
 	}
-	return match == 1
+	return application, match == 1
 }
 
 func bearerValue(header string) (string, bool) {
@@ -288,8 +359,36 @@ func (t Token) Bearer(header string) bool {
 
 // IngestBearer reports whether the header may export traces.
 func (t Token) IngestBearer(header string) bool {
+	_, ok := t.IngestCaller(header)
+	return ok
+}
+
+// IngestCaller reports whether the header may export traces, and the
+// application its ingest token is bound to, if any.
+func (t Token) IngestCaller(header string) (application string, ok bool) {
 	value, ok := bearerValue(header)
-	return ok && t.allows(value, ScopeIngest)
+	if !ok {
+		return "", false
+	}
+	return t.match(value, ScopeIngest)
+}
+
+type ingestApplicationKey struct{}
+
+// WithIngestApplication returns a context for an export whose ingest token is
+// bound to application.
+func WithIngestApplication(ctx context.Context, application string) context.Context {
+	if application == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, ingestApplicationKey{}, application)
+}
+
+// IngestApplication returns the application an export's ingest token is bound
+// to, or "" when the exporter may name any application.
+func IngestApplication(ctx context.Context) string {
+	application, _ := ctx.Value(ingestApplicationKey{}).(string)
+	return application
 }
 
 type authenticatedKey struct{}
@@ -358,9 +457,9 @@ func (t Token) Protect(next http.Handler) http.Handler {
 					admit(principal)
 					return true
 				}
-				if t.allows(value, ScopeIngest) {
+				if application, ok := t.match(value, ScopeIngest); ok {
 					ctx := context.WithValue(r.Context(), authenticatedKey{}, true)
-					protected.ServeHTTP(w, r.WithContext(ctx))
+					protected.ServeHTTP(w, r.WithContext(WithIngestApplication(ctx, application)))
 					return true
 				}
 				return false

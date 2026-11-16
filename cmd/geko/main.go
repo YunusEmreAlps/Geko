@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"syscall"
 	"time"
 
@@ -293,13 +295,19 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		}()
 	}
 	var notifications *web.Notifications
-	if cfg.WebhookURL != "" {
+	if cfg.WebhookURL != "" || len(cfg.ApplicationWebhooks) > 0 {
 		baseURL := cfg.PublicURL
 		if baseURL == "" {
 			baseURL = "http://" + dashboardAddr
 		}
-		notifier := notify.New(cfg.WebhookURL, cfg.WebhookFormat, baseURL, db, time.Now())
+		notifier := notify.New(cfg.WebhookURL, cfg.WebhookFormat, baseURL, db, time.Now()).WithApplications(cfg.ApplicationWebhooks)
 		notifications = &web.Notifications{Format: string(notifier.Format()), Host: notifier.Host(), Test: notifier.Test}
+		for _, application := range slices.Sorted(maps.Keys(cfg.ApplicationWebhooks)) {
+			webhook := cfg.ApplicationWebhooks[application]
+			notifications.Applications = append(notifications.Applications, web.ApplicationWebhook{
+				Application: application, Format: string(webhook.Format), Host: webhook.Host(),
+			})
+		}
 		running, cancel := context.WithCancel(ctx)
 		stopped := make(chan struct{})
 		go func() {

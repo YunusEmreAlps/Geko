@@ -58,9 +58,14 @@ func (h *Receiver) NewGRPCServer(token access.Token) *grpc.Server {
 		authority := md.Get(":authority")
 		if token.Enabled() {
 			headers := md.Get("authorization")
-			if len(headers) != 1 || !token.IngestBearer(headers[0]) {
+			if len(headers) != 1 {
 				return nil, status.Error(codes.Unauthenticated, "Bearer token required")
 			}
+			application, ok := token.IngestCaller(headers[0])
+			if !ok {
+				return nil, status.Error(codes.Unauthenticated, "Bearer token required")
+			}
+			ctx = access.WithIngestApplication(ctx, application)
 		} else if len(authority) != 1 || !api.LocalHost(authority[0]) {
 			h.reject(forbiddenHost)
 			return nil, status.Error(codes.PermissionDenied, "trace receiver requires a loopback authority")
@@ -91,6 +96,8 @@ func (h *Receiver) NewGRPCServer(token access.Token) *grpc.Server {
 		}
 		response, err := h.export(ctx, &export.request)
 		switch {
+		case errors.Is(err, errForeignApplication):
+			return nil, status.Error(codes.PermissionDenied, err.Error())
 		case errors.Is(err, storage.ErrCapacity):
 			return nil, retryStatus("trace storage capacity reached", 30*time.Second)
 		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):

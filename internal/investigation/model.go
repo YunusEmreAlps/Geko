@@ -44,8 +44,10 @@ type FailureFilter struct {
 	HTTPStatus      int
 	From            *time.Time
 	To              *time.Time
-	After           *Cursor
-	Limit           int
+	// Pinned selects pinned traces only.
+	Pinned bool
+	After  *Cursor
+	Limit  int
 	// GroupState selects error groups by triage state; it does not filter traces.
 	GroupState GroupState
 }
@@ -134,6 +136,13 @@ type TraceSummary struct {
 	EntrySpan     *SpanSummary `json:"entry_span"`
 	Evidence      *Evidence    `json:"evidence"`
 	Window        *TraceWindow `json:"window,omitempty"`
+	Pin           *TracePin    `json:"pin,omitempty"`
+}
+
+// TracePin keeps a trace past retention and capacity eviction.
+type TracePin struct {
+	PinnedAt time.Time `json:"pinned_at"`
+	PinnedBy string    `json:"pinned_by,omitempty"`
 }
 
 type TraceWindow struct {

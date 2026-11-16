@@ -8,7 +8,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/YunusEmreAlps/geko/internal/storage"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 
 	driver "modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -20,11 +22,15 @@ const (
 )
 
 const deleteOldest = `DELETE FROM traces WHERE trace_id IN (
-    SELECT trace_id FROM traces WHERE last_observed_ns < ? %s
+    SELECT trace_id FROM traces WHERE last_observed_ns < ? ` + unpinned + ` %s
     ORDER BY last_observed_ns, trace_id LIMIT ?
 )`
 
-// Prune removes whole traces last observed before cutoff, in short transactions.
+// unpinned excludes pinned traces from retention and eviction.
+const unpinned = "AND trace_id NOT IN (SELECT trace_id FROM trace_pins)"
+
+// Prune removes whole unpinned traces last observed before cutoff, in short
+// transactions.
 func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
 	removed := false
 	for {
@@ -165,4 +171,31 @@ func writeError(err error) error {
 		return storage.ErrCapacity
 	}
 	return err
+}
+
+// SetTracePin pins a stored trace, so retention and eviction keep it, or
+// unpins it. by names who pinned it. Unpinning a missing trace is not an error.
+func (s *Store) SetTracePin(ctx context.Context, id telemetry.TraceID, pinned bool, by string, now time.Time) error {
+	if len(by) > 256 {
+		return errors.New("the name of who pinned a trace is limited to 256 bytes")
+	}
+	if !pinned {
+		_, err := s.db.ExecContext(ctx, "DELETE FROM trace_pins WHERE trace_id = ?", id[:])
+		return s.changed(writeError(err))
+	}
+	result, err := s.db.ExecContext(ctx, `INSERT INTO trace_pins (trace_id, pinned_ns, pinned_by)
+ SELECT trace_id, ?, ? FROM traces WHERE trace_id = ? ON CONFLICT (trace_id) DO NOTHING`, now.UnixNano(), by, id[:])
+	if err != nil {
+		return writeError(err)
+	}
+	if added, err := result.RowsAffected(); err == nil && added == 0 {
+		var exists bool
+		if err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM traces WHERE trace_id = ?)", id[:]).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return investigation.ErrTraceNotFound
+		}
+	}
+	return s.changed(nil)
 }

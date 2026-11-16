@@ -56,6 +56,14 @@ to build the checkout instead.
   `name=token` pairs. They can only export traces, so a leaked token can't read
   stored data, and you can revoke one application without changing the others.
   **Settings** lists the names, never the values.
+- **Bound ingest tokens** (`GEKO_INGEST_APPLICATIONS`): bind an ingest token to
+  one application as `name=application` pairs, for example
+  `storefront=Storefront`. Spans exported with it that have no
+  `service.namespace` are stored under that application, so the application
+  needn't set one. An export naming another application is refused whole with
+  HTTP 403 or gRPC `PermissionDenied`, so a token can't write into another
+  team's application. **Settings** shows each binding, and receiver
+  diagnostics count refused exports.
 - **Read tokens** (`GEKO_READ_TOKENS`): for coding agents, scripts and teammates
   who only look. Teammates sign in to the dashboard with one. They open the dashboard, the query API and `/mcp`, but can't
   change mappings, triage groups or restore traces.
@@ -90,7 +98,8 @@ to build the checkout instead.
 - Back up while Geko runs: `docker compose exec geko /geko backup /data/backup.db`,
   then copy the file out with `docker compose cp`.
 - Set `GEKO_WEBHOOK_URL` to get a message when an error group first appears or
-  a resolved group recurs. See [Notifications](investigate.md#notifications).
+  a resolved group recurs, and `GEKO_APPLICATION_WEBHOOKS` to send each
+  application's groups to its own team. See [Notifications](investigate.md#notifications).
 - Coding agents reach the server through `/mcp` or `geko failures --server`.
   See [Read traces from coding tools](agents.md).
 
@@ -113,7 +122,9 @@ read:
   claude: <token>
 ```
 
-Add `triage:` with the same `name: <token>` form for triage tokens. Geko checks
+Add `triage:` with the same `name: <token>` form for triage tokens, and
+`ingest_applications:` with `name: application` to bind ingest tokens.
+`GEKO_INGEST_APPLICATIONS` can't be combined with the file. Geko checks
 the file every 5 seconds. A valid change applies to every listener
 at once and signs out every browser, so a rotated token also ends sessions that
 started with the old one. An invalid file is logged and the current tokens stay

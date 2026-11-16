@@ -16,20 +16,23 @@ type envVar struct{ Name, Value string }
 
 type connectView struct {
 	Application, Service, Protocol, Token string
-	Tokens                                []string
-	AccessToken, GRPC                     bool
-	Error                                 string
-	Endpoint                              string
-	Bash, PowerShell, Compose             string
-	TracesURL                             string
+	// Bound is the application the selected ingest token is bound to.
+	Bound                     string
+	Tokens                    []string
+	AccessToken, GRPC         bool
+	Error                     string
+	Endpoint                  string
+	Bash, PowerShell, Compose string
+	TracesURL                 string
 }
 
 func (d *dashboard) connect(w http.ResponseWriter, r *http.Request) {
 	query := r.URL.Query()
+	settings := d.currentSettings()
 	view := connectView{
 		Application: strings.TrimSpace(query.Get("application")), Service: strings.TrimSpace(query.Get("service")),
 		Protocol: query.Get("protocol"), Token: query.Get("token"),
-		Tokens: d.currentSettings().IngestTokens, AccessToken: d.settings.AccessToken, GRPC: d.settings.GRPCAddr != "" || d.settings.PublicURL != "",
+		Tokens: settings.IngestTokens, AccessToken: d.settings.AccessToken, GRPC: d.settings.GRPCAddr != "" || d.settings.PublicURL != "",
 	}
 	if view.Service == "" {
 		view.Service = "my-service"
@@ -40,6 +43,7 @@ func (d *dashboard) connect(w http.ResponseWriter, r *http.Request) {
 	if view.Token == "" && len(view.Tokens) > 0 {
 		view.Token = view.Tokens[0]
 	}
+	view.Bound = settings.IngestApplications[view.Token]
 	switch {
 	case !snippetName.MatchString(view.Service) || view.Application != "" && !snippetName.MatchString(view.Application):
 		view.Error = "Use up to 64 letters, digits, dots, hyphens or underscores for names."
@@ -49,6 +53,8 @@ func (d *dashboard) connect(w http.ResponseWriter, r *http.Request) {
 		view.Error = "OTLP/gRPC is disabled. Set grpc_addr, or use OTLP/HTTP."
 	case view.Token != "" && !slices.Contains(view.Tokens, view.Token):
 		view.Error = "Choose a configured ingest token."
+	case view.Bound != "" && view.Application != "" && view.Application != view.Bound:
+		view.Error = "The " + view.Token + " token only accepts the application " + view.Bound + ". Leave Application empty or choose another token."
 	}
 	if view.Error != "" {
 		d.render(w, r, http.StatusBadRequest, "connect", "Connect an application", view)

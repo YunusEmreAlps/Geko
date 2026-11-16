@@ -18,7 +18,7 @@
 {{else}}
 <section class="section first">
   <h2>Environment</h2>
-  <p class="muted">The OpenTelemetry SDKs and zero-code agents read these variables. The application groups this service's spans{{if .Application}} under <strong>{{.Application}}</strong>{{else}} by service name{{end}}.</p>
+  <p class="muted">The OpenTelemetry SDKs and zero-code agents read these variables. The application groups this service's spans{{if .Application}} under <strong>{{.Application}}</strong>{{else if .Bound}} under <strong>{{.Bound}}</strong>, the application the <code>{{.Token}}</code> token is bound to{{else}} by service name{{end}}.</p>
   {{if .AccessToken}}<p class="note">Set <code>GEKO_INGEST_TOKEN</code> in the application's environment to {{if .Token}}the <code>{{.Token}}</code> token from <code>GEKO_INGEST_TOKENS</code>{{else}}an ingest token. None is configured: add one to <code>GEKO_INGEST_TOKENS</code> and restart Geko rather than sharing the access token{{end}}. Geko only stores a hash, so it can't show the value.</p>{{end}}
   <div class="expanders">
     <details open><summary>Bash</summary><pre class="snippet"><code>{{.Bash}}</code></pre></details>

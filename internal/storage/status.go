@@ -28,4 +28,6 @@ type Status struct {
 	FreeBytes       int64
 	EvictedTraces   int64
 	RejectedExports int64
+	// PinnedTraces are kept past retention and never evicted.
+	PinnedTraces int64
 }

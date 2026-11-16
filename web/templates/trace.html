@@ -4,11 +4,13 @@
     <a class="crumb" href="/failures">Failures</a><span class="crumb-sep" aria-hidden="true">/</span>
     <h1>{{if .Trace.EntrySpan}}{{.Trace.EntrySpan.Operation}}{{else if .Trace.Evidence}}{{.Trace.Evidence.Operation}}{{else}}Trace details{{end}}</h1>
     <span class="pill {{outcomeClass .Trace}}">{{outcome .Trace}}</span>
+    {{with .Trace.Pin}}<span class="pill neutral" title="Pinned {{timestamp .PinnedAt}}{{with .PinnedBy}} by {{.}}{{end}}">Pinned</span>{{end}}
   </div>
   <div class="actions">
     {{if and .Trace.Evidence .Trace.EntrySpan}}<a class="button" href="/traces/{{.Trace.TraceID}}/compare"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Compare with success</a>{{end}}
     {{if .BugEvidence}}<button type="button" class="button" data-copy="bug-evidence" data-copy-status="bug-evidence-status" hidden><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>Copy as bug evidence</button><span role="status" class="sr-only" id="bug-evidence-status"></span>{{end}}
     {{if .TraceLink}}<a class="button" href="{{.TraceLink}}" target="_blank" rel="noopener noreferrer"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in {{.TraceLinkName}}</a>{{end}}
+    {{if .CanTriage}}<form action="/traces/{{.Trace.TraceID}}/pin" method="post"><input type="hidden" name="pinned" value="{{if .Trace.Pin}}false{{else}}true{{end}}"><button class="button" type="submit" title="{{if .Trace.Pin}}Let retention and eviction remove this trace again{{else}}Keep this trace past retention and capacity eviction{{end}}"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5"/><path d="M9 3h6l-1 6 4 4v2H6v-2l4-4z"/></svg>{{if .Trace.Pin}}Unpin{{else}}Pin trace{{end}}</button></form>{{end}}
     <a class="button" href="/traces/{{.Trace.TraceID}}/otlp.json" download><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Download OTLP JSON</a>
   </div>
 </header>
@@ -19,6 +21,7 @@
     <div><dt>Spans</dt><dd>{{with .Trace.Window}}{{.SpanCount}}{{else}}0{{end}}</dd></div>
     <div><dt>First received</dt><dd>{{timestamp .Trace.FirstObserved}}</dd></div>
     {{if ne (timestamp .Trace.FirstObserved) (timestamp .Trace.LastObserved)}}<div><dt>Last received</dt><dd>{{timestamp .Trace.LastObserved}}</dd></div>{{end}}
+    {{with .Trace.Pin}}<div><dt>Pinned</dt><dd>{{timestamp .PinnedAt}}{{with .PinnedBy}} by {{.}}{{end}}</dd></div>{{end}}
   </dl>
   <div class="trace-id"><code id="trace-id">{{.Trace.TraceID}}</code><button type="button" class="button quiet" data-copy="trace-id" hidden>Copy</button><span role="status" id="copy-status"></span></div>
 </div>

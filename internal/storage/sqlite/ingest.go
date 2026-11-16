@@ -133,7 +133,7 @@ const evictLargestOwner = `WITH owners AS (
 )
 DELETE FROM traces WHERE trace_id IN (
     SELECT t.trace_id FROM traces t
-    WHERE t.last_observed_ns < ? ` + unprotected + `
+    WHERE t.last_observed_ns < ? ` + unpinned + ` ` + unprotected + `
     AND EXISTS (SELECT 1 FROM trace_services ts, owners o WHERE ts.trace_id = t.trace_id
         AND CASE WHEN ts.namespace <> '' THEN 'n:' || ts.namespace ELSE 's:' || ts.service_name END = o.owner)
     ORDER BY t.last_observed_ns, t.trace_id LIMIT ?

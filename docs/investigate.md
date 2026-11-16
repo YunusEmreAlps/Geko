@@ -111,6 +111,12 @@ link, and `list_failure_groups` on `/mcp` returns them as `note` and `issue_url`
 expire with trace retention, like triage states. Anyone who can triage can edit
 them; the audit log records the change without the note's text.
 
+**Pin trace** on a trace page keeps that trace past retention and capacity
+eviction, for example as the reproduction attached to an issue. The trace
+page and lists mark it **Pinned** with who pinned it, **More filters** →
+**Pinned traces only** lists them, and **Settings** counts them. Anyone who
+can triage can pin and unpin; the audit log records both.
+
 **Copy as bug evidence**, in the summary and on each failing trace, copies a
 Markdown description to paste into an issue: the failure, operation and
 service, request outcome and duration, receipt times and links back to Geko.
@@ -143,8 +149,18 @@ the group's fields and a dashboard `url`. Links use `public_url`, or the
 dashboard address when it isn't set. Messages contain the exception type,
 operation, service and counts, but never exception messages, which can contain
 secrets. **Settings** shows the webhook's host and has **Send test
-notification**. This is not alerting: there are no thresholds, schedules or
+notification**, which sends to every configured webhook. This is not alerting: there are no thresholds, schedules or
 escalation, and a failure in a trace that never reaches Geko sends nothing.
+
+To send each team only its own groups, set `GEKO_APPLICATION_WEBHOOKS` to
+comma-separated `application=url` pairs, for example
+`Storefront=https://hooks.slack.com/services/…,Reporting=https://ntfy.sh/reporting`.
+A group goes to its application's webhook instead of `GEKO_WEBHOOK_URL`, which
+then receives only the groups of other applications; without it, those send
+nothing. Each webhook gets at most five messages per check, and its summary
+links to that application's groups. The format is inferred from each URL, so a
+webhook that isn't Slack, Discord or ntfy.sh receives JSON. Application names
+can't contain `,` or `=`.
 
 ## Transfer a trace
 

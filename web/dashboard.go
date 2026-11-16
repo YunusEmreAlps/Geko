@@ -42,6 +42,7 @@ type Reader interface {
 	FailureGroups(context.Context, investigation.FailureFilter, *investigation.GroupCursor) (investigation.FailureGroups, error)
 	SetGroupState(context.Context, string, investigation.GroupState, string, string, time.Time) error
 	SetGroupNote(context.Context, string, string, string, string, time.Time) error
+	SetTracePin(context.Context, telemetry.TraceID, bool, string, time.Time) error
 	api.Reader
 	HasTraces(context.Context) (bool, error)
 	Overview(context.Context, time.Time) (investigation.Overview, error)
@@ -65,8 +66,10 @@ type Settings struct {
 	TraceLinkURL, TraceLinkName string
 	AccessToken                 bool
 	IngestTokens                []string
-	ReadTokens                  []string
-	TriageTokens                []string
+	// IngestApplications maps bound ingest token names to their applications.
+	IngestApplications map[string]string
+	ReadTokens         []string
+	TriageTokens       []string
 	// ProxyHeader names the header an authenticating proxy sets, if trusted.
 	ProxyHeader string
 	// Audit records changes and sign-ins; nil discards them.
@@ -87,10 +90,17 @@ type Settings struct {
 	Redaction           string
 }
 
-// Notifications describes the configured webhook without its secret URL.
+// Notifications describes the configured webhooks without their secret URLs.
+// Format and Host are empty when only application webhooks are configured.
 type Notifications struct {
 	Format, Host string
+	Applications []ApplicationWebhook
 	Test         func(context.Context) error
+}
+
+// ApplicationWebhook receives one application's groups instead of the shared webhook.
+type ApplicationWebhook struct {
+	Application, Format, Host string
 }
 
 type dashboard struct {
@@ -151,6 +161,7 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	mux.Handle("POST /applications", protect.Handler(d.local(d.changeApplications)))
 	mux.Handle("POST /groups/state", protect.Handler(d.local(d.changeGroupState)))
 	mux.Handle("POST /groups/note", protect.Handler(d.local(d.changeGroupNote)))
+	mux.Handle("POST /traces/{traceID}/pin", protect.Handler(d.local(d.changeTracePin)))
 	if settings.SignIn != nil && settings.SignOut != nil {
 		mux.HandleFunc("GET /login", d.local(d.login))
 		mux.Handle("POST /login", protect.Handler(d.local(d.login)))
@@ -262,6 +273,7 @@ type failureView struct {
 	Live                              bool
 	Items                             []investigation.TraceSummary
 	Search, Service, Status, Range    string
+	Pinned                            bool
 	Refresh, First, Next              string
 	Filtered                          bool
 	HasTraces                         bool
@@ -301,6 +313,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 		Search: params.Get("q"), Service: params.Get("service"), Status: params.Get("status"), Range: params.Get("range"),
 		EvidenceService: params.Get("evidence_service"),
 		Application:     params.Get("application"),
+		Pinned:          params.Get("pinned") == "true",
 	}
 	if view.Mode != "" && view.Mode != "groups" {
 		d.problem(w, r, http.StatusBadRequest, "Invalid view", "Choose traces or error groups.")
@@ -366,7 +379,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 		d.problem(w, r, http.StatusBadRequest, "Invalid filters", err.Error())
 		return
 	}
-	view.Filtered = filter.GroupKey != "" || filter.Application != nil || filter.Search != "" || filter.Service != "" || filter.EvidenceService != "" || filter.HTTPStatus != 0 || filter.From != nil || filter.To != nil
+	view.Filtered = filter.GroupKey != "" || filter.Application != nil || filter.Search != "" || filter.Service != "" || filter.EvidenceService != "" || filter.HTTPStatus != 0 || filter.From != nil || filter.To != nil || filter.Pinned
 	d.withQuery(w, r, func(ctx context.Context) {
 		applications, err := d.store.ApplicationNames(ctx)
 		if err != nil {
@@ -493,6 +506,7 @@ func (d *dashboard) currentSettings() Settings {
 	settings := d.settings
 	if settings.Tokens.Enabled() {
 		settings.IngestTokens = settings.Tokens.Names(access.ScopeIngest)
+		settings.IngestApplications = settings.Tokens.IngestApplications()
 		settings.ReadTokens = settings.Tokens.Names(access.ScopeRead)
 		settings.TriageTokens = settings.Tokens.Names(access.ScopeTriage)
 	}

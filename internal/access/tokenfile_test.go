@@ -27,10 +27,14 @@ func writeTokens(t *testing.T, path, content string) {
 
 func TestLoadTokenFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "tokens.yaml")
-	writeTokens(t, path, "access: "+fileAccess+"\ningest:\n  storefront: "+fileIngest+"\nread:\n  agent: "+fileRead+"\ntriage:\n  qa: "+rotated+"\n")
+	writeTokens(t, path, "access: "+fileAccess+"\ningest:\n  storefront: "+fileIngest+"\nread:\n  agent: "+fileRead+"\ntriage:\n  qa: "+rotated+
+		"\ningest_applications:\n  storefront: Storefront\n")
 	token, err := LoadTokenFile(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if application, _ := token.IngestCaller("Bearer " + fileIngest); application != "Storefront" {
+		t.Fatalf("bound application = %q", application)
 	}
 	if !token.Bearer("Bearer "+fileAccess) || !token.IngestBearer("Bearer "+fileIngest) || !token.allows(fileRead, ScopeRead) {
 		t.Fatal("file tokens not accepted")
@@ -50,6 +54,7 @@ func TestLoadTokenFile(t *testing.T) {
 		"bad name":       "access: " + fileAccess + "\nread:\n  \"a b\": " + fileRead + "\n",
 		"shared name":    "access: " + fileAccess + "\nread:\n  qa: " + fileRead + "\ntriage:\n  qa: " + rotated + "\n",
 		"invalid syntax": "access: [" + fileAccess + "\n",
+		"unbound name":   "access: " + fileAccess + "\ningest_applications:\n  storefront: Storefront\n",
 	} {
 		writeTokens(t, path, content)
 		_, err := LoadTokenFile(path)

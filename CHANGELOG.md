@@ -1,6 +1,22 @@
 # Changelog
 
-## Unreleased (v0.1.0)
+## Unreleased
+
+- **Pin trace** keeps a trace past retention and capacity eviction. Pinned
+  traces are marked in lists and on the trace page, filtered with `pinned=true`
+  in the dashboard and `/api/v1/failures`, and counted in Settings. Triagers can
+  pin and unpin; the audit log records `trace.pin` and `trace.unpin`.
+- `GEKO_INGEST_APPLICATIONS` (or `ingest_applications:` in `GEKO_TOKENS_FILE`)
+  binds ingest tokens to applications. Spans without `service.namespace` get
+  the token's application; exports naming another application are refused
+  with HTTP 403 or gRPC `PermissionDenied`. Settings and Connect show bindings.
+- `GEKO_APPLICATION_WEBHOOKS` sends each application's new and reopened error
+  groups to its own webhook; `GEKO_WEBHOOK_URL` then receives the other
+  applications' groups. Settings lists each webhook's host, and **Send test
+  notification** tests them all.
+- The database migrates to schema 12, which adds the `trace_pins` table.
+
+## v0.1.0 (2026-11-14)
 
 First tagged release: everything in the [roadmap](docs/roadmap.md) phases 1 to 6,
 and the first items of phase 7.

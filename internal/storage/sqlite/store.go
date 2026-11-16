@@ -53,7 +53,10 @@ var groupStateActorSchema string
 //go:embed migrations/011_group_notes.sql
 var groupNoteSchema string
 
-var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema, groupStateActorSchema, groupNoteSchema}
+//go:embed migrations/012_trace_pins.sql
+var tracePinSchema string
+
+var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema, groupStateActorSchema, groupNoteSchema, tracePinSchema}
 
 type Store struct {
 	revision   atomic.Uint64
@@ -267,6 +270,11 @@ func (s *Store) Status(ctx context.Context) (storage.Status, error) {
 	if status.SchemaVersion >= 4 {
 		if err := s.read.QueryRowContext(ctx, "SELECT evicted_traces, rejected_exports FROM storage_counters WHERE id = 1").
 			Scan(&status.EvictedTraces, &status.RejectedExports); err != nil {
+			return storage.Status{}, err
+		}
+	}
+	if status.SchemaVersion >= 12 {
+		if err := s.read.QueryRowContext(ctx, "SELECT count(*) FROM trace_pins").Scan(&status.PinnedTraces); err != nil {
 			return storage.Status{}, err
 		}
 	}

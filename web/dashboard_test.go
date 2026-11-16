@@ -59,7 +59,7 @@ func TestDashboardInvestigation(t *testing.T) {
 	get("/assets/dashboard.css", http.StatusOK, ".waterfall")
 	get("/assets/dashboard.js", http.StatusOK, "clipboard.writeText")
 	get("/assets/theme.js", http.StatusOK, "geko.theme")
-	get("/settings", http.StatusOK, "schema 11", "SQLite sidecars", "127.0.0.1:4318", configPath,
+	get("/settings", http.StatusOK, "schema 12", "SQLite sidecars", "127.0.0.1:4318", configPath,
 		"Set by <code>GEKO_DB_PATH</code>", ">yaml</span>", ">default</span>", "Traces evicted at capacity")
 
 	start := time.Now().UTC().Add(-time.Minute)
@@ -194,7 +194,8 @@ func TestNotificationSettings(t *testing.T) {
 	defer store.Close()
 	fail := false
 	mux := http.NewServeMux()
-	if err := Register(mux, store, Settings{Notifications: &Notifications{Format: "slack", Host: "hooks.slack.com", Test: func(context.Context) error {
+	applications := []ApplicationWebhook{{Application: "Storefront", Format: "discord", Host: "discord.com"}}
+	if err := Register(mux, store, Settings{Notifications: &Notifications{Format: "slack", Host: "hooks.slack.com", Applications: applications, Test: func(context.Context) error {
 		if fail {
 			return errors.New("webhook returned 500")
 		}
@@ -216,7 +217,10 @@ func TestNotificationSettings(t *testing.T) {
 	}
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/settings?notification=failed", nil))
-	for _, fragment := range []string{"<code>slack</code> to <code>hooks.slack.com</code>", "Send test notification", "test notification failed"} {
+	for _, fragment := range []string{
+		"<code>slack</code> to <code>hooks.slack.com</code>", "groups of other applications",
+		"<dt>Storefront</dt><dd><code>discord</code> to <code>discord.com</code>", "Send test notification", "test notification failed",
+	} {
 		if !strings.Contains(w.Body.String(), fragment) {
 			t.Errorf("settings missing %q", fragment)
 		}

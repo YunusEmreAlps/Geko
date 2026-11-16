@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,7 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 	collector "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	common "go.opentelemetry.io/proto/otlp/common/v1"
+	resourcepb "go.opentelemetry.io/proto/otlp/resource/v1"
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
@@ -65,6 +68,79 @@ func TestGRPCTokenWithRemoteAuthority(t *testing.T) {
 		ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer "+value)
 		if _, err := client.Export(ctx, req); err != nil {
 			t.Fatalf("authenticated remote authority: %v", err)
+		}
+	}
+}
+
+func TestBoundIngestToken(t *testing.T) {
+	token, err := access.ParseToken(strings.Repeat("0123456789abcdef", 2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	const bound = "a1b2c3d4e5f60718293a4b5c6d7e8f90"
+	if token, err = token.WithIngestTokens("storefront=" + bound); err == nil {
+		token, err = token.WithIngestApplications("storefront=Storefront")
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored []telemetry.Span
+	receiver := NewHandler(writeFunc(func(_ context.Context, _ time.Time, spans []telemetry.Span) error { stored = spans; return nil }))
+	request := func(namespace string) *collector.ExportTraceServiceRequest {
+		resource := &resourcepb.Resource{}
+		if namespace != "" {
+			resource.Attributes = []*common.KeyValue{{Key: "service.namespace", Value: &common.AnyValue{Value: &common.AnyValue_StringValue{StringValue: namespace}}}}
+		}
+		return &collector.ExportTraceServiceRequest{ResourceSpans: []*trace.ResourceSpans{
+			{Resource: resource, ScopeSpans: []*trace.ScopeSpans{{Spans: []*trace.Span{fixtureSpan()}}}},
+		}}
+	}
+	namespace := func() string {
+		if len(stored) != 1 {
+			t.Fatalf("stored %d spans", len(stored))
+		}
+		value, _ := stored[0].ResourceAttributes["service.namespace"].(string)
+		return value
+	}
+
+	client := collector.NewTraceServiceClient(grpcClientWithToken(t, receiver, "geko.example", token))
+	ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer "+bound)
+	for _, given := range []string{"", "Storefront"} {
+		stored = nil
+		if _, err := client.Export(ctx, request(given)); err != nil || namespace() != "Storefront" {
+			t.Fatalf("gRPC export with namespace %q: %v", given, err)
+		}
+	}
+	stored = nil
+	if _, err := client.Export(ctx, request("Reporting")); status.Code(err) != codes.PermissionDenied || stored != nil {
+		t.Fatalf("gRPC export into another application: %v, stored %d", err, len(stored))
+	}
+
+	handler := token.Protect(receiver)
+	post := func(namespace string) int {
+		t.Helper()
+		body, err := proto.Marshal(request(namespace))
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := httptest.NewRequest(http.MethodPost, "http://geko.example/v1/traces", bytes.NewReader(body))
+		r.Header.Set("Content-Type", protobufContentType)
+		r.Header.Set("Authorization", "Bearer "+bound)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		return w.Code
+	}
+	stored = nil
+	if code := post(""); code != http.StatusOK || namespace() != "Storefront" {
+		t.Fatalf("HTTP export = %d", code)
+	}
+	stored = nil
+	if code := post("Reporting"); code != http.StatusForbidden || stored != nil {
+		t.Fatalf("HTTP export into another application = %d, stored %d", code, len(stored))
+	}
+	for _, rejection := range receiver.Diagnostics().Rejections {
+		if rejection.Reason == "Application not allowed for the ingest token" && rejection.Count != 2 {
+			t.Fatalf("rejections = %+v", receiver.Diagnostics().Rejections)
 		}
 	}
 }

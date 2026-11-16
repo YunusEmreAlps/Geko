@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/YunusEmreAlps/geko/internal/access"
+	"github.com/YunusEmreAlps/geko/internal/notify"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 )
 
@@ -169,6 +170,8 @@ func clearConfigEnv(t *testing.T) {
 	}
 	t.Setenv("GEKO_WEBHOOK_URL", "")
 	t.Setenv("GEKO_WEBHOOK_FORMAT", "")
+	t.Setenv("GEKO_APPLICATION_WEBHOOKS", "")
+	t.Setenv("GEKO_INGEST_APPLICATIONS", "")
 	t.Setenv("GEKO_MCP_TRIAGE", "")
 	t.Setenv("GEKO_TRACE_LINK_URL", "")
 	t.Setenv("GEKO_TRACE_LINK_NAME", "")
@@ -412,6 +415,33 @@ func TestWebhook(t *testing.T) {
 	t.Setenv("GEKO_WEBHOOK_URL", "hooks.slack.com/services")
 	if _, err := Load(); err == nil {
 		t.Fatal("accepted a webhook URL without a scheme")
+	}
+}
+
+func TestApplicationWebhooks(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	t.Setenv("GEKO_APPLICATION_WEBHOOKS", " Store Front=https://hooks.slack.com/services/T/B/X , Reporting=https://example.com/hook?key=a=b")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.ApplicationWebhooks; len(got) != 2 || got["Store Front"].Format != "slack" ||
+		got["Reporting"] != (notify.Webhook{URL: "https://example.com/hook?key=a=b", Format: "json"}) {
+		t.Fatalf("webhooks = %+v", got)
+	}
+	for _, spec := range []string{
+		"Storefront",
+		"=https://example.com/hook",
+		"Storefront=example.com/secret-path",
+		"Storefront=https://example.com/a,Storefront=https://example.com/b",
+	} {
+		t.Setenv("GEKO_APPLICATION_WEBHOOKS", spec)
+		if _, err := Load(); err == nil {
+			t.Errorf("accepted %q", spec)
+		} else if strings.Contains(err.Error(), "secret-path") {
+			t.Errorf("error reveals the webhook: %v", err)
+		}
 	}
 }
 

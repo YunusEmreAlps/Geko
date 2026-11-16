@@ -38,7 +38,9 @@ type Config struct {
 	TraceLinkName string        `yaml:"trace_link_name"`
 	WebhookURL    string        `yaml:"-"`
 	WebhookFormat notify.Format `yaml:"-"`
-	MCPTriage     bool          `yaml:"-"`
+	// ApplicationWebhooks receive their application's groups instead of WebhookURL.
+	ApplicationWebhooks map[string]notify.Webhook `yaml:"-"`
+	MCPTriage           bool                      `yaml:"-"`
 	// AuditLog is a file that receives one JSON line per change and sign-in,
 	// or "-" for standard error.
 	AuditLog string `yaml:"-"`
@@ -81,7 +83,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if path := os.Getenv("GEKO_TOKENS_FILE"); path != "" {
-		for _, variable := range []string{"GEKO_ACCESS_TOKEN", "GEKO_INGEST_TOKENS", "GEKO_READ_TOKENS", "GEKO_TRIAGE_TOKENS"} {
+		for _, variable := range []string{"GEKO_ACCESS_TOKEN", "GEKO_INGEST_TOKENS", "GEKO_READ_TOKENS", "GEKO_TRIAGE_TOKENS", "GEKO_INGEST_APPLICATIONS"} {
 			if os.Getenv(variable) != "" {
 				return Config{}, fmt.Errorf("set tokens in GEKO_TOKENS_FILE or in %s, not both", variable)
 			}
@@ -99,6 +101,9 @@ func Load() (Config, error) {
 		}
 		if err == nil {
 			cfg.AccessToken, err = cfg.AccessToken.WithTriageTokens(os.Getenv("GEKO_TRIAGE_TOKENS"))
+		}
+		if err == nil {
+			cfg.AccessToken, err = cfg.AccessToken.WithIngestApplications(os.Getenv("GEKO_INGEST_APPLICATIONS"))
 		}
 	}
 	if err != nil {
@@ -222,6 +227,9 @@ func Load() (Config, error) {
 	} else if os.Getenv("GEKO_WEBHOOK_FORMAT") != "" {
 		return Config{}, errors.New("GEKO_WEBHOOK_FORMAT requires GEKO_WEBHOOK_URL")
 	}
+	if cfg.ApplicationWebhooks, err = applicationWebhooks(os.Getenv("GEKO_APPLICATION_WEBHOOKS")); err != nil {
+		return Config{}, err
+	}
 	if value := os.Getenv("GEKO_MCP_TRIAGE"); value != "" {
 		if cfg.MCPTriage, err = strconv.ParseBool(value); err != nil {
 			return Config{}, errors.New("GEKO_MCP_TRIAGE must be true or false")
@@ -297,6 +305,36 @@ func publicURL(value string) (string, error) {
 		return "", errors.New("public_url (GEKO_PUBLIC_URL) must be an http or https URL without credentials, query or fragment")
 	}
 	return strings.TrimRight(parsed.String(), "/"), nil
+}
+
+// applicationWebhooks parses comma-separated application=url pairs. The
+// format is inferred from each URL. Errors never quote a URL, which can hold
+// a secret.
+func applicationWebhooks(spec string) (map[string]notify.Webhook, error) {
+	if strings.TrimSpace(spec) == "" {
+		return nil, nil
+	}
+	webhooks := make(map[string]notify.Webhook)
+	for entry := range strings.SplitSeq(spec, ",") {
+		application, target, ok := strings.Cut(entry, "=")
+		application, target = strings.TrimSpace(application), strings.TrimSpace(target)
+		if !ok || !access.ValidApplication(application) {
+			return nil, errors.New("GEKO_APPLICATION_WEBHOOKS must be a comma-separated list of application=url pairs")
+		}
+		if _, ok := webhooks[application]; ok {
+			return nil, fmt.Errorf("GEKO_APPLICATION_WEBHOOKS names %q more than once", application)
+		}
+		parsed, err := url.Parse(target)
+		if err != nil || parsed.Scheme != "http" && parsed.Scheme != "https" || parsed.Host == "" {
+			return nil, fmt.Errorf("GEKO_APPLICATION_WEBHOOKS: the webhook for %q must be an http or https URL", application)
+		}
+		format, err := notify.ParseFormat("", target)
+		if err != nil {
+			return nil, err
+		}
+		webhooks[application] = notify.Webhook{URL: target, Format: format}
+	}
+	return webhooks, nil
 }
 
 // traceLink validates a trace link template and defaults its name to Tempo.

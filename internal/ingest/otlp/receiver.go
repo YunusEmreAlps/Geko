@@ -55,8 +55,13 @@ const (
 	receiverBusy
 	storageUnavailable
 	forbiddenHost
+	foreignApplication
 	rejectionCount
 )
+
+// errForeignApplication refuses an export from a bound ingest token that names
+// another application.
+var errForeignApplication = errors.New("service.namespace names an application this ingest token is not bound to")
 
 type Rejection struct {
 	Reason string
@@ -101,6 +106,7 @@ func (h *Receiver) Diagnostics() Diagnostics {
 			{"Receiver busy", h.rejected[receiverBusy]},
 			{"Storage unavailable", h.rejected[storageUnavailable]},
 			{"Non-loopback Host", h.rejected[forbiddenHost]},
+			{"Application not allowed for the ingest token", h.rejected[foreignApplication]},
 		},
 	}
 }
@@ -177,6 +183,8 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := h.export(r.Context(), &req)
 	switch {
+	case errors.Is(err, errForeignApplication):
+		fail(w, http.StatusForbidden, codes.PermissionDenied, err.Error())
 	case errors.Is(err, errBatchLimit):
 		fail(w, http.StatusRequestEntityTooLarge, codes.ResourceExhausted, err.Error())
 	case errors.Is(err, storage.ErrCapacity):
@@ -194,6 +202,26 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 var errStorage = errors.New("trace storage unavailable")
 
+// bindApplication puts spans without a service.namespace in application, the
+// one their ingest token is bound to. It refuses the whole export if a span
+// names another application, so nothing of a misconfigured export is stored.
+func bindApplication(spans []telemetry.Span, application string) error {
+	for _, span := range spans {
+		namespace, _ := span.ResourceAttributes["service.namespace"].(string)
+		if namespace = strings.TrimSpace(namespace); namespace != "" && namespace != application {
+			return errForeignApplication
+		}
+	}
+	for i := range spans {
+		if spans[i].ResourceAttributes == nil {
+			spans[i].ResourceAttributes = telemetry.Attributes{}
+		}
+		// Spans of one resource share this map.
+		spans[i].ResourceAttributes["service.namespace"] = application
+	}
+	return nil
+}
+
 // export shares normalization, persistence and diagnostics across transports.
 // Callers hold one admission slot through decoding and persistence.
 func (h *Receiver) export(ctx context.Context, req *collector.ExportTraceServiceRequest) (*collector.ExportTraceServiceResponse, error) {
@@ -205,6 +233,12 @@ func (h *Receiver) export(ctx context.Context, req *collector.ExportTraceService
 			h.reject(invalidPayload)
 		}
 		return nil, err
+	}
+	if application := access.IngestApplication(ctx); application != "" {
+		if err := bindApplication(spans, application); err != nil {
+			h.reject(foreignApplication)
+			return nil, err
+		}
 	}
 	if len(spans) != 0 {
 		client := ctx

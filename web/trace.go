@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
@@ -30,6 +32,7 @@ type traceView struct {
 	BugEvidence         string
 	TraceLink           string
 	TraceLinkName       string
+	CanTriage           bool
 }
 
 type evidenceRow struct {
@@ -154,6 +157,7 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 			view.Next = traceRoute(path, url.Values{"cursor": {api.EncodeCursor(page.Next)}}, mergeEnvironments)
 		}
 		view.BugEvidence = traceBugEvidence(d.baseURL(r), summary)
+		view.CanTriage = d.caller(r).Role >= access.RoleTriager
 		view.TraceLink, view.TraceLinkName = traceLink(d.settings.TraceLinkURL, summary.TraceID), d.settings.TraceLinkName
 		d.render(w, r, http.StatusOK, "trace", "Trace details", view)
 	})
@@ -340,4 +344,41 @@ func formatSize(n int64) string {
 	default:
 		return fmt.Sprintf("%d B", n)
 	}
+}
+
+// changeTracePin pins or unpins a trace, then returns to it.
+func (d *dashboard) changeTracePin(w http.ResponseWriter, r *http.Request) {
+	id, err := api.ParseTraceID(r.PathValue("traceID"))
+	if err != nil {
+		d.problem(w, r, http.StatusBadRequest, "Invalid trace ID", err.Error())
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
+	if err := r.ParseForm(); err != nil {
+		d.problem(w, r, http.StatusBadRequest, "Invalid request", "Reload the page and try again.")
+		return
+	}
+	pinned := r.PostForm.Get("pinned")
+	if pinned != "true" && pinned != "false" {
+		d.problem(w, r, http.StatusBadRequest, "Invalid pin change", "Open the trace again and try again.")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	err = d.store.SetTracePin(ctx, id, pinned == "true", d.changedBy(r), time.Now())
+	if errors.Is(err, investigation.ErrTraceNotFound) {
+		d.problem(w, r, http.StatusNotFound, "Trace not found", "This trace is unavailable in the local database.")
+		return
+	}
+	if err != nil {
+		d.unavailable(w, r, ctx)
+		return
+	}
+	action := "trace.unpin"
+	if pinned == "true" {
+		action = "trace.pin"
+	}
+	trace := hex.EncodeToString(id[:])
+	d.settings.Audit.Record(r.Context(), r, audit.Event{Action: action, Target: trace})
+	http.Redirect(w, r, "/traces/"+trace, http.StatusSeeOther)
 }
