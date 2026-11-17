@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/access"
+	"github.com/YunusEmreAlps/geko/internal/budget"
 	"github.com/YunusEmreAlps/geko/internal/privacy"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
@@ -85,7 +86,11 @@ func TestBoundIngestToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	var stored []telemetry.Span
-	receiver := NewHandler(writeFunc(func(_ context.Context, _ time.Time, spans []telemetry.Span) error { stored = spans; return nil }))
+	tracker := budget.New(budget.Config{Enabled: true}, time.Now())
+	receiver := NewHandler(writeFunc(func(_ context.Context, _ time.Time, spans []telemetry.Span) error {
+		stored = spans
+		return nil
+	})).WithBudget(tracker)
 	request := func(namespace string) *collector.ExportTraceServiceRequest {
 		resource := &resourcepb.Resource{}
 		if namespace != "" {
@@ -142,6 +147,11 @@ func TestBoundIngestToken(t *testing.T) {
 		if rejection.Reason == "Application not allowed for the ingest token" && rejection.Count != 2 {
 			t.Fatalf("rejections = %+v", receiver.Diagnostics().Rejections)
 		}
+	}
+	report := tracker.Snapshot(time.Now(), false)
+	if report.Total.Spans != 3 || report.Total.Bytes != 3*int64(proto.Size(fixtureSpan())) ||
+		len(report.Services) != 1 || report.Services[0].Namespace != "Storefront" {
+		t.Fatalf("HTTP and gRPC budget attribution = %+v", report)
 	}
 }
 

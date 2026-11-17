@@ -30,3 +30,17 @@ on_full: evict_oldest
 # Grafana Tempo. {trace_id} is replaced with the trace ID.
 # trace_link_url: "https://grafana.example.com/explore?left=...{trace_id}..."
 # trace_link_name: "Tempo"
+
+# Add either source to show Collector Doctor under Settings.
+# collector_doctor:
+#   config_file: "collector.yaml"
+#   metrics_url: "http://127.0.0.1:8888/metrics"
+
+# Report accepted span volume and attribute cardinality by UTC hour.
+# telemetry_budget:
+#   enabled: true
+#   default:
+#     spans_per_hour: 10000
+#     bytes_per_hour: 10485760
+#   attributes: [http.route, url.path, service.instance.id]
+#   cardinality_limit: 100

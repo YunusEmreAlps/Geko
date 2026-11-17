@@ -41,6 +41,8 @@ even if YAML configures a separate address.
 | — | `GEKO_MCP_TRIAGE` | `false`. Offer `set_group_state` on `/mcp` to clients with the triager or admin role. |
 | `on_full` | `GEKO_ON_FULL` | `evict_oldest`; `evict_fair` to evict from the application holding the most spans first; or `reject` to keep stored traces and return HTTP 503 |
 | `redaction` | `GEKO_REDACTION` | `best_effort`, or `strict`. The default is `strict` once `GEKO_ACCESS_TOKEN` is set, because other people can then read the data. |
+| `collector_doctor` | — | Disabled until `config_file` or `metrics_url` is set. See [Collector Doctor](collector-doctor.md). |
+| `telemetry_budget` | — | Disabled. Set `enabled: true` to report hourly volume and cardinality. See [Telemetry Budget](telemetry-budget.md). |
 
 A relative `db_path` in YAML resolves from the YAML file's directory. A
 relative `GEKO_DB_PATH` resolves from the working directory.
@@ -95,12 +97,33 @@ Telemetry is filtered before it is stored or indexed.
 A mode change applies only to new spans. See
 [Architecture](architecture.md) for details.
 
+To search a custom span attribute by exact value, set
+`GEKO_SEARCH_ATTRIBUTES` to a comma-separated list such as
+`order.id,tenant.id` and `GEKO_ATTRIBUTE_SEARCH_KEY` to a randomly generated
+32-byte key encoded as 64 hex characters. For example, generate it with
+`openssl rand -hex 32`. Geko stores an HMAC-SHA-256 digest of the attribute
+name and its string or integer value. In **All traces**, open **Search a
+protected attribute**, choose the name, and enter the original value.
+The value is submitted in the request body, and the results URL carries
+the digest. Access to this form follows dashboard access.
+
+Use dedicated span attributes for these values. Values copied to other
+fields remain subject to those fields' redaction rules. Existing spans are
+unaffected, redacted OTLP downloads omit the digests, and changing the key
+makes earlier digests unsearchable by their original values.
+
 ## CLI and local API
+
+See [Collector Doctor](collector-doctor.md) to analyze Collector pipelines
+and internal metrics, and [Telemetry Budget](telemetry-budget.md) to track
+accepted span volume and attribute cardinality.
 
 | Command | Purpose |
 | --- | --- |
 | `geko serve` | Start the receiver and dashboard. `GET /healthz` returns 204 once it is listening, and `GET /readyz` once the database answers. Neither needs a token. |
 | `geko doctor` | Check SQLite integrity, storage sizes, and that every configured port is free. |
+| `geko doctor --collector` | Check the Collector sources configured in Geko YAML. Use `--collector-config`, `--collector-metrics` or `--metrics-file` to supply sources directly. |
+| `geko budget` | Report the running instance's current UTC hour. Supports `--previous`, `--json` and `--server`. |
 | `geko failures --json` | Print a page of failures as JSON for scripts and coding agents, from the local database or a server with `--server`. See [Read traces from coding tools](agents.md). |
 | `geko mcp` | Serve read-only investigation tools to an MCP client over stdio. `geko serve` also serves them at `/mcp`. |
 | `geko compact` | Reclaim free space from the main database file (stop the server first). |
@@ -115,8 +138,9 @@ is the shared HTTP listener unless `dashboard_addr` is set:
 | --- | --- |
 | `GET /api/v1/failures` | A page of traces with failure evidence |
 | `GET /api/v1/traces/{trace_id}` | A trace summary and a page of its spans |
+| `GET /api/v1/budget` | Hourly telemetry report when enabled. Pass `previous=true` for the prior UTC hour. |
 
-Both endpoints accept `limit` (1–100, default 50) and `cursor`. Pass the
+The failures and trace endpoints accept `limit` (1–100, default 50) and `cursor`. Pass the
 `next_cursor` from a response as `cursor` to continue. `/api/v1/failures`
 accepts these filters:
 

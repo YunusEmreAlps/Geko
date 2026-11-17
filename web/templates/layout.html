@@ -43,6 +43,8 @@
     {{else if eq .Page "trace"}}{{template "trace" .Data}}
     {{else if eq .Page "compare"}}{{template "compare" .Data}}
     {{else if eq .Page "settings"}}{{template "settings" .Data}}
+    {{else if eq .Page "collector-doctor"}}{{template "collector-doctor" .Data}}
+    {{else if eq .Page "budget"}}{{template "budget" .Data}}
     {{else if eq .Page "applications"}}{{template "applications" .Data}}
     {{else if eq .Page "connect"}}{{template "connect" .Data}}
     {{else}}{{template "error" .Data}}{{end}}

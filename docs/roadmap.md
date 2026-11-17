@@ -64,9 +64,8 @@ no multi-user accounts, no built-in ACME, no external databases.
 
 ## Phase 5: from failure to verified fix
 
-- [x] `geko run -- <command>` lists failures received while a command ran,
-      matched by receipt time. Matching by test would need spans that carry
-      test names.
+- [x] `geko run -- <command>` configures OTLP for a child command and lists
+      its failures. Phase 7 added filtering by run ID.
 - [x] MCP `compare_trace` and `compare_versions`; `set_group_state` on `/mcp`
       for full-access clients when `GEKO_MCP_TRIAGE` is set.
 - [x] Resolve in a version: only traces from the fixed `service.version` reopen
@@ -78,9 +77,10 @@ no multi-user accounts, no built-in ACME, no external databases.
 - [x] Token reload without restart through `GEKO_TOKENS_FILE`.
 - [x] Go benchmarks for ingest, failures and error groups
       (`go test -run '^$' -bench . ./internal/storage/sqlite`).
-- [ ] Resource comparison with Jaeger and the five-developer usability study
-      from `competitive-research.md`. Both need people and a test setup.
-- [ ] Visual regression coverage for both themes. Needs a browser in CI.
+- [ ] Five-developer usability study. The [study setup](competitive-research.md#facilitated-study)
+      and results sheet are ready for participant sessions.
+- [x] Repeatable resource comparison with Jaeger's in-memory setup.
+- [x] Browser layout checks and screenshot artifacts for both themes in CI.
 
 ## Phase 6: trustworthy for a team
 
@@ -102,12 +102,19 @@ no multi-user accounts, no built-in ACME, no external databases.
 - [x] **Copy as bug evidence**: Markdown for an issue tracker, from a trace or a
       group.
 - [x] **Open in Tempo**: a configurable link from a trace to another trace tool.
-- [ ] Allowlisted attributes, such as a tenant or order number, stored as HMAC
+- [x] Allowlisted attributes, such as a tenant or order number, stored as HMAC
       hashes and searchable by their value.
 - [x] Ingest tokens bound to one application (`GEKO_INGEST_APPLICATIONS`).
 - [x] A webhook per application (`GEKO_APPLICATION_WEBHOOKS`).
-- [ ] `geko run --server` and matching traces to a test run ID.
+- [x] `geko run --server` and matching traces to a test run ID.
 - [x] Pinned traces that outlive retention and capacity eviction.
+
+## Collector diagnostics and telemetry volume
+
+- [x] [Collector Doctor](collector-doctor.md) checks pipeline wiring and
+      diagnoses failures and queue pressure from internal metrics.
+- [x] [Telemetry Budget](telemetry-budget.md) reports hourly span volume,
+      per-service budget overages, and high-cardinality attributes.
 
 Not in scope: Geko keeps no user or password database; people sign in with a
 token or through your identity provider's proxy.

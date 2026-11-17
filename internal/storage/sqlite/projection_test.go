@@ -53,6 +53,12 @@ func TestTraceServicesMatchStoredSpans(t *testing.T) {
 		// Retransmitted spans are ignored; whitespace-only namespaces resolve to none.
 		{span(1, 1, "api", "Shop"), span(1, 4, "db", " "), span(1, 5, "api", "Shop"), span(2, 2, "api", "Reports")},
 	}
+	// Exercise both the full and trailing chunks of trace and service writes.
+	multipleChunks := make([]telemetry.Span, 0, writeChunkSize+1)
+	for i := range writeChunkSize + 1 {
+		multipleChunks = append(multipleChunks, span(byte(i+3), 1, "api", "Shop"))
+	}
+	exports = append(exports, multipleChunks, multipleChunks)
 	for _, export := range exports {
 		if err := store.WriteSpans(ctx, now, export); err != nil {
 			t.Fatal(err)
@@ -70,7 +76,7 @@ SELECT (SELECT count(*) FROM (SELECT * FROM projected EXCEPT SELECT * FROM recom
 	if err := store.read.QueryRowContext(ctx, "SELECT count(*) FROM trace_services").Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 || rows != 4 {
+	if count != 0 || rows != 4+len(multipleChunks) {
 		t.Fatalf("trace_services differs from spans: %d mismatches, %d rows", count, rows)
 	}
 }

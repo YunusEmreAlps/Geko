@@ -21,6 +21,7 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
 	"github.com/YunusEmreAlps/geko/internal/audit"
+	"github.com/YunusEmreAlps/geko/internal/budget"
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 	"github.com/YunusEmreAlps/geko/internal/notify"
@@ -37,10 +38,11 @@ Usage: geko <command>
 
 Commands:
   serve     Start the local dashboard and OTLP trace receiver
-  doctor    Check SQLite and probe the listener
+  doctor    Check SQLite and listeners, or inspect an OpenTelemetry Collector
+  budget    Report hourly trace volume, limits and high-cardinality attributes
   compact   Reclaim free space in the SQLite file
   backup <file>     Write a consistent copy of the database while Geko runs
-  run -- <command>  Run a command with exporters set to Geko, then list the failures received meanwhile
+  run [--server URL] -- <command>  Run a command and list failures tagged with its run ID
   failures --json   Query failures in the local database, or a server with --server
   mcp       Serve read-only investigation tools over stdio (servers also serve /mcp)
   version   Print version and build information
@@ -59,7 +61,7 @@ Environment:
   GEKO_PROXY_ROLES        Proxy users' roles as user=viewer|triager|admin pairs
   GEKO_PROXY_DEFAULT_ROLE Role of unlisted proxy users (default viewer, or none)
   GEKO_AUDIT_LOG       Append a JSON line per change and sign-in to this file (- for stderr)
-  GEKO_TOKEN           Token that failures --server sends
+  GEKO_TOKEN           Read token for remote failures and budget queries
   GEKO_WEBHOOK_URL     Notify on new and reopened error groups
   GEKO_WEBHOOK_FORMAT  json, slack, discord or ntfy (inferred from the URL)
   GEKO_MCP_TRIAGE      Let MCP clients with the triager or admin role resolve and mute groups
@@ -101,6 +103,12 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if args[0] == "run" {
 		return runCommand(ctx, args[1:], out, os.Stderr)
+	}
+	if args[0] == "doctor" && len(args) > 1 {
+		return collectorDoctorCommand(ctx, args[1:], out)
+	}
+	if args[0] == "budget" {
+		return budgetCommand(ctx, args[1:], out)
 	}
 	if len(args) != 1 {
 		return errors.New("expected one command, run geko --help for usage")
@@ -267,7 +275,9 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 	}
 
 	mux := http.NewServeMux()
-	receiver := otlp.NewHandlerWithRedaction(db, cfg.Redaction == "strict")
+	tracker := budget.New(cfg.TelemetryBudget, time.Now())
+	receiver := otlp.NewHandlerWithRedaction(db, cfg.Redaction == "strict").
+		WithAttributeSearch(cfg.AttributeSearch).WithBudget(tracker)
 	if cfg.IngestSlots > 0 {
 		receiver.WithConcurrency(cfg.IngestSlots)
 	}
@@ -354,6 +364,9 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		SignIn:        signIn, SignOut: signOut, Tokens: cfg.AccessToken,
 		ReceiverDiagnostics: receiver.Diagnostics,
 		RestoreTrace:        receiver.RestoreTraceJSON,
+		AttributeSearch:     cfg.AttributeSearch,
+		CollectorDoctor:     cfg.CollectorDoctor,
+		TelemetryBudget:     tracker,
 		RetentionDays:       cfg.RetentionDays, MaxDBBytes: maxBytes,
 		IngestConcurrency: cfg.IngestSlots,
 		ConfigSource:      cfg.Source,

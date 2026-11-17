@@ -63,9 +63,9 @@ func mcpHandler(store investigationReader, triage groupTriage, tokenEnabled bool
 // from GEKO_TOKEN so it stays out of the process list and shell history.
 func remoteFailures(ctx context.Context, server string, args failureArgs) (queryPage[investigation.TraceSummary], error) {
 	var result queryPage[investigation.TraceSummary]
-	base, err := url.Parse(strings.TrimRight(server, "/"))
-	if err != nil || base.Scheme != "http" && base.Scheme != "https" || base.Host == "" || base.RawQuery != "" || base.User != nil {
-		return result, errors.New("--server must be an http or https URL, such as https://geko.example.com")
+	base, err := remoteServerURL(server)
+	if err != nil {
+		return result, err
 	}
 	params := args.params()
 	for key, values := range params {
@@ -106,4 +106,13 @@ func remoteFailures(ctx context.Context, server string, args failureArgs) (query
 		return result, fmt.Errorf("decode response from %s: %w", base.Redacted(), err)
 	}
 	return result, nil
+}
+
+func remoteServerURL(server string) (*url.URL, error) {
+	base, err := url.Parse(strings.TrimRight(server, "/"))
+	if err != nil || base.Scheme != "http" && base.Scheme != "https" || base.Hostname() == "" ||
+		base.RawQuery != "" || base.ForceQuery || base.Fragment != "" || base.User != nil {
+		return nil, errors.New("--server must be an http or https URL, such as https://geko.example.com")
+	}
+	return base, nil
 }

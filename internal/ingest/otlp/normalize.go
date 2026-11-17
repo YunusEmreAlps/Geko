@@ -3,9 +3,12 @@ package otlp
 import (
 	"encoding/hex"
 	"errors"
+	"maps"
 	"math"
+	"strconv"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/budget"
 	"github.com/YunusEmreAlps/geko/internal/privacy"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 
@@ -22,13 +25,21 @@ const (
 
 var errBatchLimit = errors.New("trace batch exceeds a resource, scope, span, or event limit")
 
-func normalize(req *collector.ExportTraceServiceRequest, strict bool) ([]telemetry.Span, int64, error) {
+func normalize(req *collector.ExportTraceServiceRequest, strict bool, search privacy.AttributeSearch, observe func(budget.Observation)) ([]telemetry.Span, int64, error) {
 	var spans []telemetry.Span
 	var rejected int64
 	var firstError error
 	var total int
 	for _, resourceSpans := range req.GetResourceSpans() {
 		resource := textAttributes(resourceSpans.GetResource().GetAttributes(), resourceFields)
+		for _, attr := range resourceSpans.GetResource().GetAttributes() {
+			if attr.GetKey() == "geko.run.id" {
+				value := attr.GetValue().GetStringValue()
+				if raw, err := hex.DecodeString(value); len(value) == 32 && err == nil {
+					resource["geko.run.id"] = hex.EncodeToString(raw)
+				}
+			}
+		}
 		service, _ := resource["service.name"].(string)
 		if service == "" {
 			service = "unknown_service"
@@ -45,7 +56,7 @@ func normalize(req *collector.ExportTraceServiceRequest, strict bool) ([]telemet
 				Attributes: textAttributes(src.GetAttributes(), scopeFields),
 			}
 			for _, span := range scopeSpans.GetSpans() {
-				normalized, err := normalizeSpan(span, service, resource, scope, strict)
+				normalized, err := normalizeSpan(span, service, resource, scope, strict, search)
 				if err != nil {
 					rejected++
 					if firstError == nil {
@@ -54,6 +65,9 @@ func normalize(req *collector.ExportTraceServiceRequest, strict bool) ([]telemet
 					continue
 				}
 				spans = append(spans, normalized)
+				if observe != nil {
+					observe(budget.Observation{Span: span, Resource: resourceSpans.GetResource()})
+				}
 			}
 		}
 	}
@@ -63,7 +77,7 @@ func normalize(req *collector.ExportTraceServiceRequest, strict bool) ([]telemet
 	return spans, rejected, nil
 }
 
-func normalizeSpan(src *trace.Span, service string, resource telemetry.Attributes, scope telemetry.Scope, strict bool) (telemetry.Span, error) {
+func normalizeSpan(src *trace.Span, service string, resource telemetry.Attributes, scope telemetry.Scope, strict bool, search privacy.AttributeSearch) (telemetry.Span, error) {
 	var span telemetry.Span
 	if len(src.GetTraceId()) != len(span.TraceID) || len(src.GetSpanId()) != len(span.ID) {
 		return span, errors.New("invalid trace or span ID length")
@@ -110,7 +124,7 @@ func normalizeSpan(src *trace.Span, service string, resource telemetry.Attribute
 	}
 	span.ResourceAttributes = resource
 	span.Scope = scope
-	span.Attributes = spanAttributes(src.GetAttributes(), strict)
+	span.Attributes = protectedSpanAttributes(src.GetAttributes(), strict, search)
 	span.Events = make([]telemetry.Event, 0, len(src.GetEvents()))
 	for _, event := range src.GetEvents() {
 		if !validTime(event.GetTimeUnixNano()) {
@@ -221,6 +235,33 @@ func textAttributes(src []*common.KeyValue, allowlists ...map[string]int) teleme
 		}
 	}
 	return attrs
+}
+
+func protectedSpanAttributes(src []*common.KeyValue, strict bool, policy privacy.AttributeSearch) telemetry.Attributes {
+	if !policy.Enabled() {
+		return spanAttributes(src, strict)
+	}
+	visible := make([]*common.KeyValue, 0, len(src))
+	protected := make(telemetry.Attributes)
+	for _, attr := range src {
+		name := attr.GetKey()
+		if !policy.Protects(name) {
+			visible = append(visible, attr)
+			continue
+		}
+		var value string
+		switch typed := attr.GetValue().GetValue().(type) {
+		case *common.AnyValue_StringValue:
+			value = typed.StringValue
+		case *common.AnyValue_IntValue:
+			value = strconv.FormatInt(typed.IntValue, 10)
+		}
+		if digest, ok := policy.Digest(name, value); ok {
+			protected[privacy.AttributeDigestPrefix+name] = digest
+		}
+	}
+	maps.Copy(protected, spanAttributes(visible, strict))
+	return protected
 }
 
 func spanAttributes(src []*common.KeyValue, strict bool) telemetry.Attributes {

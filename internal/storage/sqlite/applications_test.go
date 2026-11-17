@@ -79,7 +79,7 @@ func TestReadersCanInspectWhileWriterIsBusy(t *testing.T) {
 	}
 	defer tx.Rollback()
 	id := telemetry.TraceID{1}
-	if _, err := tx.ExecContext(ctx, observeTrace, id[:], 100, 100); err != nil {
+	if err := observeSpanTraces(ctx, tx, 100, []telemetry.Span{{TraceID: id}}); err != nil {
 		t.Fatal(err)
 	}
 	readCtx, cancel := context.WithTimeout(ctx, time.Second)

@@ -414,10 +414,11 @@ func FullAccess(ctx context.Context) bool {
 	return principal.Role == RoleAdmin
 }
 
-// readRequest reports whether a read-only token may make the request. The MCP
-// endpoint only exposes read-only tools.
+// readRequest includes searches that use POST to keep the search value out of
+// URLs. The viewer MCP endpoint exposes read-only tools.
 func readRequest(r *http.Request) bool {
-	return r.Method == http.MethodGet || r.Method == http.MethodHead || r.URL.Path == "/mcp"
+	return r.Method == http.MethodGet || r.Method == http.MethodHead || r.URL.Path == "/mcp" ||
+		r.Method == http.MethodPost && r.URL.Path == "/traces/attribute-search"
 }
 
 // publicRequest needs no credentials: probes, signing in and out, and the

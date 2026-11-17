@@ -56,7 +56,13 @@ var groupNoteSchema string
 //go:embed migrations/012_trace_pins.sql
 var tracePinSchema string
 
-var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema, groupStateActorSchema, groupNoteSchema, tracePinSchema}
+//go:embed migrations/013_run_id.sql
+var runIDSchema string
+
+//go:embed migrations/014_evidence_without_events.sql
+var evidenceWithoutEventsSchema string
+
+var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema, groupStateActorSchema, groupNoteSchema, tracePinSchema, runIDSchema, evidenceWithoutEventsSchema}
 
 type Store struct {
 	revision   atomic.Uint64

@@ -17,6 +17,8 @@
 </section>
 <section class="section" id="receiver">
   <h2>Receiver</h2>
+  {{if .CollectorDoctor.Enabled}}<p><a href="/collector-doctor">Open Collector Doctor</a></p>{{end}}
+  {{if .TelemetryBudget}}<p><a href="/budget">Open Telemetry Budget</a></p>{{end}}
   {{if .Receiver}}<p class="muted">Counts cover the current server session.</p>{{end}}
   <dl class="properties">
     <div><dt>Listener</dt><dd><code>{{.ListenAddr}}</code>{{template "settings-source" .ConfigSource.ListenAddr}}</dd></div>

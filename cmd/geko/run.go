@@ -2,8 +2,11 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,22 +30,46 @@ const runFlushWait = 2 * time.Second
 
 // runCommand runs a command with exporter settings pointing at Geko, then
 // summarizes the failures Geko received while it ran. It starts a server for
-// the duration when none is listening. Traces are matched by receipt time, so
-// the summary can include failures from other clients of the same Geko. The
-// summary comes from the listening server, which may not use cfg.DBPath.
+// the duration when no local server is listening.
 func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	flags := flag.NewFlagSet("run", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	server := flags.String("server", "", "Geko server URL; set GEKO_TOKEN for read access")
+	if err := flags.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	args = flags.Args()
 	if len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}
 	if len(args) == 0 {
-		return errors.New("usage: geko run -- <command> [arguments]")
+		return errors.New("usage: geko run [--server URL] -- <command> [arguments]")
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return err
+	var runIDBytes [16]byte
+	rand.Read(runIDBytes[:])
+	runID := hex.EncodeToString(runIDBytes[:])
+	var cfg config.Config
+	if *server == "" {
+		var err error
+		cfg, err = config.Load()
+		if err != nil {
+			return err
+		}
+	} else {
+		base, err := remoteServerURL(*server)
+		if err != nil {
+			return err
+		}
+		*server = base.String()
 	}
 	base := "http://" + cfg.ListenAddr
-	embedded := !serverReady(ctx, base, cfg.AccessToken.Enabled())
+	if *server != "" {
+		base = *server
+	}
+	embedded := *server == "" && !serverReady(ctx, base, cfg.AccessToken.Enabled())
 	if embedded {
 		stop, err := startEmbedded(ctx, cfg, base)
 		if err != nil {
@@ -50,20 +77,29 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		}
 		defer stop()
 	}
-	token := os.Getenv("GEKO_ACCESS_TOKEN")
+	token, ingestToken := os.Getenv("GEKO_ACCESS_TOKEN"), os.Getenv("GEKO_INGEST_TOKEN")
+	if *server != "" {
+		token = os.Getenv("GEKO_TOKEN")
+	} else if ingestToken == "" {
+		ingestToken = token
+	}
 	// The query API and metrics move to the dashboard listener when it is set.
 	queryBase := base
 	if cfg.DashboardAddr != "" {
 		queryBase = "http://" + cfg.DashboardAddr
 	}
-	before, countErr := readReceiverCounts(ctx, queryBase, token)
+	var before receiverCounts
+	var countErr error
+	if *server == "" {
+		before, countErr = readReceiverCounts(ctx, queryBase, token)
+	}
 	if errors.Is(countErr, errTokenRequired) {
 		fmt.Fprintf(stderr, "geko: %v; the command's exports will be rejected\n", countErr)
 	}
 
 	child := exec.Command(args[0], args[1:]...)
 	child.Stdin, child.Stdout, child.Stderr = os.Stdin, stdout, stderr
-	child.Env = runEnvironment(os.Environ(), base)
+	child.Env = runEnvironment(os.Environ(), base, runID, ingestToken)
 	start := time.Now()
 	runErr := child.Run()
 	var exitCode *exec.ExitError
@@ -78,10 +114,10 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	}
 	end := time.Now()
 	var counts *receiverCounts
-	if countErr == nil {
+	if *server == "" && countErr == nil {
 		counts = &before
 	}
-	if err := summarizeRun(ctx, cfg, queryBase, token, counts, start, end, embedded, stderr); err != nil {
+	if err := summarizeRun(ctx, cfg, queryBase, base, token, runID, counts, start, end, embedded, stderr); err != nil {
 		fmt.Fprintf(stderr, "geko: could not summarize the run: %v\n", err)
 	}
 	if exitCode != nil {
@@ -92,24 +128,43 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) er
 
 // runEnvironment adds exporter settings the caller hasn't set. The access
 // token is passed through as an OTLP header when one is configured.
-func runEnvironment(environ []string, base string) []string {
+func runEnvironment(environ []string, base, runID, ingestToken string) []string {
 	defaults := []string{
 		"OTEL_TRACES_EXPORTER=otlp", "OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf",
 		"OTEL_EXPORTER_OTLP_ENDPOINT=" + base, "OTEL_METRICS_EXPORTER=none", "OTEL_LOGS_EXPORTER=none",
 		"OTEL_BSP_SCHEDULE_DELAY=500",
 	}
-	if token := os.Getenv("GEKO_ACCESS_TOKEN"); token != "" {
-		defaults = append(defaults, "OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%20"+token)
-	}
-	set := make(map[string]bool)
+	settings := make(map[string]string)
+	result := make([]string, 0, len(environ)+len(defaults)+1)
+	var attributes []string
 	for _, entry := range environ {
-		name, _, _ := strings.Cut(entry, "=")
-		set[strings.ToUpper(name)] = true
+		name, value, _ := strings.Cut(entry, "=")
+		if strings.EqualFold(name, "OTEL_RESOURCE_ATTRIBUTES") {
+			for attr := range strings.SplitSeq(value, ",") {
+				key, _, _ := strings.Cut(attr, "=")
+				if strings.TrimSpace(key) != "geko.run.id" && strings.TrimSpace(attr) != "" {
+					attributes = append(attributes, attr)
+				}
+			}
+			continue
+		}
+		settings[strings.ToUpper(name)] = value
+		result = append(result, entry)
 	}
-	result := append([]string(nil), environ...)
+	result = append(result, "OTEL_RESOURCE_ATTRIBUTES="+strings.Join(append(attributes, "geko.run.id="+runID), ","))
+	// Supply credentials only to the Geko endpoint, even if the caller uses a
+	// different collector for the child process.
+	endpoint := settings["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"]
+	generic := settings["OTEL_EXPORTER_OTLP_ENDPOINT"]
+	_, headersSet := settings["OTEL_EXPORTER_OTLP_HEADERS"]
+	if ingestToken != "" && !headersSet &&
+		(endpoint == strings.TrimRight(base, "/")+"/v1/traces" ||
+			endpoint == "" && (generic == "" || strings.TrimRight(generic, "/") == base)) {
+		defaults = append(defaults, "OTEL_EXPORTER_OTLP_TRACES_HEADERS=authorization=Bearer%20"+url.QueryEscape(ingestToken))
+	}
 	for _, entry := range defaults {
 		name, _, _ := strings.Cut(entry, "=")
-		if !set[name] {
+		if _, exists := settings[name]; !exists {
 			result = append(result, entry)
 		}
 	}
@@ -222,10 +277,10 @@ func gekoGet(ctx context.Context, endpoint, token string) ([]byte, error) {
 // summarizeRun reports the failures received during the run. With counters
 // from before the run, it also tells an idle or rejected exporter apart from
 // a run without failures.
-func summarizeRun(ctx context.Context, cfg config.Config, base, token string, before *receiverCounts, start, end time.Time, embedded bool, out io.Writer) error {
+func summarizeRun(ctx context.Context, cfg config.Config, base, ingestBase, token, runID string, before *receiverCounts, start, end time.Time, embedded bool, out io.Writer) error {
 	from, to := start.UTC(), end.UTC()
 	window := from.Format(time.RFC3339) + " to " + to.Format(time.RFC3339)
-	query := url.Values{"from": {from.Format(time.RFC3339Nano)}, "to": {to.Format(time.RFC3339Nano)}}
+	query := url.Values{"run_id": {runID}}
 	body, err := gekoGet(ctx, base+"/api/v1/failures?"+query.Encode()+"&limit=10", token)
 	if err != nil {
 		return err
@@ -234,32 +289,32 @@ func summarizeRun(ctx context.Context, cfg config.Config, base, token string, be
 	if err := json.Unmarshal(body, &page); err != nil {
 		return fmt.Errorf("decode failures: %w", err)
 	}
+	if page.RunID != runID {
+		return errors.New("the Geko server does not support filtering by run ID")
+	}
 	if before != nil {
 		if after, err := readReceiverCounts(ctx, base, token); err == nil {
 			if rejected := after.rejected - before.rejected; rejected > 0 {
-				fmt.Fprintf(out, "\nGeko: rejected %d export requests from %s. Settings lists the reasons.\n", rejected, window)
+				fmt.Fprintf(out, "\nGeko: the receiver rejected %d export requests from all clients during %s. Settings lists the reasons.\n", rejected, window)
 			} else if after.accepted == before.accepted && len(page.Items) == 0 {
-				_, err = fmt.Fprintf(out, "\nGeko: received no exports from %s. Check that the command exports OTLP traces to http://%s.\n", window, cfg.ListenAddr)
+				_, err = fmt.Fprintf(out, "\nGeko: received no exports from %s. Check that the command exports OTLP traces to %s.\n", window, ingestBase)
 				return err
 			}
 		}
 	}
 	if len(page.Items) == 0 {
-		_, err = fmt.Fprintf(out, "\nGeko: no failure evidence received from %s.\n", window)
+		_, err = fmt.Fprintf(out, "\nGeko: no failure evidence for run %s. Check that the SDK exports the geko.run.id resource attribute.\n", runID)
 		return err
 	}
 	dashboard := cfg.PublicURL
 	if dashboard == "" {
-		dashboard = "http://" + cfg.ListenAddr
-		if cfg.DashboardAddr != "" {
-			dashboard = "http://" + cfg.DashboardAddr
-		}
+		dashboard = base
 	}
 	more := ""
 	if page.NextCursor != "" {
 		more = " (first 10)"
 	}
-	fmt.Fprintf(out, "\nGeko: failure evidence received from %s%s. Matched by time, not by test:\n", window, more)
+	fmt.Fprintf(out, "\nGeko: failure evidence for run %s%s\n", runID, more)
 	for _, trace := range page.Items {
 		operation, service := trace.TraceID, ""
 		if trace.EntrySpan != nil {
@@ -276,8 +331,8 @@ func summarizeRun(ctx context.Context, cfg config.Config, base, token string, be
 		}
 		fmt.Fprintf(out, "  %s  %s%s\n    %s/traces/%s\n", operation, service, evidence, dashboard, trace.TraceID)
 	}
-	_, err = fmt.Fprintf(out, "  All: %s/failures?%s\n  Agents: list_failures with from=%s and to=%s\n",
-		dashboard, query.Encode(), from.Format(time.RFC3339Nano), to.Format(time.RFC3339Nano))
+	_, err = fmt.Fprintf(out, "  All: %s/failures?%s\n  Agents: list_failures with run_id=%s\n",
+		dashboard, query.Encode(), runID)
 	if err == nil && embedded {
 		_, err = fmt.Fprintln(out, "  Geko ran only for this command; start geko serve to open the links.")
 	}

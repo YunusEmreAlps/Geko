@@ -109,6 +109,25 @@ last-received times. Application membership is evaluated from indexed trace/serv
 when querying. The application filter benchmark measures that query at
 different database sizes and match rates.
 
+## Collector diagnostics and telemetry budgets
+
+Collector Doctor reads resolved Collector YAML and Prometheus text from
+files or a metrics endpoint. CLI callers supply the sources or use Geko
+configuration. The dashboard reads only operator-configured sources.
+Metrics requests have a timeout and do not follow redirects. The report
+uses component identifiers, metric names, and counts. Arbitrary labels and
+component configuration values stay out of it.
+
+Telemetry Budget runs after a successful write through the common OTLP
+receiver. It counts accepted span messages and uses their original
+protobuf sizes. Service attribution uses normalized service names and
+namespaces, including application bindings applied at ingest.
+Selected scalar attributes become keyed fingerprints. Reports show those
+attribute names and their counts. The tracker holds two UTC hourly
+windows in memory, with limits on tracked services, attribute keys, and
+distinct fingerprints. Budget thresholds trigger reports and leave the
+receiver's existing admission, storage, and eviction policies in place.
+
 ## Failure evidence and queries
 
 An exception event, HTTP 5xx response, or explicit error status makes a span
@@ -120,8 +139,9 @@ Results select one evidence span per trace in priority order (exception,
 5xx, span error), then by recorded start time and span ID. Evidence is an observed
 signal, and the priority expresses which evidence to show first.
 
-Migration 006 replaces the insert trigger with a materialized one-row exception
-lookup. Each new span runs `json_each` once; existing evidence is preserved.
+Migration 014 skips exception lookup for spans with empty events. It records
+HTTP 5xx and span error evidence directly for those spans. Spans with events
+still use one materialized exception lookup. Existing evidence is preserved.
 
 Overview skips evidence lookup when a unique root already supplies its operation
 and service. `BenchmarkOverview200KFailures` tracks this path (about 2.28 s before
@@ -131,7 +151,8 @@ indexed trace/service membership. Triggers maintain the entry and evidence
 spans in the same transaction as the underlying spans. Migration 008 removes the
 per-span membership insert trigger: ingest adds one count per trace, namespace
 and service in each export, reading the namespace from the stored span's
-generated column, and skips retransmitted spans. A delete trigger still
+generated column, and skips retransmitted spans. Ingest groups trace
+observations and service counts into statements of up to 128 rows. A delete trigger still
 decrements the count per span. Application labels resolve at
 read time, so changes to assignments apply immediately. Searches can still
 select matching secondary evidence. Overview and grouping still scale with

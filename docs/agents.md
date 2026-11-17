@@ -62,22 +62,26 @@ first.
 ## Check a test run
 
 `geko run` runs a command with exporter variables pointing at Geko, then lists
-the failures received while it ran:
+the failures tagged with that run's ID:
 
 ```sh
 geko run -- go test ./...
 geko run -- npm test
+geko run --server https://geko.example.com -- go test ./...
 ```
 
 It sets `OTEL_EXPORTER_OTLP_ENDPOINT`, the protocol, a 500 ms batch delay, and
 turns off metric and log exporters, unless the environment already sets them.
-If no Geko is listening on `listen_addr`, it starts one for the duration of the
-command. The summary goes to stderr, with links and the time window to pass to
-`list_failures`, and Geko exits with the command's exit code. The summary comes
-from the listening Geko, using `GEKO_ACCESS_TOKEN` when it requires a token. It
-says so when Geko received no exports or rejected some during the run, so an
-exporter that never reached Geko doesn't look like a clean run. Traces are matched
-by receipt time, not by test: the list can include failures from other clients
-of the same Geko, and misses spans exported more than two seconds after the
-command exits. Only processes that inherit the environment, such as the test
-binary and servers it starts, send traces.
+Each command gets a unique `geko.run.id` in `OTEL_RESOURCE_ATTRIBUTES`. The
+SDK must read and export that resource attribute. Geko waits up to two seconds
+after the child exits before querying traces with the ID. The dashboard link
+can be refreshed to include late arrivals. Pass the ID to `list_failures` as
+`run_id` or to `geko failures --json` as `--run-id`. The summary goes to stderr
+and the command's exit code is preserved.
+
+Local mode starts Geko if needed and uses `GEKO_ACCESS_TOKEN` for queries and
+as the default export credential. With `--server`, set `GEKO_TOKEN` to a read
+token and `GEKO_INGEST_TOKEN` to the export token for the application.
+Existing OTLP endpoint and header settings take precedence. Use a server
+version that supports run IDs. Processes already running before the command
+need to receive the run ID through their own instrumentation to be included.

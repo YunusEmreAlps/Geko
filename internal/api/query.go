@@ -89,7 +89,7 @@ func (api *queryAPI) failures(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, http.StatusOK, pageResponse[investigation.TraceSummary]{
-		Items: page.Items, NextCursor: EncodeCursor(page.Next),
+		Items: page.Items, NextCursor: EncodeCursor(page.Next), RunID: filter.RunID,
 	})
 }
 
@@ -132,6 +132,7 @@ func ParseTraceID(raw string) (telemetry.TraceID, error) {
 }
 
 type pageResponse[T any] struct {
+	RunID      string `json:"run_id,omitempty"`
 	Items      []T    `json:"items"`
 	NextCursor string `json:"next_cursor,omitempty"`
 }
@@ -143,6 +144,20 @@ func ParseFailureFilter(params url.Values) (investigation.FailureFilter, error) 
 		return filter, err
 	}
 	filter.Limit, filter.After = limit, cursor
+	if value := params.Get("run_id"); value != "" {
+		id, err := ParseTraceID(value)
+		if err != nil {
+			return filter, errors.New("run_id must be 32 hexadecimal characters and nonzero")
+		}
+		filter.RunID = hex.EncodeToString(id[:])
+	}
+	if value := params.Get("attribute_digest"); value != "" {
+		digest, err := hex.DecodeString(value)
+		if err != nil || len(digest) != 32 {
+			return filter, errors.New("attribute_digest must be 64 hexadecimal characters")
+		}
+		filter.AttributeDigest = hex.EncodeToString(digest)
+	}
 	if token := params.Get("group"); token != "" {
 		filter.GroupKey, err = investigation.DecodeGroupKey(token)
 		if err != nil {

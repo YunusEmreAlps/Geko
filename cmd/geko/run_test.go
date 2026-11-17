@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -26,7 +27,16 @@ func TestRunHelperProcess(t *testing.T) {
 "scopeSpans":[{"spans":[{"traceId":"0b000000000000000000000000000001","spanId":"0b00000000000001","name":"POST /pay","kind":2,
 "startTimeUnixNano":"1000","endTimeUnixNano":"2000","status":{"code":2},
 "attributes":[{"key":"http.response.status_code","value":{"intValue":"503"}}]}]}]}]}`
-	response, err := http.Post(os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT")+"/v1/traces", "application/json", strings.NewReader(body))
+	endpoint := os.Getenv("OTEL_EXPORTER_OTLP_ENDPOINT") + "/v1/traces"
+	noise := strings.NewReplacer("0b000000000000000000000000000001", "0b000000000000000000000000000002", "POST /pay", "unrelated failure").Replace(body)
+	response, err := http.Post(endpoint, "application/json", strings.NewReader(noise))
+	if err != nil || response.StatusCode != http.StatusOK {
+		os.Exit(9)
+	}
+	response.Body.Close()
+	_, runID, _ := strings.Cut(os.Getenv("OTEL_RESOURCE_ATTRIBUTES"), "geko.run.id=")
+	body = strings.Replace(body, `"attributes":[{"key":"service.name"`, `"attributes":[{"key":"geko.run.id","value":{"stringValue":"`+runID+`"}},{"key":"service.name"`, 1)
+	response, err = http.Post(endpoint, "application/json", strings.NewReader(body))
 	if err != nil || response.StatusCode != http.StatusOK {
 		os.Exit(9)
 	}
@@ -57,7 +67,10 @@ func TestRunCommand(t *testing.T) {
 		t.Fatalf("run error = %v, stderr %s", err, stderr.String())
 	}
 	summary := stderr.String()
-	for _, fragment := range []string{"Matched by time, not by test", "POST /pay  checkout · http_5xx", "/traces/0b000000000000000000000000000001", "list_failures with from=", "start geko serve to open the links"} {
+	if strings.Contains(summary, "unrelated failure") {
+		t.Fatalf("summary included unrelated telemetry: %s", summary)
+	}
+	for _, fragment := range []string{"failure evidence for run", "POST /pay  checkout · http_5xx", "/traces/0b000000000000000000000000000001", "list_failures with run_id=", "start geko serve to open the links"} {
 		if !strings.Contains(summary, fragment) {
 			t.Errorf("summary missing %q:\n%s", fragment, summary)
 		}
@@ -91,6 +104,32 @@ func TestRunReportsMissingExports(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "received no exports") {
 		t.Fatalf("summary = %s", stderr.String())
+	}
+}
+
+func TestRunQueriesRemoteByRunID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/failures" || r.Header.Get("Authorization") != "Bearer query-token" {
+			http.Error(w, "unexpected request", http.StatusBadRequest)
+			return
+		}
+		id := r.URL.Query().Get("run_id")
+		if len(id) != 32 || r.URL.Query().Has("from") {
+			http.Error(w, "expected run ID", http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]any{"run_id": id, "items": []any{}})
+	}))
+	defer server.Close()
+	t.Setenv("GEKO_TOKEN", "query-token")
+	t.Setenv("GEKO_RUN_HELPER", "quiet")
+	t.Setenv("GEKO_CONFIG", filepath.Join(t.TempDir(), "missing.yaml"))
+	var stderr bytes.Buffer
+	if err := runCommand(t.Context(), []string{"--server", server.URL, "--", os.Args[0], "-test.run=^TestRunHelperProcess$"}, io.Discard, &stderr); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stderr.String(), "no failure evidence for run ") {
+		t.Fatalf("output = %s", &stderr)
 	}
 }
 
@@ -140,13 +179,13 @@ func TestReadReceiverCounts(t *testing.T) {
 
 func TestRunEnvironmentKeepsCallerSettings(t *testing.T) {
 	t.Setenv("GEKO_ACCESS_TOKEN", "")
-	env := runEnvironment([]string{"OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318", "PATH=/bin"}, "http://127.0.0.1:4318")
+	env := runEnvironment([]string{"OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318", "OTEL_RESOURCE_ATTRIBUTES=service.namespace=store,geko.run.id=old", "PATH=/bin"}, "http://127.0.0.1:4318", "fresh", "secret")
 	joined := strings.Join(env, "\n")
-	if strings.Contains(joined, "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318") || !strings.Contains(joined, "OTEL_LOGS_EXPORTER=none") {
+	if strings.Contains(joined, "OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318") || !strings.Contains(joined, "OTEL_LOGS_EXPORTER=none") ||
+		!strings.Contains(joined, "service.namespace=store,geko.run.id=fresh") || strings.Contains(joined, "geko.run.id=old") || strings.Contains(joined, "secret") {
 		t.Fatalf("environment = %s", joined)
 	}
-	t.Setenv("GEKO_ACCESS_TOKEN", "3f9c1e7a0b5d48e2c6a1f0d9b7e4c2a8")
-	if env := strings.Join(runEnvironment(nil, "http://127.0.0.1:4318"), "\n"); !strings.Contains(env, "OTEL_EXPORTER_OTLP_HEADERS=authorization=Bearer%203f9c") {
+	if env := strings.Join(runEnvironment(nil, "http://127.0.0.1:4318", "fresh", "3f9c"), "\n"); !strings.Contains(env, "OTEL_EXPORTER_OTLP_TRACES_HEADERS=authorization=Bearer%203f9c") {
 		t.Fatalf("environment without token header = %s", env)
 	}
 }

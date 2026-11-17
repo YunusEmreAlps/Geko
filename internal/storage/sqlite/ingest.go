@@ -7,14 +7,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
-const observeTrace = `
+const observeTraces = `
 INSERT INTO traces (trace_id, first_observed_ns, last_observed_ns)
-VALUES (?, ?, ?)
+`
+const updateObservation = `
 ON CONFLICT (trace_id) DO UPDATE SET
     first_observed_ns = min(traces.first_observed_ns, excluded.first_observed_ns),
     last_observed_ns = max(traces.last_observed_ns, excluded.last_observed_ns)
@@ -29,10 +32,13 @@ INSERT INTO spans (
 ON CONFLICT (trace_id, span_id) DO NOTHING
 `
 
-// The namespace comes from the stored span so it matches its generated column.
+// Use the stored namespace so it matches the generated column. WHERE true
+// separates the SELECT from the UPSERT's ON CONFLICT clause.
 const projectServices = `
 INSERT INTO trace_services (trace_id, namespace, service_name, span_count)
-SELECT trace_id, service_namespace, service_name, ? FROM spans WHERE trace_id = ? AND span_id = ?
+SELECT spans.trace_id, spans.service_namespace, spans.service_name, batch.span_count
+FROM batch JOIN spans ON spans.trace_id = batch.trace_id AND spans.span_id = batch.span_id
+WHERE true
 ON CONFLICT (trace_id, namespace, service_name) DO UPDATE SET span_count = span_count + excluded.span_count
 `
 
@@ -45,6 +51,57 @@ type serviceProjection struct {
 type projectedSpans struct {
 	sample telemetry.SpanID
 	count  int
+}
+
+const writeChunkSize = 128
+
+func observeSpanTraces(ctx context.Context, tx *sql.Tx, observedNS int64, spans []telemetry.Span) error {
+	seen := make(map[telemetry.TraceID]struct{})
+	ids := make([]telemetry.TraceID, 0, len(spans))
+	for _, span := range spans {
+		if _, exists := seen[span.TraceID]; !exists {
+			seen[span.TraceID] = struct{}{}
+			ids = append(ids, span.TraceID)
+		}
+	}
+	for chunk := range slices.Chunk(ids, writeChunkSize) {
+		args := make([]any, 1, len(chunk)+1)
+		args[0] = observedNS
+		for i := range chunk {
+			args = append(args, chunk[i][:])
+		}
+		// Reuse parameter ?1 for both timestamps in every row.
+		values := "(?2,?1,?1)" + strings.Repeat(",(?,?1,?1)", len(chunk)-1)
+		if _, err := tx.ExecContext(ctx, observeTraces+"VALUES "+values+updateObservation, args...); err != nil {
+			return fmt.Errorf("update trace observations: %w", writeError(err))
+		}
+	}
+	return nil
+}
+
+func updateServiceProjections(ctx context.Context, tx *sql.Tx, services map[serviceProjection]projectedSpans) error {
+	args := make([]any, 0, min(len(services), writeChunkSize)*3)
+	write := func() error {
+		values := strings.TrimSuffix(strings.Repeat("(?,?,?),", len(args)/3), ",")
+		query := "WITH batch(trace_id,span_id,span_count) AS (VALUES " + values + ") " + projectServices
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("update trace services: %w", writeError(err))
+		}
+		return nil
+	}
+	for key, projection := range services {
+		args = append(args, key.trace[:], projection.sample[:], projection.count)
+		if len(args) == writeChunkSize*3 {
+			if err := write(); err != nil {
+				return err
+			}
+			args = args[:0]
+		}
+	}
+	if len(args) > 0 {
+		return write()
+	}
+	return nil
 }
 
 func (s *Store) writeExport(ctx context.Context, observedNS int64, spans []telemetry.Span) error {
@@ -148,32 +205,16 @@ func evict(ctx context.Context, tx *sql.Tx, query string, observedNS int64, prot
 }
 
 func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []telemetry.Span) error {
-	traceStmt, err := tx.PrepareContext(ctx, observeTrace)
-	if err != nil {
-		return fmt.Errorf("prepare trace write: %w", err)
+	if err := observeSpanTraces(ctx, tx, observedNS, spans); err != nil {
+		return err
 	}
-	defer traceStmt.Close()
 	spanStmt, err := tx.PrepareContext(ctx, insertSpan)
 	if err != nil {
 		return fmt.Errorf("prepare span write: %w", err)
 	}
 	defer spanStmt.Close()
-	projectStmt, err := tx.PrepareContext(ctx, projectServices)
-	if err != nil {
-		return fmt.Errorf("prepare trace service write: %w", err)
-	}
-	defer projectStmt.Close()
-
-	seen := make(map[telemetry.TraceID]struct{})
 	services := make(map[serviceProjection]projectedSpans)
 	for _, span := range spans {
-		if _, ok := seen[span.TraceID]; !ok {
-			if _, err := traceStmt.ExecContext(ctx, span.TraceID[:], observedNS, observedNS); err != nil {
-				return fmt.Errorf("update trace observation: %w", writeError(err))
-			}
-			seen[span.TraceID] = struct{}{}
-		}
-
 		fields, err := encodeSpanFields(span)
 		if err != nil {
 			return err
@@ -204,12 +245,7 @@ func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []
 			services[key] = projection
 		}
 	}
-	for key, projection := range services {
-		if _, err := projectStmt.ExecContext(ctx, projection.count, key.trace[:], projection.sample[:]); err != nil {
-			return fmt.Errorf("update trace services: %w", writeError(err))
-		}
-	}
-	return nil
+	return updateServiceProjections(ctx, tx, services)
 }
 
 func encodeSpanFields(span telemetry.Span) ([4]string, error) {

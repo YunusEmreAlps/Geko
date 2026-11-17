@@ -39,6 +39,10 @@ online store with separate order, inventory, and payment services.*
   numbers, IBANs and Turkish identity numbers are masked. A `strict` mode, the
   default on a token-protected server, keeps only exception types and message
   hashes.
+- **Diagnoses the Collector.** Collector Doctor checks pipeline wiring and
+  reports refused telemetry, export failures, and queue pressure.
+- **Shows where trace volume comes from.** Telemetry Budget reports hourly
+  span volume, service limit overages, and high-cardinality attributes.
 
 ## Quick start
 
@@ -118,6 +122,8 @@ OTLP/gRPC, a separate dashboard port and receiver limits are in
 | [Coding agents and test runs](docs/agents.md) | `geko failures --json`, MCP over stdio and HTTP, `geko run` |
 | [Connect your application](docs/connect.md) | Ports, OTLP/gRPC, receiver limits |
 | [Configuration and reference](docs/configuration.md) | Every setting, retention and capacity, privacy modes, upgrades, CLI, JSON API |
+| [Collector Doctor](docs/collector-doctor.md) | Diagnose Collector pipelines, export failures and queue pressure |
+| [Telemetry Budget](docs/telemetry-budget.md) | Measure hourly span volume, service limits and attribute cardinality |
 | [Architecture](docs/architecture.md) | Ingestion, storage, privacy filtering, evidence selection |
 
 ## How Geko compares

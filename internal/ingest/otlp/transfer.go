@@ -83,7 +83,7 @@ func encodeTransferSpan(id telemetry.TraceID, span investigation.Span, strict bo
 		})
 	}
 	// Apply the current policy to records written under a previous policy.
-	normalized, err := normalizeSpan(wire, span.Service, nil, telemetry.Scope{}, strict)
+	normalized, err := normalizeSpan(wire, span.Service, nil, telemetry.Scope{}, strict, privacy.AttributeSearch{})
 	if err != nil {
 		return nil, ErrInvalidTransfer
 	}
@@ -180,7 +180,7 @@ func (h *Receiver) RestoreTraceJSON(ctx context.Context, input io.Reader, stored
 		}
 		return id, ErrInvalidTransfer
 	}
-	spans, rejected, err := normalize(&request, h.strict)
+	spans, rejected, err := normalize(&request, h.strict, h.attributeSearch, nil)
 	if err != nil || rejected != 0 || len(spans) == 0 {
 		return id, ErrInvalidTransfer
 	}

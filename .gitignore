@@ -1,5 +1,6 @@
 /bin/
 /dist/
+/node_modules/
 /geko
 /geko.exe
 /geko.yaml

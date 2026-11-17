@@ -203,6 +203,8 @@ label { font-size: var(--text-sm); font-weight: 500; color: var(--text-secondary
 .restore input::file-selector-button { height: 100%; margin-inline-end: 10px; padding: 0 10px; border: 0; border-inline-end: 1px solid var(--border); background: var(--bg-surface); color: var(--text); font: inherit; cursor: pointer; }
 .restore input::file-selector-button:hover { background: var(--bg-hover); }
 .restore form p { margin-top: 8px; color: var(--text-secondary); font-size: var(--text-sm); }
+.attribute-search { display: grid; gap: 10px; }
+.attribute-search .button { justify-self: start; }
 /* Fields and their buttons share a row and wrap together on narrow screens. */
 .application-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin: 12px 0 16px; }
 .application-form > label { flex: 0 1 220px; min-width: 160px; }

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- [Collector Doctor](docs/collector-doctor.md) adds optional Collector YAML and
+  Prometheus metrics analysis to `geko doctor` and Settings. Reports include
+  pipeline findings, counter increases, queue pressure, and suggested actions.
+  The dashboard can compare two metrics scrapes five seconds apart.
+- [Telemetry Budget](docs/telemetry-budget.md) reports accepted OTLP span volume,
+  hourly service limit overages, and high-cardinality attributes in Settings,
+  `geko budget`, and `GET /api/v1/budget`.
+- `geko run --server` uses separate query and ingest credentials and summarizes
+  traces by run ID, indexed by SQLite.
+- Ingest batches trace and service projection writes. Schema 14 skips
+  exception JSON parsing for spans without events.
+- Optional HMAC search matches exact values for configured custom span
+  attributes on **All traces**.
+- The Docker image includes a writable temporary directory for SQLite's
+  larger ingest transactions.
+
 - **Pin trace** keeps a trace past retention and capacity eviction. Pinned
   traces are marked in lists and on the trace page, filtered with `pinned=true`
   in the dashboard and `/api/v1/failures`, and counted in Settings. Triagers can

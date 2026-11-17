@@ -1,0 +1,88 @@
+{
+  "traces_per_round": 8192,
+  "spans_per_round": 16384,
+  "batches_per_round": 128,
+  "rounds": [
+    {
+      "round": 1,
+      "geko:local-comparison": {
+        "image_id": "sha256:7b0a537d526bb56d8c70766b0162a83c0204cf2cbc9c2958b17d350b4387057e",
+        "idle_memory": "13.86MiB",
+        "post_ingest_memory": "21.05MiB",
+        "writable_layer_before_bytes": 131072,
+        "writable_layer_after_bytes": 10203136,
+        "writable_layer_growth_bytes": 10072064,
+        "median_export_ms": 35.21,
+        "p95_export_ms": 53.23,
+        "median_trace_lookup_ms": 3.24,
+        "p95_trace_lookup_ms": 25.31
+      },
+      "geko:optimized-benchmark": {
+        "image_id": "sha256:e05ecfc8744b8f2384766bcd52c71a047e64178bb1f4deb5e8d9cba1c0f95bd7",
+        "idle_memory": "12.1MiB",
+        "post_ingest_memory": "23.66MiB",
+        "writable_layer_before_bytes": 131072,
+        "writable_layer_after_bytes": 10203136,
+        "writable_layer_growth_bytes": 10072064,
+        "median_export_ms": 30.45,
+        "p95_export_ms": 50.24,
+        "median_trace_lookup_ms": 3.54,
+        "p95_trace_lookup_ms": 21.91
+      }
+    },
+    {
+      "round": 2,
+      "geko:optimized-benchmark": {
+        "image_id": "sha256:e05ecfc8744b8f2384766bcd52c71a047e64178bb1f4deb5e8d9cba1c0f95bd7",
+        "idle_memory": "11.95MiB",
+        "post_ingest_memory": "23.18MiB",
+        "writable_layer_before_bytes": 131072,
+        "writable_layer_after_bytes": 10203136,
+        "writable_layer_growth_bytes": 10072064,
+        "median_export_ms": 30.2,
+        "p95_export_ms": 49.48,
+        "median_trace_lookup_ms": 3.69,
+        "p95_trace_lookup_ms": 21.46
+      },
+      "geko:local-comparison": {
+        "image_id": "sha256:7b0a537d526bb56d8c70766b0162a83c0204cf2cbc9c2958b17d350b4387057e",
+        "idle_memory": "10.02MiB",
+        "post_ingest_memory": "19.42MiB",
+        "writable_layer_before_bytes": 131072,
+        "writable_layer_after_bytes": 10203136,
+        "writable_layer_growth_bytes": 10072064,
+        "median_export_ms": 31.08,
+        "p95_export_ms": 65.61,
+        "median_trace_lookup_ms": 3.09,
+        "p95_trace_lookup_ms": 28.28
+      }
+    },
+    {
+      "round": 3,
+      "geko:local-comparison": {
+        "image_id": "sha256:7b0a537d526bb56d8c70766b0162a83c0204cf2cbc9c2958b17d350b4387057e",
+        "idle_memory": "12.36MiB",
+        "post_ingest_memory": "23.23MiB",
+        "writable_layer_before_bytes": 131072,
+        "writable_layer_after_bytes": 10203136,
+        "writable_layer_growth_bytes": 10072064,
+        "median_export_ms": 32.4,
+        "p95_export_ms": 55.0,
+        "median_trace_lookup_ms": 3.17,
+        "p95_trace_lookup_ms": 27.88
+      },
+      "geko:optimized-benchmark": {
+        "image_id": "sha256:e05ecfc8744b8f2384766bcd52c71a047e64178bb1f4deb5e8d9cba1c0f95bd7",
+        "idle_memory": "12.2MiB",
+        "post_ingest_memory": "22.6MiB",
+        "writable_layer_before_bytes": 131072,
+        "writable_layer_after_bytes": 10203136,
+        "writable_layer_growth_bytes": 10072064,
+        "median_export_ms": 29.77,
+        "p95_export_ms": 51.22,
+        "median_trace_lookup_ms": 3.18,
+        "p95_trace_lookup_ms": 26.8
+      }
+    }
+  ]
+}

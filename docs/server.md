@@ -91,6 +91,13 @@ to build the checkout instead.
 - `GET /healthz` and `GET /readyz` need no token. `/readyz` returns 503 when the
   database doesn't answer. `GET /metrics` serves receiver counters and storage
   sizes in Prometheus format to a read token.
+- [Collector Doctor](collector-doctor.md) reads the Collector YAML and metrics
+  from the Geko server's environment. In Docker, mount the YAML read-only and
+  point `metrics_url` at an endpoint reachable from the Geko container. A
+  loopback URL refers to the Geko container itself.
+- [Telemetry Budget](telemetry-budget.md) reports accepted span volume for
+  the running Geko instance. Use a read token with
+  `geko budget --server https://geko.example.com --json` to read its report.
 - Rejected credentials are logged with the client address: the first at once,
   then a count per address each minute. Geko doesn't lock addresses out, because
   behind a proxy every client shares the proxy's address; tokens of 32 or more

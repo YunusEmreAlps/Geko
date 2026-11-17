@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/budget"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 
@@ -20,6 +21,35 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
+
+func TestReceiverBudgetCountsOnlyAcceptedSpans(t *testing.T) {
+	tracker := budget.New(budget.Config{Enabled: true}, time.Now())
+	var writeErr error
+	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error {
+		return writeErr
+	})).WithBudget(tracker)
+	valid := fixtureSpan()
+	invalid := proto.CloneOf(valid)
+	invalid.TraceId = nil
+	send := func() int {
+		request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/v1/traces", bytes.NewReader(encodeBatch(t, valid, invalid)))
+		request.Header.Set("Content-Type", protobufContentType)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response.Code
+	}
+	if code := send(); code != http.StatusOK {
+		t.Fatalf("accepted response: %d", code)
+	}
+	writeErr = storage.ErrCapacity
+	if code := send(); code != http.StatusServiceUnavailable {
+		t.Fatalf("rejected response: %d", code)
+	}
+	report := tracker.Snapshot(time.Now(), false)
+	if report.Total.Spans != 1 || report.Total.Bytes != int64(proto.Size(valid)) || len(report.Services) != 1 {
+		t.Fatalf("budget = %+v", report)
+	}
+}
 
 func TestRejectInvalidExports(t *testing.T) {
 	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error {

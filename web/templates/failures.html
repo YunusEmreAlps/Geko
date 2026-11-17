@@ -20,7 +20,11 @@
   </nav>{{end}}
 </div>
 {{if .Group}}<p class="active-filter"><span class="chip">One error group</span><a class="text-link" href="{{.GroupsURL}}">Back to groups</a></p>{{end}}
+{{if .RunID}}<p class="active-filter">Run <code>{{.RunID}}</code></p>{{end}}
+{{if .AttributeDigest}}<p class="active-filter">Filtered by a protected attribute</p>{{end}}
 <form class="filters" action="{{.Path}}" method="get" data-loading>
+  {{if .RunID}}<input type="hidden" name="run_id" value="{{.RunID}}">{{end}}
+  {{if .AttributeDigest}}<input type="hidden" name="attribute_digest" value="{{.AttributeDigest}}">{{end}}
   {{if .Mode}}<input type="hidden" name="view" value="{{.Mode}}">{{end}}
   {{if .Group}}<input type="hidden" name="group" value="{{.Group}}">{{end}}
   {{if .GroupState}}<input type="hidden" name="state" value="{{.GroupState}}">{{end}}
@@ -115,6 +119,18 @@
 </nav>
 {{end}}
 </section>
+{{if .SearchAttributes}}
+<details class="restore">
+  <summary>Search a protected attribute</summary>
+  <form class="attribute-search" action="/traces/attribute-search" method="post">
+    <label>Attribute
+      <select name="attribute">{{range .SearchAttributes}}<option>{{.}}</option>{{end}}</select>
+    </label>
+    <label>Exact value <input type="text" name="value" autocomplete="off" maxlength="4096" required></label>
+    <button class="button" type="submit">Find traces</button>
+  </form>
+</details>
+{{end}}
 {{if .CanRestore}}
 <details class="restore">
   <summary>Restore a trace</summary>

@@ -146,6 +146,15 @@ func traceListQuery(f investigation.FailureFilter, failuresOnly bool) (string, [
   LEFT JOIN service_applications pa ON pa.service_name = primary_span.service_name`)
 	}
 	query.WriteString(" WHERE 1 = 1")
+	if f.RunID != "" {
+		query.WriteString(` AND t.trace_id IN (SELECT trace_id FROM spans WHERE json_extract(resource_attributes, '$."geko.run.id"') = ?)`)
+		args = append(args, f.RunID)
+	}
+	if f.AttributeDigest != "" {
+		query.WriteString(` AND EXISTS (SELECT 1 FROM spans AS attributed JOIN json_each(attributed.attributes) AS attr
+			WHERE attributed.trace_id = t.trace_id AND attr.key GLOB 'geko.hmac.*' AND attr.value = ?)`)
+		args = append(args, f.AttributeDigest)
+	}
 	if failuresOnly {
 		query.WriteString(" AND t.has_evidence = 1")
 	}

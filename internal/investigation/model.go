@@ -36,6 +36,8 @@ type Page[T any] struct {
 }
 
 type FailureFilter struct {
+	RunID           string
+	AttributeDigest string
 	GroupKey        string
 	Application     *string // nil means all, empty means ungrouped
 	Service         string

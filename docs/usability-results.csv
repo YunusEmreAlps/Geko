@@ -1,0 +1,11 @@
+participant,attempt,tool,scenario,prior_familiarity,setup_seconds,elapsed_seconds,navigation_actions,reported_span,reported_http_status,used_hint,timed_out,matched_expected_evidence,notes
+P01,1,Geko,A,,,,,,,,,,
+P01,2,Jaeger,B,,,,,,,,,,
+P02,1,Jaeger,A,,,,,,,,,,
+P02,2,Geko,B,,,,,,,,,,
+P03,1,Geko,B,,,,,,,,,,
+P03,2,Jaeger,A,,,,,,,,,,
+P04,1,Jaeger,B,,,,,,,,,,
+P04,2,Geko,A,,,,,,,,,,
+P05,1,Geko,A,,,,,,,,,,
+P05,2,Jaeger,B,,,,,,,,,,

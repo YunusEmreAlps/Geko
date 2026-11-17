@@ -12,7 +12,10 @@ import (
 	"strings"
 
 	"github.com/YunusEmreAlps/geko/internal/access"
+	"github.com/YunusEmreAlps/geko/internal/budget"
+	"github.com/YunusEmreAlps/geko/internal/collectordoctor"
 	"github.com/YunusEmreAlps/geko/internal/notify"
+	"github.com/YunusEmreAlps/geko/internal/privacy"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 
 	"go.yaml.in/yaml/v3"
@@ -30,8 +33,11 @@ const ServerRedaction = "strict"
 const DefaultIngestConcurrency = 4
 
 type Config struct {
-	AccessToken access.Token `yaml:"-"`
-	PublicURL   string       `yaml:"public_url"`
+	CollectorDoctor collectordoctor.Sources `yaml:"collector_doctor"`
+	TelemetryBudget budget.Config           `yaml:"telemetry_budget"`
+	AttributeSearch privacy.AttributeSearch `yaml:"-"`
+	AccessToken     access.Token            `yaml:"-"`
+	PublicURL       string                  `yaml:"public_url"`
 	// TraceLinkURL opens a trace in another tool such as Grafana Tempo;
 	// {trace_id} is replaced with the trace ID. TraceLinkName labels the link.
 	TraceLinkURL  string        `yaml:"trace_link_url"`
@@ -79,6 +85,18 @@ func Load() (Config, error) {
 		configPath = defaultConfigPath
 	}
 	cfg, err := loadFile(configPath, optional)
+	if err != nil {
+		return Config{}, err
+	}
+	if cfg.CollectorDoctor.MetricsURL != "" {
+		if err := collectordoctor.ValidateMetricsURL(cfg.CollectorDoctor.MetricsURL); err != nil {
+			return Config{}, err
+		}
+	}
+	if err := cfg.TelemetryBudget.Validate(); err != nil {
+		return Config{}, err
+	}
+	cfg.AttributeSearch, err = privacy.NewAttributeSearch(os.Getenv("GEKO_SEARCH_ATTRIBUTES"), os.Getenv("GEKO_ATTRIBUTE_SEARCH_KEY"))
 	if err != nil {
 		return Config{}, err
 	}
@@ -409,18 +427,20 @@ func loadFile(path string, optional bool) (Config, error) {
 	decoder := yaml.NewDecoder(file)
 	decoder.KnownFields(true)
 	var values struct {
-		DashboardAddr *string             `yaml:"dashboard_addr"`
-		GRPCAddr      *string             `yaml:"grpc_addr"`
-		PublicURL     *string             `yaml:"public_url"`
-		ListenAddr    *string             `yaml:"listen_addr"`
-		DBPath        *string             `yaml:"db_path"`
-		RetentionDays *int                `yaml:"retention_days"`
-		MaxDBMiB      *int                `yaml:"max_db_mib"`
-		IngestSlots   *int                `yaml:"ingest_concurrency"`
-		OnFull        *storage.FullPolicy `yaml:"on_full"`
-		Redaction     *string             `yaml:"redaction"`
-		TraceLinkURL  *string             `yaml:"trace_link_url"`
-		TraceLinkName *string             `yaml:"trace_link_name"`
+		CollectorDoctor collectordoctor.Sources `yaml:"collector_doctor"`
+		TelemetryBudget budget.Config           `yaml:"telemetry_budget"`
+		DashboardAddr   *string                 `yaml:"dashboard_addr"`
+		GRPCAddr        *string                 `yaml:"grpc_addr"`
+		PublicURL       *string                 `yaml:"public_url"`
+		ListenAddr      *string                 `yaml:"listen_addr"`
+		DBPath          *string                 `yaml:"db_path"`
+		RetentionDays   *int                    `yaml:"retention_days"`
+		MaxDBMiB        *int                    `yaml:"max_db_mib"`
+		IngestSlots     *int                    `yaml:"ingest_concurrency"`
+		OnFull          *storage.FullPolicy     `yaml:"on_full"`
+		Redaction       *string                 `yaml:"redaction"`
+		TraceLinkURL    *string                 `yaml:"trace_link_url"`
+		TraceLinkName   *string                 `yaml:"trace_link_name"`
 	}
 	err = decoder.Decode(&values)
 	if errors.Is(err, io.EOF) {
@@ -457,6 +477,11 @@ func loadFile(path string, optional bool) (Config, error) {
 	}
 	if values.TraceLinkName != nil {
 		cfg.TraceLinkName = *values.TraceLinkName
+	}
+	cfg.CollectorDoctor = values.CollectorDoctor
+	cfg.TelemetryBudget = values.TelemetryBudget
+	if cfg.CollectorDoctor.ConfigFile != "" && !filepath.IsAbs(cfg.CollectorDoctor.ConfigFile) {
+		cfg.CollectorDoctor.ConfigFile = filepath.Join(filepath.Dir(path), cfg.CollectorDoctor.ConfigFile)
 	}
 	return cfg, nil
 }

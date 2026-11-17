@@ -14,6 +14,8 @@ import (
 
 	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
+	"github.com/YunusEmreAlps/geko/internal/budget"
+	"github.com/YunusEmreAlps/geko/internal/privacy"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 
@@ -37,9 +39,11 @@ type spanWriter interface {
 }
 
 type Receiver struct {
-	store  spanWriter
-	slots  chan struct{}
-	strict bool
+	store           spanWriter
+	slots           chan struct{}
+	strict          bool
+	attributeSearch privacy.AttributeSearch
+	budget          *budget.Tracker
 
 	mu            sync.Mutex
 	accepted      uint64
@@ -83,6 +87,16 @@ func NewHandler(store spanWriter) *Receiver {
 
 func NewHandlerWithRedaction(store spanWriter, strict bool) *Receiver {
 	return &Receiver{store: store, slots: make(chan struct{}, maxConcurrent), strict: strict}
+}
+
+func (h *Receiver) WithAttributeSearch(policy privacy.AttributeSearch) *Receiver {
+	h.attributeSearch = policy
+	return h
+}
+
+func (h *Receiver) WithBudget(tracker *budget.Tracker) *Receiver {
+	h.budget = tracker
+	return h
 }
 
 // WithConcurrency sets how many exports HTTP and gRPC decode at once. Each
@@ -225,7 +239,12 @@ func bindApplication(spans []telemetry.Span, application string) error {
 // export shares normalization, persistence and diagnostics across transports.
 // Callers hold one admission slot through decoding and persistence.
 func (h *Receiver) export(ctx context.Context, req *collector.ExportTraceServiceRequest) (*collector.ExportTraceServiceResponse, error) {
-	spans, rejected, err := normalize(req, h.strict)
+	var observations []budget.Observation
+	var observe func(budget.Observation)
+	if h.budget != nil {
+		observe = func(value budget.Observation) { observations = append(observations, value) }
+	}
+	spans, rejected, err := normalize(req, h.strict, h.attributeSearch, observe)
 	if err != nil {
 		if errors.Is(err, errBatchLimit) {
 			h.reject(limitExceeded)
@@ -258,8 +277,12 @@ func (h *Receiver) export(ctx context.Context, req *collector.ExportTraceService
 		h.mu.Lock()
 		h.accepted++
 		h.rejectedSpans += uint64(rejected)
-		h.last = time.Now()
+		acceptedAt := time.Now()
+		h.last = acceptedAt
 		h.mu.Unlock()
+		if h.budget != nil {
+			h.budget.Record(acceptedAt, spans, observations)
+		}
 	}
 	response := &collector.ExportTraceServiceResponse{}
 	if rejected > 0 {

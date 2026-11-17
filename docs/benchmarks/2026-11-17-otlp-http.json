@@ -1,0 +1,157 @@
+{
+  "traces": 8192,
+  "spans": 16384,
+  "batches": 128,
+  "rounds": [
+    {
+      "geko_sqlite": {
+        "image_id": "sha256:7b0a537d526bb56d8c70766b0162a83c0204cf2cbc9c2958b17d350b4387057e",
+        "idle_memory": "10.32MiB",
+        "post_ingest_memory": "22.52MiB",
+        "writable_layer_before_bytes": 131072,
+        "writable_layer_after_bytes": 10207232,
+        "writable_layer_growth_bytes": 10076160,
+        "median_export_ms": 37.82,
+        "p95_export_ms": 59.29,
+        "median_trace_lookup_ms": 4.46,
+        "p95_trace_lookup_ms": 27.3
+      },
+      "jaeger_in_memory": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "23.13MiB",
+        "post_ingest_memory": "43.17MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 3.74,
+        "p95_export_ms": 19.7,
+        "median_trace_lookup_ms": 2.71,
+        "p95_trace_lookup_ms": 24.5
+      },
+      "jaeger_badger": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "18.66MiB",
+        "post_ingest_memory": "126.2MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 4.49,
+        "p95_export_ms": 28.41,
+        "median_trace_lookup_ms": 2.94,
+        "p95_trace_lookup_ms": 17.0
+      },
+      "tempo_local": {
+        "image_id": "sha256:78439f7f7cf3c97122846c13a832e060c6c7ef67dcc814dccf0a5f3f78393a93",
+        "idle_memory": "32.58MiB",
+        "post_ingest_memory": "49.07MiB",
+        "writable_layer_before_bytes": 53248,
+        "writable_layer_after_bytes": 57344,
+        "writable_layer_growth_bytes": 4096,
+        "median_export_ms": 4.52,
+        "p95_export_ms": 24.12,
+        "median_trace_lookup_ms": 5.56,
+        "p95_trace_lookup_ms": 30.07
+      }
+    },
+    {
+      "jaeger_in_memory": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "21.15MiB",
+        "post_ingest_memory": "42.88MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 3.73,
+        "p95_export_ms": 23.51,
+        "median_trace_lookup_ms": 3.0,
+        "p95_trace_lookup_ms": 21.92
+      },
+      "jaeger_badger": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "20.84MiB",
+        "post_ingest_memory": "128.1MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 4.22,
+        "p95_export_ms": 27.18,
+        "median_trace_lookup_ms": 2.77,
+        "p95_trace_lookup_ms": 23.51
+      },
+      "tempo_local": {
+        "image_id": "sha256:78439f7f7cf3c97122846c13a832e060c6c7ef67dcc814dccf0a5f3f78393a93",
+        "idle_memory": "28.39MiB",
+        "post_ingest_memory": "45.39MiB",
+        "writable_layer_before_bytes": 53248,
+        "writable_layer_after_bytes": 57344,
+        "writable_layer_growth_bytes": 4096,
+        "median_export_ms": 4.58,
+        "p95_export_ms": 20.07,
+        "median_trace_lookup_ms": 5.55,
+        "p95_trace_lookup_ms": 29.39
+      },
+      "geko_sqlite": {
+        "image_id": "sha256:7b0a537d526bb56d8c70766b0162a83c0204cf2cbc9c2958b17d350b4387057e",
+        "idle_memory": "14.22MiB",
+        "post_ingest_memory": "25.2MiB",
+        "writable_layer_before_bytes": 131072,
+        "writable_layer_after_bytes": 10207232,
+        "writable_layer_growth_bytes": 10076160,
+        "median_export_ms": 36.21,
+        "p95_export_ms": 81.22,
+        "median_trace_lookup_ms": 14.64,
+        "p95_trace_lookup_ms": 27.03
+      }
+    },
+    {
+      "jaeger_badger": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "16.82MiB",
+        "post_ingest_memory": "127.9MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 4.58,
+        "p95_export_ms": 23.52,
+        "median_trace_lookup_ms": 3.12,
+        "p95_trace_lookup_ms": 27.48
+      },
+      "tempo_local": {
+        "image_id": "sha256:78439f7f7cf3c97122846c13a832e060c6c7ef67dcc814dccf0a5f3f78393a93",
+        "idle_memory": "30.62MiB",
+        "post_ingest_memory": "47.5MiB",
+        "writable_layer_before_bytes": 53248,
+        "writable_layer_after_bytes": 57344,
+        "writable_layer_growth_bytes": 4096,
+        "median_export_ms": 4.4,
+        "p95_export_ms": 22.39,
+        "median_trace_lookup_ms": 6.73,
+        "p95_trace_lookup_ms": 29.19
+      },
+      "geko_sqlite": {
+        "image_id": "sha256:7b0a537d526bb56d8c70766b0162a83c0204cf2cbc9c2958b17d350b4387057e",
+        "idle_memory": "11.86MiB",
+        "post_ingest_memory": "21.57MiB",
+        "writable_layer_before_bytes": 131072,
+        "writable_layer_after_bytes": 10203136,
+        "writable_layer_growth_bytes": 10072064,
+        "median_export_ms": 35.93,
+        "p95_export_ms": 57.77,
+        "median_trace_lookup_ms": 3.63,
+        "p95_trace_lookup_ms": 4.75
+      },
+      "jaeger_in_memory": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "21.09MiB",
+        "post_ingest_memory": "41.84MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 4.68,
+        "p95_export_ms": 18.01,
+        "median_trace_lookup_ms": 3.13,
+        "p95_trace_lookup_ms": 21.75
+      }
+    }
+  ]
+}

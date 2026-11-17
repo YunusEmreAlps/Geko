@@ -23,9 +23,12 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
 	"github.com/YunusEmreAlps/geko/internal/audit"
+	"github.com/YunusEmreAlps/geko/internal/budget"
+	"github.com/YunusEmreAlps/geko/internal/collectordoctor"
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/privacy"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
@@ -56,6 +59,9 @@ type Reader interface {
 }
 
 type Settings struct {
+	TelemetryBudget         *budget.Tracker
+	CollectorDoctor         collectordoctor.Sources
+	AttributeSearch         privacy.AttributeSearch
 	RestoreTrace            func(context.Context, io.Reader, func(context.Context, telemetry.TraceID) (bool, error)) (telemetry.TraceID, error)
 	Shutdown                <-chan struct{}
 	DashboardAddr, GRPCAddr string
@@ -104,11 +110,12 @@ type ApplicationWebhook struct {
 }
 
 type dashboard struct {
-	streams   chan struct{}
-	store     Reader
-	settings  Settings
-	templates *template.Template
-	slots     chan struct{}
+	streams         chan struct{}
+	store           Reader
+	settings        Settings
+	templates       *template.Template
+	slots           chan struct{}
+	collectorSample chan struct{}
 }
 
 type screen struct {
@@ -151,10 +158,19 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	mux.HandleFunc("GET /traces/{traceID}/compare", d.local(d.compareTrace))
 	mux.HandleFunc("GET /traces/{traceID}/otlp.json", d.local(d.downloadTrace))
 	mux.HandleFunc("GET /settings", d.local(d.status))
+	if settings.CollectorDoctor.Enabled() {
+		d.collectorSample = make(chan struct{}, 1)
+		mux.HandleFunc("GET /collector-doctor", d.local(d.collectorDoctor))
+	}
+	if settings.TelemetryBudget != nil {
+		mux.HandleFunc("GET /budget", d.local(d.budgetPage))
+		mux.HandleFunc("GET /api/v1/budget", d.local(d.budgetAPI))
+	}
 	mux.HandleFunc("GET /applications", d.local(d.applications))
 	mux.HandleFunc("GET /connect", d.local(d.connect))
 	mux.HandleFunc("GET /metrics", d.local(d.metrics))
 	protect := http.NewCrossOriginProtection()
+	mux.Handle("POST /traces/attribute-search", protect.Handler(d.local(d.searchAttribute)))
 	if settings.RestoreTrace != nil {
 		mux.Handle("POST /traces/import", protect.Handler(d.local(d.restoreTrace)))
 	}
@@ -274,6 +290,8 @@ type failureView struct {
 	Items                             []investigation.TraceSummary
 	Search, Service, Status, Range    string
 	Pinned                            bool
+	RunID, AttributeDigest            string
+	SearchAttributes                  []string
 	Refresh, First, Next              string
 	Filtered                          bool
 	HasTraces                         bool
@@ -314,6 +332,11 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 		EvidenceService: params.Get("evidence_service"),
 		Application:     params.Get("application"),
 		Pinned:          params.Get("pinned") == "true",
+		RunID:           params.Get("run_id"),
+		AttributeDigest: params.Get("attribute_digest"),
+	}
+	if allTraces {
+		view.SearchAttributes = d.settings.AttributeSearch.Keys()
 	}
 	if view.Mode != "" && view.Mode != "groups" {
 		d.problem(w, r, http.StatusBadRequest, "Invalid view", "Choose traces or error groups.")
@@ -379,7 +402,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 		d.problem(w, r, http.StatusBadRequest, "Invalid filters", err.Error())
 		return
 	}
-	view.Filtered = filter.GroupKey != "" || filter.Application != nil || filter.Search != "" || filter.Service != "" || filter.EvidenceService != "" || filter.HTTPStatus != 0 || filter.From != nil || filter.To != nil || filter.Pinned
+	view.Filtered = filter.GroupKey != "" || filter.Application != nil || filter.Search != "" || filter.Service != "" || filter.EvidenceService != "" || filter.HTTPStatus != 0 || filter.From != nil || filter.To != nil || filter.Pinned || filter.RunID != "" || filter.AttributeDigest != ""
 	d.withQuery(w, r, func(ctx context.Context) {
 		applications, err := d.store.ApplicationNames(ctx)
 		if err != nil {
@@ -456,6 +479,21 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 		}
 		d.render(w, r, http.StatusOK, pageName, title, view)
 	})
+}
+
+func (d *dashboard) searchAttribute(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<10)
+	defer r.Body.Close()
+	if err := r.ParseForm(); err != nil {
+		d.problem(w, r, http.StatusBadRequest, "Invalid attribute search", "Choose an attribute and enter its exact value.")
+		return
+	}
+	digest, ok := d.settings.AttributeSearch.Digest(r.PostForm.Get("attribute"), r.PostForm.Get("value"))
+	if !ok {
+		d.problem(w, r, http.StatusBadRequest, "Invalid attribute search", "Choose a configured attribute and enter a value up to 4,096 bytes.")
+		return
+	}
+	http.Redirect(w, r, route("/traces", url.Values{"attribute_digest": {digest}}), http.StatusSeeOther)
 }
 
 func (d *dashboard) overview(w http.ResponseWriter, r *http.Request) {

@@ -20,6 +20,7 @@ import (
 )
 
 type failureArgs struct {
+	RunID           string `json:"run_id,omitempty" jsonschema:"Geko command run ID"`
 	Search          string `json:"q,omitempty" jsonschema:"Trace ID, operation, service or exception search text"`
 	Service         string `json:"service,omitempty" jsonschema:"Request service"`
 	EvidenceService string `json:"evidence_service,omitempty" jsonschema:"Service that recorded the failure evidence"`
@@ -33,6 +34,7 @@ type failureArgs struct {
 }
 
 type queryPage[T any] struct {
+	RunID      string `json:"run_id,omitempty"`
 	Items      []T    `json:"items"`
 	NextCursor string `json:"next_cursor,omitempty"`
 }
@@ -45,7 +47,7 @@ func (args failureArgs) params() url.Values {
 	params := url.Values{
 		"q": {args.Search}, "service": {args.Service}, "evidence_service": {args.EvidenceService},
 		"application": {args.Application}, "from": {args.From}, "to": {args.To}, "cursor": {args.Cursor},
-		"state": {args.State},
+		"state": {args.State}, "run_id": {args.RunID},
 	}
 	if args.Status != 0 {
 		params.Set("status", strconv.Itoa(args.Status))
@@ -60,7 +62,7 @@ func readFailures(ctx context.Context, store api.Reader, filter investigation.Fa
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	page, err := store.Failures(ctx, filter)
-	return queryPage[investigation.TraceSummary]{page.Items, api.EncodeCursor(page.Next)}, err
+	return queryPage[investigation.TraceSummary]{Items: page.Items, NextCursor: api.EncodeCursor(page.Next), RunID: filter.RunID}, err
 }
 
 func openInvestigation(ctx context.Context) (*sqlite.Reader, error) {
@@ -87,6 +89,7 @@ func failuresCommand(ctx context.Context, argv []string, out io.Writer) error {
 	jsonOutput := flags.Bool("json", false, "write JSON to stdout")
 	server := flags.String("server", "", "Geko server URL; the token is read from GEKO_TOKEN")
 	flags.StringVar(&args.Search, "q", "", "search text")
+	flags.StringVar(&args.RunID, "run-id", "", "Geko command run ID")
 	flags.StringVar(&args.Service, "service", "", "request service")
 	flags.StringVar(&args.EvidenceService, "evidence-service", "", "service that recorded the evidence")
 	flags.StringVar(&args.Application, "application", "", "ungrouped or group:<name>")

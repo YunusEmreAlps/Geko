@@ -1,0 +1,23 @@
+{{define "collector-doctor"}}
+<header class="page-head">
+  <div class="title"><a class="crumb" href="/settings">Settings</a><span class="crumb-sep" aria-hidden="true">/</span><h1>Collector Doctor</h1></div>
+  <div class="actions">
+    <a class="button" href="/collector-doctor" data-loading>{{if .Sampled}}Current snapshot{{else}}Refresh{{end}}</a>
+    {{if .CanSample}}<a class="button" href="/collector-doctor?sample=true" data-loading>Compare {{.SampleInterval}} samples</a>{{end}}
+  </div>
+</header>
+{{if .Sampled}}<p class="muted">Failure counter increases between two scrapes taken {{.SampleInterval}} apart. Queue occupancy is from the second scrape.</p>
+{{else if .MetricsChecked}}<p class="muted">Failure counters are cumulative. Queue occupancy is current.</p>{{end}}
+{{if .Findings}}
+<div class="table-wrap" role="region" aria-label="Collector findings" tabindex="0">
+  <table>
+    <thead><tr><th scope="col">Component</th><th scope="col">Finding</th><th scope="col">Evidence</th><th scope="col">Suggested action</th></tr></thead>
+    <tbody>{{range .Findings}}
+      <tr><td>{{.Subject}}</td><td><strong>{{.Severity}}</strong> · {{.Reason}}</td><td>{{.Evidence}}</td><td>{{.Recommendation}}</td></tr>
+    {{end}}</tbody>
+  </table>
+</div>
+{{else}}
+<section class="empty"><h2>No issues found</h2><p>The configured Collector sources were checked.</p></section>
+{{end}}
+{{end}}
