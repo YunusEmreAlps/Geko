@@ -31,6 +31,7 @@ const (
 	jsonContentType     = "application/json"
 	maxPayloadBytes     = 4 << 20
 	maxConcurrent       = 4
+	admissionWait       = 2 * time.Second
 	writeTimeout        = 8 * time.Second
 )
 
@@ -41,6 +42,7 @@ type spanWriter interface {
 type Receiver struct {
 	store           spanWriter
 	slots           chan struct{}
+	wait            time.Duration
 	strict          bool
 	attributeSearch privacy.AttributeSearch
 	budget          *budget.Tracker
@@ -86,7 +88,7 @@ func NewHandler(store spanWriter) *Receiver {
 }
 
 func NewHandlerWithRedaction(store spanWriter, strict bool) *Receiver {
-	return &Receiver{store: store, slots: make(chan struct{}, maxConcurrent), strict: strict}
+	return &Receiver{store: store, slots: make(chan struct{}, maxConcurrent), wait: admissionWait, strict: strict}
 }
 
 func (h *Receiver) WithAttributeSearch(policy privacy.AttributeSearch) *Receiver {
@@ -104,6 +106,30 @@ func (h *Receiver) WithBudget(tracker *budget.Tracker) *Receiver {
 func (h *Receiver) WithConcurrency(n int) *Receiver {
 	h.slots = make(chan struct{}, n)
 	return h
+}
+
+// acquire takes an admission slot, waiting up to h.wait for one. An export
+// that waits holds no payload, so a burst of more exporters than slots queues
+// instead of being refused, without raising the receiver's memory bound.
+func (h *Receiver) acquire(ctx context.Context) bool {
+	select {
+	case h.slots <- struct{}{}:
+		return true
+	default:
+	}
+	if h.wait <= 0 {
+		return false
+	}
+	timer := time.NewTimer(h.wait)
+	defer timer.Stop()
+	select {
+	case h.slots <- struct{}{}:
+		return true
+	case <-timer.C:
+		return false
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (h *Receiver) Diagnostics() Diagnostics {
@@ -158,14 +184,12 @@ func (h *Receiver) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	select {
-	case h.slots <- struct{}{}:
-		defer func() { <-h.slots }()
-	default:
+	if !h.acquire(r.Context()) {
 		h.reject(receiverBusy)
 		unavailable(w, "trace receiver is busy", "1")
 		return
 	}
+	defer func() { <-h.slots }()
 
 	payload, err := readPayload(w, r, encoding)
 	if err != nil {

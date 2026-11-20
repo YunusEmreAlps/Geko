@@ -1,0 +1,256 @@
+{
+  "date": "2026-11-20",
+  "host": {
+    "platform": "win32",
+    "logical_cpus": 12
+  },
+  "method": "scripts/bench-native.py with one round per invocation, alternating the build before and after the Overview bound, twice each, so both see the same host state. 34,816 spans per round, 17,408 of them failing traces, above the 10,000-trace breakdown sample.",
+  "before": {
+    "description": "Overview counted and described every failing trace in the window",
+    "rounds": [
+      {
+        "label": "round-1",
+        "idle_memory_mib": 74.18,
+        "post_ingest_memory_mib": 86.01,
+        "idle_database_bytes": {
+          "geko.db": 90112,
+          "geko.db-wal": 0,
+          "geko.db-shm": 32768
+        },
+        "post_ingest_database_bytes": {
+          "geko.db": 17772544,
+          "geko.db-wal": 2727472,
+          "geko.db-shm": 32768
+        },
+        "database_growth_bytes": 20409904,
+        "stored_spans": 34816,
+        "bytes_per_span": 586.2,
+        "sequential_exports": 128,
+        "sequential_spans_per_second": 3565,
+        "median_export_ms": 34.02,
+        "p95_export_ms": 53.97,
+        "max_export_ms": 82.41,
+        "median_new_connection_export_ms": 39.09,
+        "parallel_connections": 4,
+        "parallel_exports_sent": 128,
+        "parallel_exports_rejected_503": 0,
+        "parallel_spans": 16384,
+        "parallel_spans_per_second": 4139,
+        "mean_failures_api_ms": 2.26,
+        "mean_search_api_ms": 3.61,
+        "mean_trace_api_ms": 1.17,
+        "mean_failures_page_ms": 3.07,
+        "mean_overview_page_ms": 123.18,
+        "failures_api_response_bytes": 26631,
+        "trace_api_response_bytes": 1591
+      },
+      {
+        "label": "round-1",
+        "idle_memory_mib": 20.3,
+        "post_ingest_memory_mib": 34.41,
+        "idle_database_bytes": {
+          "geko.db": 90112,
+          "geko.db-wal": 0,
+          "geko.db-shm": 32768
+        },
+        "post_ingest_database_bytes": {
+          "geko.db": 17743872,
+          "geko.db-wal": 2776912,
+          "geko.db-shm": 32768
+        },
+        "database_growth_bytes": 20430672,
+        "stored_spans": 34816,
+        "bytes_per_span": 586.8,
+        "sequential_exports": 128,
+        "sequential_spans_per_second": 3492,
+        "median_export_ms": 32.7,
+        "p95_export_ms": 51.7,
+        "max_export_ms": 255.88,
+        "median_new_connection_export_ms": 41.01,
+        "parallel_connections": 4,
+        "parallel_exports_sent": 128,
+        "parallel_exports_rejected_503": 0,
+        "parallel_spans": 16384,
+        "parallel_spans_per_second": 4425,
+        "mean_failures_api_ms": 2.14,
+        "mean_search_api_ms": 3.62,
+        "mean_trace_api_ms": 1.13,
+        "mean_failures_page_ms": 2.95,
+        "mean_overview_page_ms": 122.97,
+        "failures_api_response_bytes": 26631,
+        "trace_api_response_bytes": 1591
+      }
+    ]
+  },
+  "after": {
+    "description": "exact index-only count, breakdown over the 10,000 most recent traces",
+    "rounds": [
+      {
+        "label": "round-1",
+        "idle_memory_mib": 20.48,
+        "post_ingest_memory_mib": 34.76,
+        "idle_database_bytes": {
+          "geko.db": 90112,
+          "geko.db-wal": 0,
+          "geko.db-shm": 32768
+        },
+        "post_ingest_database_bytes": {
+          "geko.db": 17743872,
+          "geko.db-wal": 2698632,
+          "geko.db-shm": 32768
+        },
+        "database_growth_bytes": 20352392,
+        "stored_spans": 34816,
+        "bytes_per_span": 584.6,
+        "sequential_exports": 128,
+        "sequential_spans_per_second": 4088,
+        "median_export_ms": 30.12,
+        "p95_export_ms": 46.92,
+        "max_export_ms": 57.69,
+        "median_new_connection_export_ms": 46.31,
+        "parallel_connections": 4,
+        "parallel_exports_sent": 128,
+        "parallel_exports_rejected_503": 0,
+        "parallel_spans": 16384,
+        "parallel_spans_per_second": 3294,
+        "mean_failures_api_ms": 2.8,
+        "mean_search_api_ms": 4.49,
+        "mean_trace_api_ms": 1.68,
+        "mean_failures_page_ms": 3.84,
+        "mean_overview_page_ms": 92.61,
+        "failures_api_response_bytes": 26631,
+        "trace_api_response_bytes": 1585
+      },
+      {
+        "label": "round-1",
+        "idle_memory_mib": 20.12,
+        "post_ingest_memory_mib": 33.38,
+        "idle_database_bytes": {
+          "geko.db": 90112,
+          "geko.db-wal": 0,
+          "geko.db-shm": 32768
+        },
+        "post_ingest_database_bytes": {
+          "geko.db": 17776640,
+          "geko.db-wal": 2752192,
+          "geko.db-shm": 32768
+        },
+        "database_growth_bytes": 20438720,
+        "stored_spans": 34816,
+        "bytes_per_span": 587.0,
+        "sequential_exports": 128,
+        "sequential_spans_per_second": 4234,
+        "median_export_ms": 29.38,
+        "p95_export_ms": 44.66,
+        "max_export_ms": 52.84,
+        "median_new_connection_export_ms": 48.93,
+        "parallel_connections": 4,
+        "parallel_exports_sent": 128,
+        "parallel_exports_rejected_503": 0,
+        "parallel_spans": 16384,
+        "parallel_spans_per_second": 4023,
+        "mean_failures_api_ms": 2.3,
+        "mean_search_api_ms": 2.99,
+        "mean_trace_api_ms": 1.28,
+        "mean_failures_page_ms": 3.31,
+        "mean_overview_page_ms": 86.16,
+        "failures_api_response_bytes": 26631,
+        "trace_api_response_bytes": 1587
+      }
+    ]
+  },
+  "median_comparison": {
+    "idle_memory_mib": {
+      "before": 47.24,
+      "after": 20.3
+    },
+    "post_ingest_memory_mib": {
+      "before": 60.21,
+      "after": 34.07
+    },
+    "database_growth_bytes": {
+      "before": 20420288.0,
+      "after": 20395556.0
+    },
+    "stored_spans": {
+      "before": 34816.0,
+      "after": 34816.0
+    },
+    "bytes_per_span": {
+      "before": 586.5,
+      "after": 585.8
+    },
+    "sequential_exports": {
+      "before": 128.0,
+      "after": 128.0
+    },
+    "sequential_spans_per_second": {
+      "before": 3528.5,
+      "after": 4161.0
+    },
+    "median_export_ms": {
+      "before": 33.36,
+      "after": 29.75
+    },
+    "p95_export_ms": {
+      "before": 52.84,
+      "after": 45.79
+    },
+    "max_export_ms": {
+      "before": 169.14,
+      "after": 55.27
+    },
+    "median_new_connection_export_ms": {
+      "before": 40.05,
+      "after": 47.62
+    },
+    "parallel_connections": {
+      "before": 4.0,
+      "after": 4.0
+    },
+    "parallel_exports_sent": {
+      "before": 128.0,
+      "after": 128.0
+    },
+    "parallel_exports_rejected_503": {
+      "before": 0.0,
+      "after": 0.0
+    },
+    "parallel_spans": {
+      "before": 16384.0,
+      "after": 16384.0
+    },
+    "parallel_spans_per_second": {
+      "before": 4282.0,
+      "after": 3658.5
+    },
+    "mean_failures_api_ms": {
+      "before": 2.2,
+      "after": 2.55
+    },
+    "mean_search_api_ms": {
+      "before": 3.62,
+      "after": 3.74
+    },
+    "mean_trace_api_ms": {
+      "before": 1.15,
+      "after": 1.48
+    },
+    "mean_failures_page_ms": {
+      "before": 3.01,
+      "after": 3.58
+    },
+    "mean_overview_page_ms": {
+      "before": 123.08,
+      "after": 89.38
+    },
+    "failures_api_response_bytes": {
+      "before": 26631.0,
+      "after": 26631.0
+    },
+    "trace_api_response_bytes": {
+      "before": 1591.0,
+      "after": 1586.0
+    }
+  }
+}

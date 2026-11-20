@@ -43,6 +43,61 @@ func TestOverviewRootAndEvidenceFallback(t *testing.T) {
 	}
 }
 
+func TestOverviewCountsEveryTraceAndSamplesTheBreakdown(t *testing.T) {
+	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "overview.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := t.Context()
+	// The oldest hundred traces record their own operation, so a breakdown of
+	// the most recent OverviewSampleLimit traces leaves it out while the count
+	// still covers them.
+	traces := OverviewSampleLimit + 100
+	if _, err := store.db.ExecContext(ctx, `WITH RECURSIVE sequence(n) AS (
+        VALUES(1) UNION ALL SELECT n+1 FROM sequence WHERE n < ?
+    ) INSERT INTO traces(trace_id, first_observed_ns, last_observed_ns)
+      SELECT unhex(printf('%032x', n)), n, n FROM sequence`, traces); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO spans
+        (trace_id, span_id, service_name, name, kind, start_ns, end_ns, status_code)
+      SELECT trace_id, x'0000000000000001', 'api',
+        CASE WHEN last_observed_ns > ? THEN 'POST /checkout' ELSE 'GET /oldest' END, 2, 1, 2, 2
+      FROM traces`, traces-OverviewSampleLimit); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Overview(ctx, time.Unix(0, 0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.TraceCount != traces {
+		t.Fatalf("trace count = %d, want every trace (%d)", got.TraceCount, traces)
+	}
+	if got.SampledTraces != OverviewSampleLimit {
+		t.Fatalf("sampled traces = %d, want %d", got.SampledTraces, OverviewSampleLimit)
+	}
+	if len(got.Operations) != 1 || got.Operations[0].Operation != "POST /checkout" {
+		t.Fatalf("breakdown = %+v, want the sampled operation only", got.Operations)
+	}
+	if got.Operations[0].Count != OverviewSampleLimit {
+		t.Fatalf("breakdown count = %d, want the sample size", got.Operations[0].Count)
+	}
+}
+
+func TestOverviewReportsNoSampleWithinTheLimit(t *testing.T) {
+	store := openTestStore(t)
+	span := testSpan(1, 1, "gateway", 500)
+	observed := time.Now()
+	if err := store.WriteSpans(t.Context(), observed, []telemetry.Span{span}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Overview(t.Context(), observed.Add(-time.Hour))
+	if err != nil || got.TraceCount != 1 || got.SampledTraces != 0 {
+		t.Fatalf("overview = %+v, %v", got, err)
+	}
+}
+
 func BenchmarkOverview200KFailures(b *testing.B) {
 	store, err := Open(b.Context(), filepath.Join(b.TempDir(), "overview.db"))
 	if err != nil {

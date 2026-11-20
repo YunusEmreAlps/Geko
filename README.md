@@ -146,6 +146,17 @@ go test ./internal/ingest/otlp -run '^$' -fuzz '^FuzzReceiver$' -fuzztime 30s
 go test ./internal/storage/sqlite -run '^$' -bench .
 ```
 
+To measure one process end to end, without Docker or another backend:
+
+```sh
+go build -o bin/geko ./cmd/geko
+python scripts/bench-native.py --binary bin/geko --rounds 4
+python scripts/bench-ingest-concurrency.py --binary bin/geko
+```
+
+The latest figures are in
+[competitive research](docs/competitive-research.md#single-process-measurement).
+
 CI also runs staticcheck, govulncheck, race tests, `go mod tidy -diff`, and a
 Docker smoke test with the JSON exporters. CI also builds a release snapshot,
 verifies the archive checksums, and runs the Linux amd64 binary. Run

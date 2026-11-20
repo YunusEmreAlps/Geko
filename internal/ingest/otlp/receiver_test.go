@@ -308,3 +308,57 @@ type writeFunc func(context.Context, time.Time, []telemetry.Span) error
 func (fn writeFunc) WriteSpans(ctx context.Context, observed time.Time, spans []telemetry.Span) error {
 	return fn(ctx, observed, spans)
 }
+
+func TestAdmissionWaitsForASlot(t *testing.T) {
+	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error { return nil }))
+	for range maxConcurrent {
+		handler.slots <- struct{}{}
+	}
+	payload := encodeBatch(t, fixtureSpan())
+	codes := make(chan int, 1)
+	go func() {
+		request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/v1/traces", bytes.NewReader(payload))
+		request.Header.Set("Content-Type", protobufContentType)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		codes <- response.Code
+	}()
+	select {
+	case code := <-codes:
+		t.Fatalf("export answered %d without a free slot", code)
+	case <-time.After(50 * time.Millisecond):
+	}
+	<-handler.slots
+	if code := <-codes; code != http.StatusOK {
+		t.Fatalf("export that waited for a slot = %d", code)
+	}
+	if busy := handler.Diagnostics().Rejections[receiverBusy].Count; busy != 0 {
+		t.Fatalf("waiting export counted as refused: %d", busy)
+	}
+	for range maxConcurrent - 1 {
+		<-handler.slots
+	}
+}
+
+func TestAdmissionRefusesWhenTheWaitExpires(t *testing.T) {
+	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error { return nil }))
+	handler.wait = 0
+	for range maxConcurrent {
+		handler.slots <- struct{}{}
+	}
+	defer func() {
+		for range maxConcurrent {
+			<-handler.slots
+		}
+	}()
+	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/v1/traces", bytes.NewReader(encodeBatch(t, fixtureSpan())))
+	request.Header.Set("Content-Type", protobufContentType)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusServiceUnavailable || response.Header().Get("Retry-After") != "1" {
+		t.Fatalf("refused export = %d %q", response.Code, response.Header().Get("Retry-After"))
+	}
+	if busy := handler.Diagnostics().Rejections[receiverBusy].Count; busy != 1 {
+		t.Fatalf("refused exports counted = %d", busy)
+	}
+}

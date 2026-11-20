@@ -283,6 +283,7 @@ func TestGRPCStrictRedaction(t *testing.T) {
 
 func TestGRPCAdmissionPrecedesDecoding(t *testing.T) {
 	receiver := NewHandler(nil)
+	receiver.wait = 0
 	conn := grpcClient(t, receiver, "127.0.0.1:4317")
 	for range maxConcurrent {
 		receiver.slots <- struct{}{}

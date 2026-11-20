@@ -4,18 +4,54 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 )
 
-func (s *Store) ApplicationNames(ctx context.Context) ([]string, error) {
-	rows, err := s.read.QueryContext(ctx, `
-        SELECT service_namespace AS name FROM spans WHERE service_namespace <> ''
+// applicationNamesQuery walks the spans_namespace index one distinct namespace
+// at a time instead of scanning every span, so its cost follows the number of
+// applications rather than the number of stored spans.
+const applicationNamesQuery = `
+        WITH RECURSIVE namespaces(name) AS (
+            SELECT min(service_namespace) FROM spans WHERE service_namespace <> ''
+            UNION ALL
+            SELECT (SELECT min(service_namespace) FROM spans
+                    WHERE service_namespace <> '' AND service_namespace > namespaces.name)
+            FROM namespaces WHERE namespaces.name IS NOT NULL
+        )
+        SELECT name FROM namespaces WHERE name IS NOT NULL
         UNION SELECT application FROM service_applications
         UNION SELECT application FROM trace_applications
-        ORDER BY name`)
+        ORDER BY 1`
+
+// applicationExistsQuery answers whether any stored span or assignment can
+// resolve to an application name. The spans branch repeats the partial index's
+// predicate so the lookup uses spans_namespace instead of recomputing the
+// generated column for every row.
+const applicationExistsQuery = `SELECT
+        EXISTS(SELECT 1 FROM spans WHERE service_namespace <> '' AND service_namespace = ?)
+        OR EXISTS(SELECT 1 FROM service_applications WHERE application = ?)
+        OR EXISTS(SELECT 1 FROM trace_applications WHERE application = ?)`
+
+// knownApplication reports whether a filter can match anything. A name no
+// stored span or assignment resolves to costs this lookup instead of a
+// correlated subquery over every trace.
+func (s *Store) knownApplication(ctx context.Context, name string) (bool, error) {
+	if name == "" { // ungrouped traces always exist as a possibility
+		return true, nil
+	}
+	var exists bool
+	if err := s.read.QueryRowContext(ctx, applicationExistsQuery, name, name, name).Scan(&exists); err != nil {
+		return false, fmt.Errorf("check application: %w", err)
+	}
+	return exists, nil
+}
+
+func (s *Store) ApplicationNames(ctx context.Context) ([]string, error) {
+	rows, err := s.read.QueryContext(ctx, applicationNamesQuery)
 	if err != nil {
 		return nil, err
 	}

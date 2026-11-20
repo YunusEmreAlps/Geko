@@ -9,3 +9,6 @@
 *.db-wal
 *.db-journal
 /deploy/.env
+*.test.exe
+*.test
+__pycache__/

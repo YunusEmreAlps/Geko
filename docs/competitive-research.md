@@ -120,6 +120,33 @@ Writable-layer growth measures file footprint at that point in the run.
 Batching and persistence semantics affect the meaning of export
 acknowledgement time across profiles.
 
+#### Three-round run on 2026-11-20
+
+The same host and method as the 2026-11-17 run below, repeated against the
+working tree after the ingest and application-filter fixes. Docker Desktop for
+Windows, Engine 28.5.1. Each profile received 8,192 traces (16,384 spans) per
+round over 128 exports, followed by 16 timed trace lookups. Medians across
+three rounds. [Raw measurements and image digests](benchmarks/2026-11-20-otlp-http.json)
+
+| Profile | Idle memory | Memory after ingest | Writable layer growth | Export median | Export p95 | Trace lookup median |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Geko, SQLite | 11.99 MiB | 23.12 MiB | 9.61 MiB | 34.29 ms | 59.59 ms | 3.28 ms |
+| Jaeger 2.23.0, in memory | 18.80 MiB | 40.98 MiB | 0 bytes | 3.33 ms | 24.56 ms | 2.93 ms |
+| Jaeger 2.23.0, Badger | 20.24 MiB | 127.80 MiB | 0 bytes | 3.68 ms | 26.07 ms | 3.38 ms |
+| Tempo 3.0.0, local | 30.73 MiB | 47.35 MiB | 4 KiB | 4.03 ms | 24.74 ms | 7.10 ms |
+
+The picture is the one the earlier run showed, with three days of changes in
+between and no drift: Geko holds the smallest memory snapshot after ingest, at
+56% of Jaeger in memory, 18% of Jaeger on Badger and 49% of Tempo, and it
+acknowledges an export roughly nine times slower, because it returns after the
+SQLite commit that also indexes the failure evidence. Trace lookups are within
+noise of both Jaeger profiles and about half of Tempo's.
+
+The two profiles that report no writable-layer growth keep their data outside
+that layer, so the 9.61 MiB Geko reports for 16,384 spans is not evidence that
+it stores more. The comparable figure is Geko's own 589 bytes per span,
+measured below.
+
 #### Three-round run on 2026-11-17
 
 Docker Desktop for Windows, Engine 28.5.1, with 12 logical CPUs and 15.55 GiB
@@ -179,6 +206,152 @@ accepted 4,096 spans in both tools and retrieved the last trace from each.
 The local Geko image ID started with `sha256:aea24dbe21d4` and the Jaeger
 image ID with `sha256:3823829974cc`. These readings describe one run
 with the two storage configurations above.
+
+### Single-process measurement
+
+The Docker comparison above answers how Geko compares. This section answers
+what one Geko process does on its own, without Docker and without another
+backend, so a regression in Geko shows up on its own.
+
+```sh
+go build -o bin/geko ./cmd/geko
+python scripts/bench-native.py --binary bin/geko --rounds 4 --out run.json
+python scripts/bench-ingest-concurrency.py --binary bin/geko --out concurrency.json
+```
+
+#### Four-round run on 2026-11-20
+
+Windows 11, Intel Core i7-8750H, 12 logical CPUs, no other test workload. Each
+round started a fresh server with an empty database and ingested 34,816 spans,
+every trace recording HTTP 503 and an error status. Query figures are the mean
+of 100 requests over one reused connection, after a discarded first request, so
+they exclude connection setup. Figures below are medians across four rounds.
+[Raw measurements](benchmarks/2026-11-20-native-e2e.json)
+
+| Measurement | Median of four rounds |
+| --- | ---: |
+| Resident memory, idle | 20.28 MiB |
+| Resident memory, after 34,816 spans | 34.20 MiB |
+| Database growth per span, including WAL | 586 bytes |
+| Export acknowledgement, one connection | 33.43 ms |
+| Export acknowledgement, p95 | 51.55 ms |
+| Export acknowledgement, new connection each time | 38.25 ms |
+| Accepted spans per second, one connection | 3,708 |
+| Accepted spans per second, four connections | 3,482 |
+| Exports refused with HTTP 503 | 0 |
+| `GET /api/v1/failures?limit=50` | 3.18 ms |
+| `GET /api/v1/failures?q=inventory` | 3.37 ms |
+| `GET /api/v1/traces/{id}` | 1.72 ms |
+| Failures page at 17,408 failing traces | 3.50 ms |
+| Overview page at 17,408 failing traces | 88.91 ms |
+
+Export acknowledgement follows a durable SQLite commit, which is why it stays
+an order of magnitude above the backends that acknowledge earlier in their
+pipelines, and it is the one figure here that a change has yet to address.
+
+This host's run-to-run spread reaches 30% on identical code, so a figure here
+is not comparable with one from another run on a different day. Comparing two
+builds needs the paired run below.
+
+#### Paired run of the Failures page fix on 2026-11-20
+
+One round per invocation, alternating the binary built at `51d64c4` with the
+working tree, twice each, so both builds saw the same host state. Medians of
+the two rounds per build.
+[Raw measurements](benchmarks/2026-11-20-failures-page-fix.json)
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Failures page at 17,408 failing traces | 247.75 ms | 2.52 ms |
+| Failures page, per round | 70.76 and 424.75 ms | 2.26 and 2.78 ms |
+| Export acknowledgement, one connection | 25.30 ms | 25.05 ms |
+| Accepted spans per second, four connections | 5,028 | 5,040 |
+| `GET /api/v1/failures?limit=50` | 1.58 ms | 1.96 ms |
+| Overview page | 98.96 ms | 102.60 ms |
+| Database growth per span | 587 bytes | 590 bytes |
+
+The Failures page no longer reads every stored span to list the applications
+its filter offers, so it is 98 times faster here and no longer varies by a
+factor of six between rounds. Every other figure is inside this host's spread:
+the change touches the application queries and the admission path, not ingest
+or trace reads.
+
+#### Paired run of the Overview bound on 2026-11-20
+
+The same alternating method, against the build before and after Overview stopped
+describing every failing trace in the window. This fixture holds 17,408 failing
+traces, above the 10,000-trace breakdown sample, so the page reports that it
+sampled. [Raw measurements](benchmarks/2026-11-20-overview-bound.json)
+
+| Measurement | Before | After |
+| --- | ---: | ---: |
+| Overview page at 17,408 failing traces | 123.08 ms | 89.38 ms |
+| Overview page, per round | 123.18 and 122.97 ms | 92.61 and 86.16 ms |
+| `BenchmarkOverview200KFailures` | 941.28 ms | 84.00 ms |
+| Failures page | 3.01 ms | 3.58 ms |
+| Database growth per span | 587 bytes | 586 bytes |
+
+The dashboard window gains less than the benchmark because 17,408 traces is
+only 74% above the sample, while 200,000 is twenty times it. The trace count
+stays exact in both: it comes from `traces_recent_failures` without reading a
+row, which costs 25 ms over 200,000 failing traces.
+
+#### Storage microbenchmarks on 2026-11-20
+
+The same host, `go test -run '^$' -bench . -benchmem -benchtime 5x -count 3
+./internal/storage/sqlite ./internal/ingest/otlp`. Medians of three runs.
+[Raw output](benchmarks/2026-11-20-storage-microbenchmarks.txt)
+
+| Benchmark | Median | Note |
+| --- | ---: | --- |
+| `WriteSpans` | 6.87 ms | 100 spans per export, 14,555 spans per second in process |
+| `Failures` | 4.79 ms | 10,000 traces, 2,500 failing |
+| `FailureGroups` | 102.48 ms | the same store, grouped |
+| `TraceSummary200KSpans` | 4.69 ms | one trace out of 200,000 spans |
+| `Overview200KFailures` | 78.87 ms | 941.28 ms before the breakdown was bounded |
+| `ApplicationNames` | 3.76 ms | the filter list over 50,000 spans, setup included |
+| `ApplicationFailureFilter/100000/Storefront` | 2.17 ms | a matching application |
+| `ApplicationFailureFilter/100000/Reporting` | 26.07 ms | an application on 1% of traces |
+| `ApplicationFailureFilter/100000/Missing` | 0.16 ms | 340.60 ms before the indexed lookup |
+| `RejectAmplifiedPayload/json` | 2.17 ms | a 10 MiB payload refused |
+| `RejectAmplifiedPayload/protobuf` | 5.55 ms | the same payload as protobuf |
+
+In-process writes reach 14,555 spans per second against roughly 5,000 over
+OTLP/HTTP in the paired runs above, so most of the cost of an export is HTTP
+handling, JSON decoding and redaction rather than storage.
+
+Three rows replace earlier figures, and two of the three come from a change
+rather than from the host: Overview no longer describes every failing trace in
+the window, and an application with no traces is answered by an indexed lookup.
+The filter list behind `ApplicationNames`, measured as a matched pair at
+`-benchtime 50x -count 3` over the same 50,000-span store so that setup is
+amortized, went from 64.76 ms and 3,236 allocations per call to 0.43 ms and 28:
+a factor of 151. `FailureGroups` is the remaining query whose cost follows the
+whole window.
+
+#### Ingest concurrency on 2026-11-20
+
+The same host, one fresh server per level, 32 exports per connection after 32
+warm-up exports. The receiver keeps `ingest_concurrency` exports in flight and
+answers the rest with HTTP 503 and `Retry-After: 1`, which an OTLP exporter
+retries. [Raw measurements](benchmarks/2026-11-20-ingest-concurrency.json)
+
+| Exporters | Accepted spans/s | Exports accepted | Refused with 503, before | Refused with 503, after |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 3,511 | 32 | 0 | 0 |
+| 2 | 4,895 | 64 | 0 | 0 |
+| 4 | 5,499 | 128 | 0 | 0 |
+| 8 | 4,838 | 256 | 128 | 0 |
+| 16 | 4,765 | 512 | 397 | 0 |
+
+Accepted throughput is flat between one and sixteen exporters, so the limit is
+the single SQLite writer committing once per export, not the number of ingest
+slots. The four default slots were refusing exports they did not need to
+refuse: eight exporters lost half of their 256 exports and sixteen lost 397 of
+512, while raising `GEKO_INGEST_CONCURRENCY` to sixteen refused nothing at the
+same throughput. The receiver now waits up to two seconds for a slot before it
+refuses, and the same sweep accepts every export at every level. An export that
+waits holds no payload, so the receiver's memory bound is unchanged.
 
 ### Facilitated study
 

@@ -70,13 +70,11 @@ func (h *Receiver) NewGRPCServer(token access.Token) *grpc.Server {
 			h.reject(forbiddenHost)
 			return nil, status.Error(codes.PermissionDenied, "trace receiver requires a loopback authority")
 		}
-		select {
-		case h.slots <- struct{}{}:
-			defer func() { <-h.slots }()
-		default:
+		if !h.acquire(ctx) {
 			h.reject(receiverBusy)
 			return nil, retryStatus("trace receiver is busy", time.Second)
 		}
+		defer func() { <-h.slots }()
 		var export guardedExport
 		if err := decode(&export); err != nil {
 			if status.Code(err) == codes.ResourceExhausted {

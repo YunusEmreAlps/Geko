@@ -175,6 +175,9 @@ type Overview struct {
 	TraceCount   int
 	ServiceCount int
 	Operations   []OperationCount
+	// SampledTraces is zero when the breakdown covers every counted trace, and
+	// otherwise the number of most recent traces it was computed from.
+	SampledTraces int
 }
 
 type OperationCount struct {

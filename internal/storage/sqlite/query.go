@@ -22,7 +22,6 @@ const traceSummaryQuery = traceSummarySelect + traceSummaryJoins
 const traceSummaryJoins = traceSummaryJoinStart + "t.evidence_span_id" + traceSummaryEnd
 const rootApplication = "coalesce(nullif(r.service_namespace, ''), ta.application, ra.application, '')"
 const evidenceApplication = "coalesce(nullif(s.service_namespace, ''), ta.application, sa.application, '')"
-const rootOrEvidenceApplication = "CASE WHEN r.span_id IS NOT NULL THEN " + rootApplication + " ELSE " + evidenceApplication + " END"
 
 const traceSummarySelect = `
 SELECT t.trace_id, t.first_observed_ns, t.last_observed_ns,
@@ -69,6 +68,15 @@ func (s *Store) traceList(ctx context.Context, f investigation.FailureFilter, fa
 	page := investigation.Page[investigation.TraceSummary]{Items: []investigation.TraceSummary{}}
 	if f.Limit < 1 || f.Limit > investigation.MaxPageSize {
 		return page, errors.New("invalid trace page size")
+	}
+	if f.Application != nil {
+		known, err := s.knownApplication(ctx, *f.Application)
+		if err != nil {
+			return page, err
+		}
+		if !known {
+			return page, nil
+		}
 	}
 	base, args := traceListQuery(f, failuresOnly)
 	var query strings.Builder

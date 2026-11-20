@@ -19,6 +19,15 @@ func (s *Store) FailureGroups(ctx context.Context, f investigation.FailureFilter
 	if f.Limit < 1 || f.Limit > investigation.MaxPageSize || f.After != nil {
 		return result, errors.New("invalid group page")
 	}
+	if f.Application != nil {
+		known, err := s.knownApplication(ctx, *f.Application)
+		if err != nil {
+			return result, err
+		}
+		if !known {
+			return result, nil
+		}
+	}
 	base, args := traceListQuery(f, true)
 	if _, ok := groupStateCondition[f.GroupState]; !ok {
 		return result, errors.New("invalid group state")

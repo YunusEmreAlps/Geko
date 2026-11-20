@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- The trace receiver waits up to two seconds for a free ingest slot before it
+  refuses an export with HTTP 503 or gRPC `Unavailable`. An export that waits
+  holds no payload, so the receiver's memory bound is unchanged. Eight
+  exporters against the default four slots lost half of their exports before
+  this change and lose none now.
+- The application filter list no longer reads every stored span. It walks the
+  namespace index one distinct application at a time, which takes 0.43 ms over
+  50,000 spans instead of 64.76 ms, with 28 allocations instead of 3,236. Every
+  page that offers the filter paid that cost; the Failures page went from
+  247.75 ms to 2.52 ms over 17,408 failing traces.
+- Filtering failures or error groups by an application that no stored span or
+  assignment resolves to answers from an indexed lookup instead of examining
+  every trace: 341 ms to 0.08 ms over 100,000 traces.
+- Overview counts every failing trace in the window from an index, and reports
+  the operation breakdown from the 10,000 most recent of them when there are
+  more, which the page states. It no longer reads one span per failing trace in
+  the window: 941 ms to 84 ms over 200,000 failing traces.
+
 - [Collector Doctor](docs/collector-doctor.md) adds optional Collector YAML and
   Prometheus metrics analysis to `geko doctor` and Settings. Reports include
   pipeline findings, counter increases, queue pressure, and suggested actions.
