@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
@@ -28,8 +29,7 @@ INSERT INTO spans (
     trace_id, span_id, parent_span_id, service_name, name, kind, start_ns, end_ns,
     status_code, status_description, resource_attributes, scope_name, scope_version,
     scope_attributes, attributes, events
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT (trace_id, span_id) DO NOTHING
+)
 `
 
 // Use the stored namespace so it matches the generated column. WHERE true
@@ -118,15 +118,40 @@ func (s *Store) writeExport(ctx context.Context, observedNS int64, spans []telem
 	return s.changed(err)
 }
 
-func (s *Store) writeSpans(ctx context.Context, observedNS int64, spans []telemetry.Span) error {
-	_, err := s.writeSpanBatch(ctx, observedNS, spans, "", 0)
-	if !errors.Is(err, storage.ErrCapacity) || !s.onFull.Evicts() {
-		return err
-	}
+// spanBytesEstimate is below the measured size of a stored span with its
+// indexes, so free pages short of it cannot hold an export.
+const spanBytesEstimate = 512
 
+// mustEvict reports whether an export of n spans cannot fit without evicting:
+// the last export had to evict and the free pages are too few for this one.
+func (s *Store) mustEvict(ctx context.Context, n int) bool {
+	if !s.onFull.Evicts() || !s.full.Load() {
+		return false
+	}
+	var free int64
+	err := s.db.QueryRowContext(ctx, "SELECT freelist_count * page_size FROM pragma_freelist_count(), pragma_page_size()").Scan(&free)
+	return err == nil && free < int64(n)*spanBytesEstimate
+}
+
+func (s *Store) writeSpans(ctx context.Context, observedNS int64, spans []telemetry.Span) error {
+	if !s.mustEvict(ctx, len(spans)) {
+		_, err := s.writeSpanBatch(ctx, observedNS, spans, "", 0)
+		if err == nil {
+			s.full.Store(false)
+		}
+		if !errors.Is(err, storage.ErrCapacity) || !s.onFull.Evicts() {
+			return err
+		}
+	}
+	s.full.Store(true)
+
+	seen := make(map[telemetry.TraceID]struct{}, len(spans))
 	ids := make([]string, 0, len(spans))
 	for _, span := range spans {
-		ids = append(ids, hex.EncodeToString(span.TraceID[:]))
+		if _, ok := seen[span.TraceID]; !ok {
+			seen[span.TraceID] = struct{}{}
+			ids = append(ids, hex.EncodeToString(span.TraceID[:]))
+		}
 	}
 	protected, err := json.Marshal(ids)
 	if err != nil {
@@ -135,7 +160,9 @@ func (s *Store) writeSpans(ctx context.Context, observedNS int64, spans []teleme
 
 	// SQLITE_FULL can roll back the whole transaction. Retry from scratch so
 	// eviction and ingestion only commit together, even for an oversized export.
-	for limit := int64(1); ; limit *= 2 {
+	// Each attempt rewrites the whole export, so start by evicting as many
+	// traces as arrive: in steady state at the limit that frees enough at once.
+	for limit := int64(len(ids)); ; limit *= 2 {
 		deleted, err := s.writeSpanBatch(ctx, observedNS, spans, string(protected), limit)
 		if !errors.Is(err, storage.ErrCapacity) || deleted < limit {
 			return err
@@ -157,7 +184,7 @@ func (s *Store) writeSpanBatch(ctx context.Context, observedNS int64, spans []te
 	if limit > 0 {
 		var err error
 		if s.onFull == storage.EvictFair {
-			deleted, err = evict(ctx, tx, evictLargestOwner, observedNS, protected, limit)
+			deleted, err = s.evictFairly(ctx, tx, observedNS, protected, limit)
 		}
 		// The largest owner may only hold traces in this export; fall back.
 		if err == nil && deleted == 0 {
@@ -181,20 +208,63 @@ func (s *Store) writeSpanBatch(ctx context.Context, observedNS int64, spans []te
 
 const unprotected = "AND lower(hex(trace_id)) NOT IN (SELECT value FROM json_each(?))"
 
-// evictLargestOwner deletes the oldest traces containing spans of the owner
-// with the most stored spans. An owner is a service namespace, or a service
-// name for spans without one.
-const evictLargestOwner = `WITH owners AS (
-    SELECT CASE WHEN namespace <> '' THEN 'n:' || namespace ELSE 's:' || service_name END AS owner, sum(span_count) AS spans
-    FROM trace_services GROUP BY owner ORDER BY spans DESC, owner LIMIT 1
-)
-DELETE FROM traces WHERE trace_id IN (
+const ownerKey = "CASE WHEN namespace <> '' THEN 'n:' || namespace ELSE 's:' || service_name END"
+
+// largestOwnerQuery finds the owner with the most stored spans. An owner is a
+// service namespace, or a service name for spans without one.
+const largestOwnerQuery = `SELECT ` + ownerKey + ` AS owner FROM trace_services
+    GROUP BY owner ORDER BY sum(span_count) DESC, owner LIMIT 1`
+
+// evictOwner deletes the oldest traces containing spans of one owner.
+const evictOwner = `DELETE FROM traces WHERE trace_id IN (
     SELECT t.trace_id FROM traces t
     WHERE t.last_observed_ns < ? ` + unpinned + ` ` + unprotected + `
-    AND EXISTS (SELECT 1 FROM trace_services ts, owners o WHERE ts.trace_id = t.trace_id
-        AND CASE WHEN ts.namespace <> '' THEN 'n:' || ts.namespace ELSE 's:' || ts.service_name END = o.owner)
+    AND EXISTS (SELECT 1 FROM trace_services ts WHERE ts.trace_id = t.trace_id AND ` + ownerKey + ` = ?)
     ORDER BY t.last_observed_ns, t.trace_id LIMIT ?
 )`
+
+// ownerRefresh bounds how stale the largest owner may be. Finding it reads
+// every row of trace_services, which at the default size limit costs more
+// than the export being stored.
+const ownerRefresh = time.Second
+
+// largestOwner returns the owner to evict from, reusing a recent answer
+// unless refresh is set, and whether it was just looked up. Only the writer
+// goroutine calls it.
+func (s *Store) largestOwner(ctx context.Context, tx *sql.Tx, now time.Time, refresh bool) (string, bool, error) {
+	if !refresh && s.owner != "" && now.Sub(s.ownerAt) < ownerRefresh {
+		return s.owner, false, nil
+	}
+	var owner string
+	err := tx.QueryRowContext(ctx, largestOwnerQuery).Scan(&owner)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = nil
+	}
+	if err != nil {
+		return "", true, fmt.Errorf("find largest owner: %w", writeError(err))
+	}
+	s.owner, s.ownerAt = owner, now
+	return owner, true, nil
+}
+
+// evictFairly evicts from the largest owner. A cached owner with nothing left
+// to evict may no longer be the largest, so it is looked up again.
+func (s *Store) evictFairly(ctx context.Context, tx *sql.Tx, observedNS int64, protected string, limit int64) (int64, error) {
+	for refresh := false; ; refresh = true {
+		owner, fresh, err := s.largestOwner(ctx, tx, time.Now(), refresh)
+		if err != nil || owner == "" {
+			return 0, err
+		}
+		result, err := tx.ExecContext(ctx, evictOwner, observedNS, protected, owner, limit)
+		if err != nil {
+			return 0, fmt.Errorf("evict traces: %w", writeError(err))
+		}
+		deleted, err := result.RowsAffected()
+		if err != nil || deleted > 0 || fresh {
+			return deleted, err
+		}
+	}
+}
 
 func evict(ctx context.Context, tx *sql.Tx, query string, observedNS int64, protected string, limit int64) (int64, error) {
 	result, err := tx.ExecContext(ctx, query, observedNS, protected, limit)
@@ -208,13 +278,20 @@ func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []
 	if err := observeSpanTraces(ctx, tx, observedNS, spans); err != nil {
 		return err
 	}
-	spanStmt, err := tx.PrepareContext(ctx, insertSpan)
-	if err != nil {
-		return fmt.Errorf("prepare span write: %w", err)
-	}
-	defer spanStmt.Close()
 	services := make(map[serviceProjection]projectedSpans)
-	for _, span := range spans {
+	for chunk := range slices.Chunk(spans, writeChunkSize) {
+		if err := insertSpanChunk(ctx, tx, chunk, services); err != nil {
+			return err
+		}
+	}
+	return updateServiceProjections(ctx, tx, services)
+}
+
+func insertSpanChunk(ctx context.Context, tx *sql.Tx, spans []telemetry.Span, services map[serviceProjection]projectedSpans) error {
+	const columns = 16
+	args := make([]any, 0, len(spans)*columns)
+	for i := range spans {
+		span := &spans[i]
 		fields, err := encodeSpanFields(span)
 		if err != nil {
 			return err
@@ -223,32 +300,41 @@ func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []
 		if span.ParentID != (telemetry.SpanID{}) {
 			parent = span.ParentID[:]
 		}
-		result, err := spanStmt.ExecContext(ctx,
+		args = append(args,
 			span.TraceID[:], span.ID[:], parent, span.ServiceName, span.Name, span.Kind,
 			span.StartTime.UnixNano(), span.EndTime.UnixNano(), span.StatusCode, span.StatusDescription,
 			fields[0], span.Scope.Name, span.Scope.Version, fields[1], fields[2], fields[3],
 		)
-		if err != nil {
-			return fmt.Errorf("insert span: %w", writeError(err))
-		}
-		// A retransmitted span is ignored and must not be counted again.
-		if inserted, err := result.RowsAffected(); err != nil {
-			return fmt.Errorf("insert span: %w", err)
-		} else if inserted == 1 {
-			namespace, _ := span.ResourceAttributes["service.namespace"].(string)
-			key := serviceProjection{span.TraceID, namespace, span.ServiceName}
-			projection, ok := services[key]
-			if !ok {
-				projection.sample = span.ID
-			}
-			projection.count++
-			services[key] = projection
-		}
 	}
-	return updateServiceProjections(ctx, tx, services)
+	values := strings.TrimSuffix(strings.Repeat("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?),", len(spans)), ",")
+	// RETURNING reports only newly inserted rows. SQLite may return them in
+	// any order, so derive membership from each returned identity.
+	rows, err := tx.QueryContext(ctx, insertSpan+" VALUES "+values+`
+ON CONFLICT (trace_id, span_id) DO NOTHING
+RETURNING trace_id, span_id, service_namespace, service_name`, args...)
+	if err != nil {
+		return fmt.Errorf("insert span chunk: %w", writeError(err))
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var traceID, spanID []byte
+		var namespace, service string
+		if err := rows.Scan(&traceID, &spanID, &namespace, &service); err != nil {
+			return fmt.Errorf("read inserted span: %w", writeError(err))
+		}
+		key := serviceProjection{namespace: namespace, service: service}
+		copy(key.trace[:], traceID)
+		projection, exists := services[key]
+		if !exists {
+			copy(projection.sample[:], spanID)
+		}
+		projection.count++
+		services[key] = projection
+	}
+	return writeError(rows.Err())
 }
 
-func encodeSpanFields(span telemetry.Span) ([4]string, error) {
+func encodeSpanFields(span *telemetry.Span) ([4]string, error) {
 	var fields [4]string
 	values := [...]any{span.ResourceAttributes, span.Scope.Attributes, span.Attributes, span.Events}
 	for i, value := range values {

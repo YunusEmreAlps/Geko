@@ -8,10 +8,9 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
-func TestCompareBaselineScansTracesNewestFirst(t *testing.T) {
-	store := openTestStore(t)
-	rows, err := store.read.QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+compareBaselineQuery,
-		make([]byte, 16), "api", "GET /", "")
+func queryPlan(t *testing.T, store *Store, query string, args ...any) string {
+	t.Helper()
+	rows, err := store.read.QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+query, args...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,9 +27,20 @@ func TestCompareBaselineScansTracesNewestFirst(t *testing.T) {
 	if err := rows.Err(); err != nil {
 		t.Fatal(err)
 	}
-	steps := strings.Join(plan, "\n")
-	if strings.Contains(steps, "TEMP B-TREE") || strings.Contains(steps, "SCAN r") || !strings.Contains(steps, "SCAN t USING") {
-		t.Fatalf("baseline lookup must scan traces in index order:\n%s", steps)
+	return strings.Join(plan, "\n")
+}
+
+func TestCompareBaselineScansRecentTracesNewestFirst(t *testing.T) {
+	steps := queryPlan(t, openTestStore(t), recentBaselineQuery, recentBaselineTraces, make([]byte, 16), "api", "GET /", "")
+	if strings.Contains(steps, "TEMP B-TREE") || strings.Contains(steps, "SCAN r") || !strings.Contains(steps, "SCAN traces USING") {
+		t.Fatalf("recent baseline lookup must scan traces in index order:\n%s", steps)
+	}
+}
+
+func TestCompareBaselineLooksTheOperationUp(t *testing.T) {
+	steps := queryPlan(t, openTestStore(t), operationBaselineQuery, make([]byte, 16), "api", "GET /", "")
+	if !strings.Contains(steps, "SEARCH r USING INDEX spans_entry_operations (service_name=? AND name=?)") || strings.Contains(steps, "SCAN") {
+		t.Fatalf("operation baseline lookup must search the entry index:\n%s", steps)
 	}
 }
 
@@ -52,6 +62,9 @@ func TestTraceServicesMatchStoredSpans(t *testing.T) {
 		{span(1, 1, "api", "Shop"), span(1, 2, "api", "Shop"), span(1, 3, "db", ""), span(2, 1, "api", "Shop")},
 		// Retransmitted spans are ignored; whitespace-only namespaces resolve to none.
 		{span(1, 1, "api", "Shop"), span(1, 4, "db", " "), span(1, 5, "api", "Shop"), span(2, 2, "api", "Reports")},
+		// Ignore conflicting resource metadata both within a chunk and against
+		// previously stored spans. Only the inserted row owns membership.
+		{span(250, 1, "worker", " Original "), span(250, 1, "different", "Other"), span(1, 1, "different", "Other")},
 	}
 	// Exercise both the full and trailing chunks of trace and service writes.
 	multipleChunks := make([]telemetry.Span, 0, writeChunkSize+1)
@@ -76,7 +89,35 @@ SELECT (SELECT count(*) FROM (SELECT * FROM projected EXCEPT SELECT * FROM recom
 	if err := store.read.QueryRowContext(ctx, "SELECT count(*) FROM trace_services").Scan(&rows); err != nil {
 		t.Fatal(err)
 	}
-	if count != 0 || rows != 4+len(multipleChunks) {
+	if count != 0 || rows != 5+len(multipleChunks) {
 		t.Fatalf("trace_services differs from spans: %d mismatches, %d rows", count, rows)
+	}
+}
+
+func TestBulkSpanWriteRollsBackEarlierChunks(t *testing.T) {
+	store := openTestStore(t)
+	now := time.Now()
+	spans := make([]telemetry.Span, writeChunkSize+1)
+	for i := range spans {
+		spans[i] = testSpan(byte(i+1), 1, "api", 503)
+	}
+	spans[len(spans)-1].Attributes["invalid"] = make(chan int)
+	if err := store.WriteSpans(t.Context(), now, spans); err == nil {
+		t.Fatal("expected metadata encoding failure")
+	}
+	for _, table := range []string{"traces", "spans", "span_evidence", "trace_services"} {
+		var count int
+		if err := store.read.QueryRowContext(t.Context(), "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 0 {
+			t.Fatalf("%s after rollback = %d, %v", table, count, err)
+		}
+	}
+	delete(spans[len(spans)-1].Attributes, "invalid")
+	if err := store.WriteSpans(t.Context(), now, spans); err != nil {
+		t.Fatalf("retry failed: %v", err)
+	}
+	var count int
+	if err := store.read.QueryRowContext(t.Context(), "SELECT sum(span_count) FROM trace_services").Scan(&count); err != nil ||
+		count != len(spans) {
+		t.Fatalf("retry membership = %d, %v", count, err)
 	}
 }

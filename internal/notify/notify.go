@@ -92,6 +92,9 @@ type Notifier struct {
 	client       *http.Client
 	since        time.Time
 	recent       map[string]time.Time
+	// settled holds groups a full check has seen, so later checks can skip
+	// grouping every stored failure while nothing new appears.
+	settled map[string]time.Time
 }
 
 // New returns a notifier that reports groups first received after start.
@@ -101,6 +104,7 @@ func New(webhook string, format Format, baseURL string, store Store, start time.
 	return &Notifier{
 		webhook: Webhook{webhook, format}, baseURL: strings.TrimRight(baseURL, "/"), store: store,
 		client: &http.Client{Timeout: 10 * time.Second}, since: start, recent: make(map[string]time.Time),
+		settled: make(map[string]time.Time),
 	}
 }
 
@@ -149,42 +153,103 @@ type event struct {
 	Application string
 }
 
+// advance forgets notifications sent before window and starts the next check at now.
+func (n *Notifier) advance(now, window time.Time) {
+	for key, sent := range n.recent {
+		if sent.Before(window) {
+			delete(n.recent, key)
+		}
+	}
+	n.since = now
+}
+
+// settledFor is how long a group stays settled after it was last seen.
+const settledFor = time.Hour
+
+// groups returns the groups observed since window, newest first. Without from
+// they are grouped over every stored failure, so their first observation and
+// count are exact; with it only failures since from are read.
+func (n *Notifier) groups(ctx context.Context, from *time.Time, window time.Time) ([]investigation.FailureGroup, error) {
+	var groups []investigation.FailureGroup
+	var after *investigation.GroupCursor
+	for range maxPages {
+		page, err := n.store.FailureGroups(ctx, investigation.FailureFilter{Limit: investigation.MaxPageSize, GroupState: investigation.GroupAll, From: from}, after)
+		if err != nil {
+			return nil, err
+		}
+		for _, group := range page.Items {
+			if group.LastObserved.Before(window) {
+				return groups, nil
+			}
+			groups = append(groups, group)
+		}
+		if page.Next == nil {
+			break
+		}
+		after = page.Next
+	}
+	return groups, nil
+}
+
 // Check sends notifications for groups first received, or reopened, since the
 // previous check.
 func (n *Notifier) Check(ctx context.Context, now time.Time) error {
 	window := n.since.Add(-overlap)
-	var events []event
-	var after *investigation.GroupCursor
-	for range maxPages {
-		page, err := n.store.FailureGroups(ctx, investigation.FailureFilter{Limit: investigation.MaxPageSize, GroupState: investigation.GroupAll}, after)
-		if err != nil {
-			return err
-		}
-		done := page.Next == nil
-		for _, group := range page.Items {
-			if group.LastObserved.Before(window) {
-				done = true
-				break
-			}
-			switch {
-			case group.State == investigation.GroupOpen && !group.FirstObserved.Before(window):
-				if _, sent := n.recent[group.Key]; !sent {
-					events = append(events, event{Kind: "new_group", Group: group})
-				}
-			case group.State == investigation.GroupReopened && group.StateChanged != nil:
-				notified, err := n.store.GroupNotified(ctx, group.Key)
-				if err != nil {
-					return err
-				}
-				if notified.Before(*group.StateChanged) {
-					events = append(events, event{Kind: "reopened_group", Group: group})
-				}
-			}
-		}
-		if done {
+	// Only failures since the window can raise an event. Group the whole store,
+	// which a new group needs for its first observation, only when one of them
+	// belongs to a group no full check has seen, or reopens one unannounced.
+	groups, err := n.groups(ctx, &window, window)
+	if err != nil {
+		return err
+	}
+	full := false
+	for _, group := range groups {
+		if _, seen := n.settled[group.Key]; !seen {
+			full = true
 			break
 		}
-		after = page.Next
+		if group.State == investigation.GroupReopened && group.StateChanged != nil {
+			notified, err := n.store.GroupNotified(ctx, group.Key)
+			if err != nil {
+				return err
+			}
+			if notified.Before(*group.StateChanged) {
+				full = true
+				break
+			}
+		}
+	}
+	for _, group := range groups {
+		n.settled[group.Key] = now
+	}
+	for key, seen := range n.settled {
+		if now.Sub(seen) > settledFor {
+			delete(n.settled, key)
+		}
+	}
+	if !full {
+		n.advance(now, window)
+		return nil
+	}
+	if groups, err = n.groups(ctx, nil, window); err != nil {
+		return err
+	}
+	var events []event
+	for _, group := range groups {
+		switch {
+		case group.State == investigation.GroupOpen && !group.FirstObserved.Before(window):
+			if _, sent := n.recent[group.Key]; !sent {
+				events = append(events, event{Kind: "new_group", Group: group})
+			}
+		case group.State == investigation.GroupReopened && group.StateChanged != nil:
+			notified, err := n.store.GroupNotified(ctx, group.Key)
+			if err != nil {
+				return err
+			}
+			if notified.Before(*group.StateChanged) {
+				events = append(events, event{Kind: "reopened_group", Group: group})
+			}
+		}
 	}
 
 	// Each webhook gets at most maxMessages, then one summary of the rest.
@@ -221,12 +286,7 @@ func (n *Notifier) Check(ctx context.Context, now time.Time) error {
 			sendErr = errors.Join(sendErr, err)
 		}
 	}
-	for key, sent := range n.recent {
-		if sent.Before(window) {
-			delete(n.recent, key)
-		}
-	}
-	n.since = now
+	n.advance(now, window)
 	return sendErr
 }
 

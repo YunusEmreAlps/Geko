@@ -190,7 +190,7 @@ func serverReady(ctx context.Context, base string, token bool) bool {
 func startEmbedded(ctx context.Context, cfg config.Config, base string) (func(), error) {
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, cfg, io.Discard) }()
+	go func() { done <- serve(ctx, cfg, io.Discard, serveOptions{}) }()
 	deadline := time.Now().Add(10 * time.Second)
 	for !serverReady(ctx, base, cfg.AccessToken.Enabled()) {
 		select {

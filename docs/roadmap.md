@@ -122,19 +122,25 @@ Phases 1 to 7 serve someone who already decided to run Geko. This phase serves
 someone who has not: they should see failure evidence before instrumenting an
 application, and find a binary without a Go toolchain.
 
-- [ ] `geko demo` seeds a multi-service failing dataset into a temporary
-      database, serves it, and opens the dashboard. No clone, no exporter
-      variables, no configuration file.
-- [ ] `geko serve --open` opens the dashboard once the listeners are ready.
-- [ ] A recorded walkthrough from Failures to the evidence span, generated from
-      the demo dataset by a script so it can be re-recorded for each release,
-      at the top of the README.
-- [ ] `--read-only` refuses ingest, triage and import, so a public instance can
-      serve the demo dataset; add a rate limit and a Compose demo profile.
-- [ ] Install without Git: an install script, a Scoop manifest, a Homebrew tap,
-      and release notes that name the archive for each platform.
-- [ ] A green build on master: the browser job builds with `-buildvcs=false`
+- [x] `geko demo` seeds six hours of a seven-service failing dataset into a
+      temporary database, keeps adding live traces, serves it, and opens the
+      dashboard. No clone, no exporter variables, no configuration file.
+- [x] `geko serve --open` opens the dashboard once the listeners are ready.
+- [x] A walkthrough from Error groups to the evidence span and Version
+      regressions, recorded from the demo dataset by
+      [`scripts/record-walkthrough.mjs`](../scripts/record-walkthrough.mjs) so
+      it can be re-recorded for each release, in the README's quick start.
+- [x] `--read-only` refuses ingest, triage and import. `geko demo` on an
+      address other than loopback serves the demo dataset read-only to anyone,
+      at 10 requests a second per client, and
+      [`deploy/demo`](../deploy/demo/compose.yaml) runs it behind Caddy.
+- [x] Install without Git: install scripts that check `checksums.txt`, a Scoop
+      bucket, a Homebrew formula, and release notes that name the archive for
+      each platform.
+- [x] A green build on master: the browser job builds with `-buildvcs=false`
       inside the Playwright image, and no test binary is tracked.
+- [ ] A public demo instance at a stable address, linked from the README, and
+      a release that ships `geko demo` so the install scripts reach it.
 
 ## Phase 9: evidence behind the numbers
 
@@ -165,6 +171,19 @@ are addressed here, starting with the ones a shared instance hits first.
       traces. The count stays exact and index-only; the breakdown covers the
       10,000 most recent traces and the page says so when it sampled. The same
       benchmark takes 84 ms.
+- [x] Speed up the paths older than these measurements, measured as a paired
+      run against the commit before them: version comparison reads the newest
+      10,000 traces of each version (854 ms to 126 ms over 100,000 traces),
+      trace comparison looks the operation up when no recent success matches
+      (451 ms to 6.8 ms), an export at the size limit evicts once (57 ms to
+      9.9 ms, and 161 ms to 12.7 ms with `evict_fair`), webhook checks group
+      only new failures (200 ms to 2.6 ms), and read connections map the file
+      (error grouping 87 ms to 39 ms).
+- [ ] Bound error grouping. It still reads every failing trace in its window,
+      at about 16 microseconds each, so a seven-day window over 200,000
+      failures takes three seconds. Unlike Overview its counts and first
+      receipt must stay exact, so it needs a per-group projection rather than
+      a sample.
 - [ ] A nightly run of [`scripts/bench-native.py`](../scripts/bench-native.py)
       and [`scripts/bench-ingest-concurrency.py`](../scripts/bench-ingest-concurrency.py)
       in CI that publishes their JSON and fails on a regression beyond a

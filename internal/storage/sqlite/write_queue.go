@@ -71,7 +71,12 @@ func (s *Store) writeBatch(batch []spanWrite) {
 			}
 		}
 	}()
-	if len(batch) > 1 && s.commitExports(batch) == nil {
+	spans := 0
+	for _, req := range batch {
+		spans += len(req.spans)
+	}
+	if len(batch) > 1 && !s.mustEvict(context.Background(), spans) && s.commitExports(batch) == nil {
+		s.full.Store(false)
 		for _, req := range batch {
 			req.done <- nil
 			answered++

@@ -337,3 +337,76 @@ func TestFairEvictionFallsBackToOldest(t *testing.T) {
 		t.Fatalf("protected trace = %d spans, %v", len(page.Items), err)
 	}
 }
+
+func TestCompactNeverLeavesTheFileSilentlyUnshrunk(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "mapped.db")
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	now := time.Now()
+	if err := db.WriteSpans(ctx, now.Add(-time.Hour), []telemetry.Span{retentionSpan(1, strings.Repeat("x", 600<<10))}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Prune(ctx, now); err != nil {
+		t.Fatal(err)
+	}
+	// Another process's reader maps the file the way a running server does.
+	other, err := openReader(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { other.Close() })
+	var traces int
+	if err := other.QueryRowContext(ctx, "SELECT count(*) FROM spans").Scan(&traces); err != nil {
+		t.Fatal(err)
+	}
+	err = db.Compact(ctx)
+	t.Logf("compaction while mapped elsewhere: %v", err)
+	info, statErr := os.Stat(path)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if err == nil && info.Size() > 256<<10 {
+		t.Fatalf("compaction reported success but left %d bytes", info.Size())
+	}
+	if err != nil && !strings.Contains(err.Error(), "another process holds the file open") {
+		t.Fatalf("compaction error should name the open handle: %v", err)
+	}
+	if err := other.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Compact(ctx); err != nil {
+		t.Fatalf("compaction after the other reader closed: %v", err)
+	}
+}
+
+func TestFairEvictionLooksUpAgainWhenTheCachedOwnerHasNothingLeft(t *testing.T) {
+	ctx := t.Context()
+	db, err := OpenWithPolicy(ctx, filepath.Join(t.TempDir(), "owner.db"), 1<<20, storage.EvictFair)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Now()
+	for i := range 3 {
+		noisy := retentionSpan(byte(10+i), "noisy")
+		noisy.ServiceName = "noisy"
+		if err := db.WriteSpans(ctx, now.Add(-time.Hour), []telemetry.Span{noisy}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A cached owner whose traces are gone, as after its last eviction.
+	db.owner, db.ownerAt = "s:departed", now
+	tx, err := db.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	deleted, err := db.evictFairly(ctx, tx, now.UnixNano(), "[]", 1)
+	if err != nil || deleted != 1 || db.owner != "s:noisy" {
+		t.Fatalf("deleted %d from %q: %v", deleted, db.owner, err)
+	}
+}

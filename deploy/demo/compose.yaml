@@ -1,0 +1,34 @@
+# A public, read-only Geko demo on the synthetic dataset, behind Caddy, which
+# obtains a TLS certificate for GEKO_DOMAIN:
+#
+#   GEKO_DOMAIN=demo.example.com docker compose up -d
+#
+# The demo stores nothing anyone sends it: exports, triage and imports are
+# refused, and each visitor is limited to 10 requests a second.
+services:
+  geko-demo:
+    image: ghcr.io/yunusemrealps/geko:${GEKO_VERSION:-latest}
+    build: ../..
+    restart: unless-stopped
+    # Only Caddy reaches this listener, so every peer is the trusted proxy.
+    command: ["demo", "--no-open", "--listen", "0.0.0.0:4318", "--trusted-proxy", "0.0.0.0/0,::/0"]
+
+  caddy:
+    image: caddy:2.10
+    restart: unless-stopped
+    depends_on:
+      - geko-demo
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      GEKO_DOMAIN: ${GEKO_DOMAIN:?set GEKO_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -31,7 +31,22 @@ Pushing a `v*` tag runs [`release.yml`](../.github/workflows/release.yml):
    docker run --rm ghcr.io/yunusemrealps/geko:0.1.0 version
    ```
 
-5. The first push creates the `geko` package on GitHub as private. Open the
+5. Update the Scoop manifest and Homebrew formula from the published
+   `checksums.txt`, and commit them:
+
+   ```sh
+   python scripts/update-packages.py 0.1.0
+   git add bucket/geko.json Formula/geko.rb
+   ```
+
+6. Re-record the demo walkthrough with the release binary, and replace the
+   screenshots in `docs/media` if the dashboard changed:
+
+   ```sh
+   node scripts/record-walkthrough.mjs ./geko docs/media
+   ```
+
+7. The first push creates the `geko` package on GitHub as private. Open the
    package settings on GitHub and set its visibility to public, so
    `docker compose pull` works without signing in to ghcr.io.
 

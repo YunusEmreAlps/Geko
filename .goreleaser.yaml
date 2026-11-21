@@ -31,3 +31,28 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+release:
+  footer: |
+    ## Install
+
+    | Platform | Archive |
+    | --- | --- |
+    | Linux x86-64 | `geko_{{ .Version }}_linux_amd64.tar.gz` |
+    | Linux ARM64 | `geko_{{ .Version }}_linux_arm64.tar.gz` |
+    | macOS Intel | `geko_{{ .Version }}_darwin_amd64.tar.gz` |
+    | macOS Apple silicon | `geko_{{ .Version }}_darwin_arm64.tar.gz` |
+    | Windows x86-64 | `geko_{{ .Version }}_windows_amd64.zip` |
+    | Windows ARM64 | `geko_{{ .Version }}_windows_arm64.zip` |
+
+    Check an archive with `sha256sum --check --ignore-missing checksums.txt`, or let a script download and check it:
+
+    ```sh
+    curl -fsSL https://raw.githubusercontent.com/YunusEmreAlps/geko/master/scripts/install.sh | sh
+    ```
+
+    ```powershell
+    irm https://raw.githubusercontent.com/YunusEmreAlps/geko/master/scripts/install.ps1 | iex
+    ```
+
+    Then run `geko demo` to explore a synthetic dataset, or `geko serve --open` for your own traces.

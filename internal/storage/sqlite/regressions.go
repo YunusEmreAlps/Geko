@@ -2,44 +2,60 @@ package sqlite
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 )
 
-const versionAttribute = `json_extract(r.resource_attributes, '$."service.version"')`
-
-// VersionComparisons compares request cohorts with matching entry-span identities.
-func (s *Store) VersionComparisons(ctx context.Context, f investigation.RegressionFilter) ([]investigation.VersionComparison, error) {
-	rows, err := s.read.QueryContext(ctx, `
-WITH samples AS (
-    SELECT `+rootApplication+` AS application, r.service_namespace AS namespace,
-           r.service_name AS service, `+spanEnvironment("r")+` AS environment,
-           r.name AS operation, `+versionAttribute+` AS version, t.has_evidence,
+// versionSample reads the newest traces of one version from
+// traces_entry_versions, after the service filter, so its cost follows the
+// sample limit rather than the window.
+const versionSample = `SELECT * FROM (
+    SELECT ` + rootApplication + ` AS application, r.service_namespace AS namespace,
+           r.service_name AS service, ` + "%s" + ` AS environment,
+           r.name AS operation, t.entry_version AS version, t.has_evidence,
            CASE WHEN r.end_ns >= r.start_ns AND typeof(r.end_ns - r.start_ns) = 'integer'
                 THEN r.end_ns - r.start_ns END AS duration
     FROM traces t
     JOIN spans r ON r.trace_id = t.trace_id AND r.span_id = t.entry_span_id
     LEFT JOIN trace_applications ta ON ta.trace_id = t.trace_id
     LEFT JOIN service_applications ra ON ra.service_name = r.service_name
-    WHERE t.last_observed_ns >= ? AND `+versionAttribute+` IN (?, ?)
-      AND (? = '' OR r.service_name = ?)
+    WHERE t.entry_version = ? AND t.last_observed_ns >= ? AND (? = '' OR r.service_name = ?)
+    ORDER BY t.last_observed_ns DESC, t.trace_id DESC LIMIT ?)`
+
+var versionComparisonQuery = `
+WITH samples AS (` + fmt.Sprintf(versionSample, spanEnvironment("r")) + `
+    UNION ALL ` + fmt.Sprintf(versionSample, spanEnvironment("r")) + `
 ), cohorts AS MATERIALIZED (
     SELECT application, namespace, service, environment, operation, version,
            count(*) AS total, sum(has_evidence) AS failed,
            count(duration) AS timed, avg(duration) AS mean_ns
     FROM samples GROUP BY 1, 2, 3, 4, 5, 6
+), sampled AS (
+    SELECT version, sum(total) >= ? AS sampled FROM cohorts GROUP BY version
 )
 SELECT b.application, b.namespace, b.service, b.environment, b.operation,
        b.total, b.failed, b.timed, CAST(b.mean_ns AS INTEGER),
        c.total, c.failed, c.timed, CAST(c.mean_ns AS INTEGER),
        b.total >= ? AND c.total >= ? AND
           100.0 * c.failed / c.total - 100.0 * b.failed / b.total >= 5 AS failure_regression,
-       coalesce(b.timed >= ? AND c.timed >= ? AND b.mean_ns > 0 AND c.mean_ns >= b.mean_ns * 1.2, 0) AS latency_regression
+       coalesce(b.timed >= ? AND c.timed >= ? AND b.mean_ns > 0 AND c.mean_ns >= b.mean_ns * 1.2, 0) AS latency_regression,
+       bs.sampled, cs.sampled
 FROM cohorts b JOIN cohorts c USING (application, namespace, service, environment, operation)
+JOIN sampled bs ON bs.version = b.version JOIN sampled cs ON cs.version = c.version
 WHERE b.version = ? AND c.version = ?
 ORDER BY failure_regression DESC, latency_regression DESC, c.total DESC,
          b.application, b.namespace, b.service, b.environment, b.operation
-LIMIT 51`, f.Since.UnixNano(), f.Baseline, f.Candidate, f.Service, f.Service,
+LIMIT 51`
+
+// VersionComparisons compares request cohorts with matching entry-span
+// identities, from the newest RegressionSampleLimit traces of each version.
+func (s *Store) VersionComparisons(ctx context.Context, f investigation.RegressionFilter) ([]investigation.VersionComparison, error) {
+	limit := investigation.RegressionSampleLimit
+	rows, err := s.read.QueryContext(ctx, versionComparisonQuery,
+		f.Baseline, f.Since.UnixNano(), f.Service, f.Service, limit,
+		f.Candidate, f.Since.UnixNano(), f.Service, f.Service, limit,
+		limit,
 		investigation.RegressionMinSamples, investigation.RegressionMinSamples,
 		investigation.RegressionMinSamples, investigation.RegressionMinSamples, f.Baseline, f.Candidate)
 	if err != nil {
@@ -52,7 +68,7 @@ LIMIT 51`, f.Since.UnixNano(), f.Baseline, f.Candidate, f.Service, f.Service,
 		if err := rows.Scan(&row.Application, &row.Namespace, &row.Service, &row.Environment, &row.Operation,
 			&row.Baseline.Traces, &row.Baseline.Failures, &row.Baseline.Timed, &row.Baseline.MeanNS,
 			&row.Candidate.Traces, &row.Candidate.Failures, &row.Candidate.Timed, &row.Candidate.MeanNS,
-			&row.FailureRegression, &row.LatencyRegression); err != nil {
+			&row.FailureRegression, &row.LatencyRegression, &row.Baseline.Sampled, &row.Candidate.Sampled); err != nil {
 			return nil, err
 		}
 		comparisons = append(comparisons, row)

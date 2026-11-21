@@ -37,6 +37,7 @@
   </aside>
   <main id="main" tabindex="-1">
     <p class="loading" role="status" hidden>Loading…</p>
+    {{if .ReadOnly}}<p class="notice" role="note">This instance is read-only: it accepts no traces and no changes.</p>{{end}}
     {{if or (eq .Page "failures") (eq .Page "traces")}}{{template "failures" .Data}}
     {{else if eq .Page "overview"}}{{template "overview" .Data}}
     {{else if eq .Page "regressions"}}{{template "regressions" .Data}}

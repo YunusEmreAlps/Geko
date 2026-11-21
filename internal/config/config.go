@@ -62,7 +62,10 @@ type Config struct {
 	IngestSlots   int                `yaml:"ingest_concurrency"`
 	OnFull        storage.FullPolicy `yaml:"on_full"`
 	Redaction     string             `yaml:"redaction"`
-	Source        Source             `yaml:"-"`
+	// ReadOnly refuses exports, triage, imports and other changes, so an
+	// instance only serves what it already stores.
+	ReadOnly bool   `yaml:"read_only"`
+	Source   Source `yaml:"-"`
 }
 
 // Source records where each effective setting came from.
@@ -247,6 +250,11 @@ func Load() (Config, error) {
 	}
 	if cfg.ApplicationWebhooks, err = applicationWebhooks(os.Getenv("GEKO_APPLICATION_WEBHOOKS")); err != nil {
 		return Config{}, err
+	}
+	if value := os.Getenv("GEKO_READ_ONLY"); value != "" {
+		if cfg.ReadOnly, err = strconv.ParseBool(value); err != nil {
+			return Config{}, errors.New("GEKO_READ_ONLY must be true or false")
+		}
 	}
 	if value := os.Getenv("GEKO_MCP_TRIAGE"); value != "" {
 		if cfg.MCPTriage, err = strconv.ParseBool(value); err != nil {
@@ -441,6 +449,7 @@ func loadFile(path string, optional bool) (Config, error) {
 		Redaction       *string                 `yaml:"redaction"`
 		TraceLinkURL    *string                 `yaml:"trace_link_url"`
 		TraceLinkName   *string                 `yaml:"trace_link_name"`
+		ReadOnly        *bool                   `yaml:"read_only"`
 	}
 	err = decoder.Decode(&values)
 	if errors.Is(err, io.EOF) {
@@ -477,6 +486,9 @@ func loadFile(path string, optional bool) (Config, error) {
 	}
 	if values.TraceLinkName != nil {
 		cfg.TraceLinkName = *values.TraceLinkName
+	}
+	if values.ReadOnly != nil {
+		cfg.ReadOnly = *values.ReadOnly
 	}
 	cfg.CollectorDoctor = values.CollectorDoctor
 	cfg.TelemetryBudget = values.TelemetryBudget

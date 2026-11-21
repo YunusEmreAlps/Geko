@@ -28,40 +28,10 @@ func (s *Store) FailureGroups(ctx context.Context, f investigation.FailureFilter
 			return result, nil
 		}
 	}
-	base, args := traceListQuery(f, true)
-	if _, ok := groupStateCondition[f.GroupState]; !ok {
-		return result, errors.New("invalid group state")
+	query, args, err := failureGroupsQuery(f, after)
+	if err != nil {
+		return result, err
 	}
-	query := `WITH matching AS (
- SELECT ` + failureGroupKey + ` AS group_key, ` + evidenceApplication + ` AS application,
- s.service_namespace AS namespace,s.service_name AS service,` + evidenceEnvironment + ` AS environment,
- s.name AS operation,e.rank,coalesce(e.exception_type,'') AS exception_type,coalesce(s.http_status,0) AS http_status,
- t.first_observed_ns AS first_ns,t.last_observed_ns AS last_ns,r.http_status AS request_status,
- printf('%020d',t.last_observed_ns)||hex(t.trace_id)||hex(s.span_id) AS sample,
- coalesce(json_extract(s.resource_attributes, '$."service.version"'),'') AS version
- ` + base + `), recurred AS (
- SELECT m.group_key,max(m.last_ns) AS last_ns FROM matching m JOIN group_states gs ON gs.group_key = m.group_key
- WHERE gs.state = 'resolved' AND m.last_ns > gs.changed_ns AND (gs.version = '' OR m.version = gs.version)
- GROUP BY m.group_key), grouped AS (
- SELECT group_key,application,namespace,service,environment,operation,rank,exception_type,http_status,
- count(*) AS traces,min(first_ns) AS first_ns,max(last_ns) AS last_ns,substr(max(sample),21,32) AS trace_id,substr(max(sample),53,16) AS span_id,
- count(*) FILTER (WHERE request_status BETWEEN 200 AND 299) AS ok,
- count(*) FILTER (WHERE request_status BETWEEN 500 AND 599) AS server_error,
- count(*) FILTER (WHERE request_status BETWEEN 100 AND 199 OR request_status BETWEEN 300 AND 499) AS other,
- count(*) FILTER (WHERE request_status IS NULL OR request_status NOT BETWEEN 100 AND 599) AS unknown
- FROM matching GROUP BY group_key)
- SELECT * FROM (SELECT g.*,CASE WHEN gs.state IS NULL THEN 'open' WHEN gs.state = 'muted' THEN 'muted'
- WHEN rc.group_key IS NOT NULL THEN 'reopened' ELSE 'resolved' END AS state,
- coalesce(gs.changed_ns,0) AS changed_ns,coalesce(gs.version,'') AS resolved_version,coalesce(gs.changed_by,'') AS changed_by,
- coalesce(gn.note,'') AS note,coalesce(gn.issue_url,'') AS issue_url,coalesce(gn.changed_ns,0) AS note_ns,coalesce(gn.changed_by,'') AS note_by
- FROM grouped g LEFT JOIN group_states gs USING (group_key) LEFT JOIN recurred rc USING (group_key) LEFT JOIN group_notes gn USING (group_key))
- WHERE ` + groupStateCondition[f.GroupState]
-	if after != nil {
-		query += ` AND (last_ns < ? OR (last_ns = ? AND group_key > ?))`
-		args = append(args, after.TimeNS, after.TimeNS, after.Key)
-	}
-	query += ` ORDER BY last_ns DESC,group_key LIMIT ?`
-	args = append(args, f.Limit+1)
 	rows, err := s.read.QueryContext(ctx, query, args...)
 	if err != nil {
 		return result, err
@@ -98,6 +68,46 @@ func (s *Store) FailureGroups(ctx context.Context, f investigation.FailureFilter
 		result.Items = append(result.Items, group)
 	}
 	return result, rows.Err()
+}
+
+func failureGroupsQuery(f investigation.FailureFilter, after *investigation.GroupCursor) (string, []any, error) {
+	if _, ok := groupStateCondition[f.GroupState]; !ok {
+		return "", nil, errors.New("invalid group state")
+	}
+	base, args := traceListQuery(f, true, true)
+	// One pass over the matching traces both groups them and finds the ones
+	// that reopen a resolved group.
+	query := `WITH matching AS (
+ SELECT ` + failureGroupKey + ` AS group_key, ` + evidenceApplication + ` AS application,
+ s.service_namespace AS namespace,s.service_name AS service,` + evidenceEnvironment + ` AS environment,
+ s.name AS operation,e.rank,coalesce(e.exception_type,'') AS exception_type,coalesce(s.http_status,0) AS http_status,
+ t.first_observed_ns AS first_ns,t.last_observed_ns AS last_ns,r.http_status AS request_status,
+ printf('%020d',t.last_observed_ns)||hex(t.trace_id)||hex(s.span_id) AS sample,
+ coalesce(json_extract(s.resource_attributes, '$."service.version"'),'') AS version
+ ` + base + `), grouped AS (
+ SELECT m.group_key,application,namespace,service,environment,operation,rank,exception_type,http_status,
+ count(*) AS traces,min(first_ns) AS first_ns,max(last_ns) AS last_ns,substr(max(sample),21,32) AS trace_id,substr(max(sample),53,16) AS span_id,
+ count(*) FILTER (WHERE request_status BETWEEN 200 AND 299) AS ok,
+ count(*) FILTER (WHERE request_status BETWEEN 500 AND 599) AS server_error,
+ count(*) FILTER (WHERE request_status BETWEEN 100 AND 199 OR request_status BETWEEN 300 AND 499) AS other,
+ count(*) FILTER (WHERE request_status IS NULL OR request_status NOT BETWEEN 100 AND 599) AS unknown,
+ max(last_ns) FILTER (WHERE gs.state = 'resolved' AND last_ns > gs.changed_ns AND (gs.version = '' OR m.version = gs.version)) AS recurred_ns
+ FROM matching m LEFT JOIN group_states gs ON gs.group_key = m.group_key GROUP BY m.group_key)
+ SELECT * FROM (SELECT g.group_key,g.application,g.namespace,g.service,g.environment,g.operation,g.rank,g.exception_type,g.http_status,
+ g.traces,g.first_ns,g.last_ns,g.trace_id,g.span_id,g.ok,g.server_error,g.other,g.unknown,
+ CASE WHEN gs.state IS NULL THEN 'open' WHEN gs.state = 'muted' THEN 'muted'
+ WHEN g.recurred_ns IS NOT NULL THEN 'reopened' ELSE 'resolved' END AS state,
+ coalesce(gs.changed_ns,0) AS changed_ns,coalesce(gs.version,'') AS resolved_version,coalesce(gs.changed_by,'') AS changed_by,
+ coalesce(gn.note,'') AS note,coalesce(gn.issue_url,'') AS issue_url,coalesce(gn.changed_ns,0) AS note_ns,coalesce(gn.changed_by,'') AS note_by
+ FROM grouped g LEFT JOIN group_states gs USING (group_key) LEFT JOIN group_notes gn USING (group_key))
+ WHERE ` + groupStateCondition[f.GroupState]
+	if after != nil {
+		query += ` AND (last_ns < ? OR (last_ns = ? AND group_key > ?))`
+		args = append(args, after.TimeNS, after.TimeNS, after.Key)
+	}
+	query += ` ORDER BY last_ns DESC,group_key LIMIT ?`
+	args = append(args, f.Limit+1)
+	return query, args, nil
 }
 
 var groupStateCondition = map[investigation.GroupState]string{

@@ -3,12 +3,14 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
 	"maps"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -37,7 +39,8 @@ const usage = `Geko — Find the failure. Follow the trace.
 Usage: geko <command>
 
 Commands:
-  serve     Start the local dashboard and OTLP trace receiver
+  demo      Serve a temporary synthetic dataset and open the dashboard
+  serve [--open] [--read-only]  Start the local dashboard and OTLP trace receiver
   doctor    Check SQLite and listeners, or inspect an OpenTelemetry Collector
   budget    Report hourly trace volume, limits and high-cardinality attributes
   compact   Reclaim free space in the SQLite file
@@ -74,6 +77,7 @@ Environment:
   GEKO_ON_FULL         evict_oldest (default), evict_fair or reject
   GEKO_REDACTION       best_effort, or strict (default once GEKO_ACCESS_TOKEN is set)
   GEKO_INGEST_CONCURRENCY  Exports decoded at once (default 4, up to 64)
+  GEKO_READ_ONLY       Refuse exports, triage, imports and other changes (true/false)
 `
 
 func main() {
@@ -110,6 +114,12 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	if args[0] == "budget" {
 		return budgetCommand(ctx, args[1:], out)
 	}
+	if args[0] == "serve" {
+		return serveCommand(ctx, args[1:], out)
+	}
+	if args[0] == "demo" {
+		return demoCommand(ctx, args[1:], out)
+	}
 	if len(args) != 1 {
 		return errors.New("expected one command, run geko --help for usage")
 	}
@@ -122,7 +132,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	case "version":
 		printVersion(out)
 		return nil
-	case "doctor", "serve", "compact":
+	case "doctor", "compact":
 		cfg, err := config.Load()
 		if err != nil {
 			return err
@@ -130,10 +140,7 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 		if args[0] == "doctor" {
 			return doctor(ctx, cfg, out)
 		}
-		if args[0] == "compact" {
-			return compact(ctx, cfg.DBPath, out)
-		}
-		return serve(ctx, cfg, out)
+		return compact(ctx, cfg.DBPath, out)
 	default:
 		return fmt.Errorf("unknown command %q, run geko --help for usage", args[0])
 	}
@@ -221,13 +228,58 @@ func listen(ctx context.Context, addr string) (net.Listener, error) {
 	return listener, nil
 }
 
-func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
+func serveCommand(ctx context.Context, args []string, out io.Writer) error {
+	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
+	flags.SetOutput(out)
+	open := flags.Bool("open", false, "open the dashboard in a browser once Geko is listening")
+	readOnly := flags.Bool("read-only", false, "refuse exports, triage, imports and other changes")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 0 {
+		return errors.New("usage: geko serve [--open] [--read-only]")
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+	cfg.ReadOnly = cfg.ReadOnly || *readOnly
+	return serve(ctx, cfg, out, serveOptions{open: *open})
+}
+
+// serveOptions are what the demo adds to an ordinary server.
+type serveOptions struct {
+	// open starts a browser on the dashboard once the listeners are bound.
+	open bool
+	// public admits callers from any Host without a token, at a per-client
+	// rate. Only the synthetic demo dataset is served this way.
+	public bool
+	// trustedProxies name the client in X-Forwarded-For for the public rate.
+	trustedProxies []netip.Prefix
+	// prepare runs on the open database before the listeners are bound.
+	prepare func(context.Context, *sqlite.Store) error
+	// background runs until the server stops.
+	background func(context.Context, *sqlite.Store)
+}
+
+func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveOptions) (err error) {
+	if cfg.ReadOnly && cfg.GRPCAddr != "" {
+		return errors.New("a read-only instance refuses exports; remove grpc_addr (GEKO_GRPC_ADDR)")
+	}
+	if cfg.ReadOnly {
+		cfg.MCPTriage = false
+	}
 	maxBytes := int64(cfg.MaxDBMiB) << 20
 	db, err := sqlite.OpenWithPolicy(ctx, cfg.DBPath, maxBytes, cfg.OnFull)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
+	if options.prepare != nil {
+		if err := options.prepare(ctx, db); err != nil {
+			return err
+		}
+	}
 	// Migrations and earlier larger limits can leave the file above max_db_mib.
 	if status, err := db.Status(ctx); err == nil && status.MainBytes-status.FreeBytes > maxBytes {
 		advice := "Geko evicts the oldest traces as exports arrive"
@@ -267,6 +319,19 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		go func() {
 			defer close(stopped)
 			prunePeriodically(maintenance, db, retention)
+		}()
+		defer func() {
+			cancel()
+			<-stopped
+		}()
+	}
+
+	if options.background != nil {
+		running, cancel := context.WithCancel(ctx)
+		stopped := make(chan struct{})
+		go func() {
+			defer close(stopped)
+			options.background(running, db)
 		}()
 		defer func() {
 			cancel()
@@ -352,6 +417,10 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		triage = db
 	}
 	dashboardMux.Handle("/mcp", mcpHandler(db, triage, cfg.AccessToken.Enabled(), auditLog))
+	restore := receiver.RestoreTraceJSON
+	if cfg.ReadOnly {
+		restore = nil
+	}
 	if err := web.Register(dashboardMux, db, web.Settings{
 		Shutdown:      ctx.Done(),
 		DashboardAddr: dashboardAddr, GRPCAddr: grpcAddr,
@@ -363,7 +432,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		Notifications: notifications,
 		SignIn:        signIn, SignOut: signOut, Tokens: cfg.AccessToken,
 		ReceiverDiagnostics: receiver.Diagnostics,
-		RestoreTrace:        receiver.RestoreTraceJSON,
+		RestoreTrace:        restore,
 		AttributeSearch:     cfg.AttributeSearch,
 		CollectorDoctor:     cfg.CollectorDoctor,
 		TelemetryBudget:     tracker,
@@ -371,14 +440,28 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer) (err error) {
 		IngestConcurrency: cfg.IngestSlots,
 		ConfigSource:      cfg.Source,
 		OnFull:            cfg.OnFull, Redaction: cfg.Redaction,
+		ReadOnly: cfg.ReadOnly,
 	}); err != nil {
 		return err
 	}
 	registerProbes(mux, db)
-	endpoints := []httpEndpoint{{listener, newHTTPServer(cfg.AccessToken.Protect(mux))}}
+	guard := func(handler http.Handler) http.Handler {
+		handler = cfg.AccessToken.Protect(handler)
+		if options.public {
+			handler = limitPerClient(access.Anyone(handler), publicRequestRate, publicRequestBurst, options.trustedProxies)
+		}
+		if cfg.ReadOnly {
+			handler = access.ReadOnly(handler)
+		}
+		return handler
+	}
+	endpoints := []httpEndpoint{{listener, newHTTPServer(guard(mux))}}
 	if dashboardListener != nil {
 		registerProbes(dashboardMux, db)
-		endpoints = append(endpoints, httpEndpoint{dashboardListener, newHTTPServer(cfg.AccessToken.Protect(dashboardMux))})
+		endpoints = append(endpoints, httpEndpoint{dashboardListener, newHTTPServer(guard(dashboardMux))})
+	}
+	if options.open {
+		openDashboard(out, dashboardAddr)
 	}
 	return runServers(ctx, out, endpoints, grpcListener, receiver, cfg.AccessToken)
 }

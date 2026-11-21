@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/storage"
 
@@ -62,7 +63,10 @@ var runIDSchema string
 //go:embed migrations/014_evidence_without_events.sql
 var evidenceWithoutEventsSchema string
 
-var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema, groupStateActorSchema, groupNoteSchema, tracePinSchema, runIDSchema, evidenceWithoutEventsSchema}
+//go:embed migrations/015_entry_operations.sql
+var entryOperationsSchema string
+
+var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema, groupStateActorSchema, groupNoteSchema, tracePinSchema, runIDSchema, evidenceWithoutEventsSchema, entryOperationsSchema}
 
 type Store struct {
 	revision   atomic.Uint64
@@ -78,6 +82,12 @@ type Store struct {
 	closed     bool
 	writer     sync.WaitGroup
 	writeSlots chan struct{}
+	// full records that the last export had to evict, so the next one can
+	// evict without first failing a write it cannot fit.
+	full atomic.Bool
+	// owner and ownerAt cache the largest owner for fair eviction.
+	owner   string
+	ownerAt time.Time
 }
 
 // Revision changes after this instance commits data affecting investigation.
@@ -138,14 +148,20 @@ func openConnection(path string, params url.Values, maxConnections int) (*sql.DB
 	db, err := sql.Open("sqlite", uri.String())
 	if err == nil {
 		db.SetMaxOpenConns(maxConnections)
+		db.SetMaxIdleConns(maxConnections)
 	}
 	return db, err
 }
 
+// readConnections serve queries concurrently. Each maps up to 256 MiB of the
+// main file, so pages are read from the OS cache without a read call each;
+// on Windows that halves the cost of the queries that visit every failure.
+const readConnections = 4
+
 func openReader(path string) (*sql.DB, error) {
 	return openConnection(path, url.Values{
-		"mode": {"ro"}, "_pragma": {"busy_timeout(5000)", "query_only(ON)"},
-	}, 4)
+		"mode": {"ro"}, "_pragma": {"busy_timeout(5000)", "query_only(ON)", "mmap_size(268435456)"},
+	}, readConnections)
 }
 
 // Inspect checks an existing database without acquiring the writer or migrating it.

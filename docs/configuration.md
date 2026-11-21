@@ -41,6 +41,7 @@ even if YAML configures a separate address.
 | — | `GEKO_MCP_TRIAGE` | `false`. Offer `set_group_state` on `/mcp` to clients with the triager or admin role. |
 | `on_full` | `GEKO_ON_FULL` | `evict_oldest`; `evict_fair` to evict from the application holding the most spans first; or `reject` to keep stored traces and return HTTP 503 |
 | `redaction` | `GEKO_REDACTION` | `best_effort`, or `strict`. The default is `strict` once `GEKO_ACCESS_TOKEN` is set, because other people can then read the data. |
+| `read_only` | `GEKO_READ_ONLY` | `false`. Refuse exports, triage, pins, notes, imports, application mappings and notification tests with HTTP 403; reading, searching and signing in still work, and every page shows what a viewer sees. Cannot be combined with `grpc_addr`. `geko serve --read-only` sets it too. |
 | `collector_doctor` | — | Disabled until `config_file` or `metrics_url` is set. See [Collector Doctor](collector-doctor.md). |
 | `telemetry_budget` | — | Disabled. Set `enabled: true` to report hourly volume and cardinality. See [Telemetry Budget](telemetry-budget.md). |
 
@@ -120,13 +121,14 @@ accepted span volume and attribute cardinality.
 
 | Command | Purpose |
 | --- | --- |
-| `geko serve` | Start the receiver and dashboard. `GET /healthz` returns 204 once it is listening, and `GET /readyz` once the database answers. Neither needs a token. |
+| `geko serve` | Start the receiver and dashboard. `GET /healthz` returns 204 once it is listening, and `GET /readyz` once the database answers. Neither needs a token. `--open` opens the dashboard in a browser once Geko listens; `--read-only` sets `read_only`. |
+| `geko demo` | Seed six hours of synthetic traces from seven services into a temporary database, keep adding one every two seconds, serve them and open the dashboard. The data is deleted when it stops. It reads no configuration. `--listen` picks the address (default: a free loopback port); `--no-open` and `--read-only` do what they say. An address other than loopback serves the demo read-only to anyone, at 10 requests a second per client; see [Public demo](server.md#public-demo). |
 | `geko doctor` | Check SQLite integrity, storage sizes, and that every configured port is free. |
 | `geko doctor --collector` | Check the Collector sources configured in Geko YAML. Use `--collector-config`, `--collector-metrics` or `--metrics-file` to supply sources directly. |
 | `geko budget` | Report the running instance's current UTC hour. Supports `--previous`, `--json` and `--server`. |
 | `geko failures --json` | Print a page of failures as JSON for scripts and coding agents, from the local database or a server with `--server`. See [Read traces from coding tools](agents.md). |
 | `geko mcp` | Serve read-only investigation tools to an MCP client over stdio. `geko serve` also serves them at `/mcp`. |
-| `geko compact` | Reclaim free space from the main database file (stop the server first). |
+| `geko compact` | Reclaim free space from the main database file (stop the server first). If another process still holds the file open, it reports that instead of leaving the file unshrunk. |
 | `geko backup <file>` | Write a consistent copy of the database to a new file, while the server runs. |
 | `geko run -- <command>` | Run a command with exporters pointing at Geko, then list the failures received meanwhile. See [Check a test run](agents.md#check-a-test-run). |
 | `geko version` | Print build information. |

@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -277,5 +278,97 @@ func TestParseFormat(t *testing.T) {
 	}
 	if _, err := ParseFormat("teams", "https://example.com"); err == nil {
 		t.Error("accepted an unknown format")
+	}
+}
+
+// fullCounter counts the checks that grouped every stored failure.
+type fullCounter struct {
+	*sqlite.Store
+	full int
+}
+
+func (c *fullCounter) FailureGroups(ctx context.Context, f investigation.FailureFilter, after *investigation.GroupCursor) (investigation.FailureGroups, error) {
+	if f.From == nil {
+		c.full++
+	}
+	return c.Store.FailureGroups(ctx, f, after)
+}
+
+func TestChecksGroupEveryFailureOnlyWhenAGroupIsUnsettled(t *testing.T) {
+	ctx := t.Context()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "settled.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	server, messages := webhook(t, http.StatusOK)
+	start := time.Now().UTC().Truncate(time.Second)
+	record(t, store, 9, "GET /old", start.Add(-time.Hour))
+	counter := &fullCounter{Store: store}
+	n := New(server.URL, JSON, "https://geko.example.com/", counter, start)
+
+	record(t, store, 1, "POST /pay", start.Add(time.Second))
+	if err := n.Check(ctx, start.Add(2*time.Second)); err != nil || counter.full != 1 || len(messages()) != 1 {
+		t.Fatalf("first check: %d full, err %v", counter.full, err)
+	}
+	// More failures of a settled group raise no event and need no full check.
+	record(t, store, 2, "POST /pay", start.Add(3*time.Second))
+	if err := n.Check(ctx, start.Add(4*time.Second)); err != nil || counter.full != 1 || len(messages()) != 0 {
+		t.Fatalf("settled check: %d full, err %v", counter.full, err)
+	}
+	// An old group that recurs is checked in full, and is still not new.
+	record(t, store, 10, "GET /old", start.Add(5*time.Second))
+	if err := n.Check(ctx, start.Add(6*time.Second)); err != nil || counter.full != 2 || len(messages()) != 0 {
+		t.Fatalf("recurring old group: %d full, err %v", counter.full, err)
+	}
+	record(t, store, 3, "GET /new", start.Add(7*time.Second))
+	if err := n.Check(ctx, start.Add(8*time.Second)); err != nil || counter.full != 3 || len(messages()) != 1 {
+		t.Fatalf("new group: %d full, err %v", counter.full, err)
+	}
+}
+
+// notifyBenchStore holds 20,000 failing traces of one group, all observed an
+// hour before the notifier starts.
+func notifyBenchStore(b *testing.B, start time.Time) *sqlite.Store {
+	b.Helper()
+	store, err := sqlite.Open(b.Context(), filepath.Join(b.TempDir(), "bench.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { store.Close() })
+	for batch := range 40 {
+		spans := make([]telemetry.Span, 0, 500)
+		for i := range 500 {
+			id := telemetry.TraceID{byte(batch), byte(i >> 8), byte(i)}
+			spans = append(spans, telemetry.Span{TraceID: id, ID: telemetry.SpanID{1}, Kind: telemetry.KindServer,
+				ServiceName: "checkout", Name: "POST /pay", StatusCode: telemetry.StatusError,
+				StartTime: start, EndTime: start.Add(time.Millisecond)})
+		}
+		if err := store.WriteSpans(b.Context(), start.Add(-time.Hour), spans); err != nil {
+			b.Fatal(err)
+		}
+	}
+	return store
+}
+
+// BenchmarkCheck measures a check in steady state, against grouping every
+// stored failure as each check did before.
+func BenchmarkCheck(b *testing.B) {
+	for _, full := range []bool{false, true} {
+		b.Run(map[bool]string{false: "settled", true: "every-failure"}[full], func(b *testing.B) {
+			start := time.Now().UTC()
+			store := notifyBenchStore(b, start)
+			n := New("http://127.0.0.1:9/", JSON, "http://127.0.0.1", store, start)
+			for b.Loop() {
+				start = start.Add(time.Second)
+				if full {
+					if _, err := n.groups(b.Context(), nil, start.Add(-time.Minute)); err != nil {
+						b.Fatal(err)
+					}
+				} else if err := n.Check(b.Context(), start); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }

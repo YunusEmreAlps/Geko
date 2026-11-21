@@ -41,7 +41,7 @@ func testSeparateListeners(t *testing.T, secret string) {
 	cfg.AccessToken = token
 	ready := make(startupOutput, 3)
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, cfg, ready) }()
+	go func() { done <- serve(ctx, cfg, ready, serveOptions{}) }()
 	var ingest, dashboard, rpc string
 	for range 3 {
 		select {
@@ -196,7 +196,7 @@ func TestOptionalListenerFailureAbortsStartup(t *testing.T) {
 				cfg.GRPCAddr = busy.Addr().String()
 			}
 			var out bytes.Buffer
-			if err := serve(t.Context(), cfg, &out); err == nil {
+			if err := serve(t.Context(), cfg, &out, serveOptions{}); err == nil {
 				t.Fatal("startup ignored occupied optional listener")
 			}
 			if out.Len() != 0 {

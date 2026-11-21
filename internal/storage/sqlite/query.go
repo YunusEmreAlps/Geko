@@ -33,12 +33,17 @@ SELECT t.trace_id, t.first_observed_ns, t.last_observed_ns,
        p.pinned_ns, p.pinned_by
 `
 
-const traceSummaryJoinStart = `
+const traceSummaryJoinStart = traceJoinRoot + traceJoinPins + traceJoinRootApplication + traceJoinEvidence
+
+const traceJoinRoot = `
 FROM traces t
 LEFT JOIN spans r ON r.trace_id = t.trace_id AND r.span_id = t.entry_span_id
-LEFT JOIN trace_applications ta ON ta.trace_id = t.trace_id
-LEFT JOIN trace_pins p ON p.trace_id = t.trace_id
-LEFT JOIN service_applications ra ON ra.service_name = r.service_name
+LEFT JOIN trace_applications ta ON ta.trace_id = t.trace_id`
+const traceJoinPins = `
+LEFT JOIN trace_pins p ON p.trace_id = t.trace_id`
+const traceJoinRootApplication = `
+LEFT JOIN service_applications ra ON ra.service_name = r.service_name`
+const traceJoinEvidence = `
 LEFT JOIN span_evidence e ON e.trace_id = t.trace_id AND e.span_id = `
 
 const evidenceSourceJoin = " JOIN grouped_spans source ON source.trace_id = candidate.trace_id AND source.span_id = candidate.span_id "
@@ -78,7 +83,7 @@ func (s *Store) traceList(ctx context.Context, f investigation.FailureFilter, fa
 			return page, nil
 		}
 	}
-	base, args := traceListQuery(f, failuresOnly)
+	base, args := traceListQuery(f, failuresOnly, false)
 	var query strings.Builder
 	query.WriteString(traceSummarySelect + base)
 	if f.After != nil {
@@ -109,8 +114,9 @@ func (s *Store) traceList(ctx context.Context, f investigation.FailureFilter, fa
 	return page, rows.Err()
 }
 
-// traceListQuery shares filter semantics across trace and group views.
-func traceListQuery(f investigation.FailureFilter, failuresOnly bool) (string, []any) {
+// traceListQuery shares filter semantics across trace and group views. A
+// grouping query reads no pin or entry application unless a filter does.
+func traceListQuery(f investigation.FailureFilter, failuresOnly, grouping bool) (string, []any) {
 	var query strings.Builder
 	var args []any
 	var searchText any
@@ -121,7 +127,14 @@ func traceListQuery(f investigation.FailureFilter, failuresOnly bool) (string, [
 		}
 		messageHash = privacy.ExceptionMessageHash(f.Search)
 	}
-	query.WriteString(traceSummaryJoinStart)
+	query.WriteString(traceJoinRoot)
+	if !grouping || f.Pinned {
+		query.WriteString(traceJoinPins)
+	}
+	if !grouping || f.Service != "" && f.Application != nil {
+		query.WriteString(traceJoinRootApplication)
+	}
+	query.WriteString(traceJoinEvidence)
 	if f.EvidenceService == "" && f.Search == "" {
 		query.WriteString("t.evidence_span_id")
 	} else {

@@ -45,6 +45,7 @@ func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
 		removed = removed || deleted > 0
 		if deleted > 0 {
 			s.revision.Add(1)
+			s.full.Store(false)
 		}
 		if deleted < pruneBatchSize {
 			break
@@ -79,14 +80,31 @@ func (s *Store) Prune(ctx context.Context, cutoff time.Time) error {
 
 // Compact reclaims free pages in the main file on explicit request.
 func (s *Store) Compact(ctx context.Context) error {
+	// Windows cannot shrink a file another handle maps, and SQLite then skips
+	// the truncation without an error, so release the readers' maps first.
+	s.read.SetMaxIdleConns(0)
+	defer s.read.SetMaxIdleConns(readConnections)
 	if _, err := s.db.ExecContext(ctx, "VACUUM"); err != nil {
 		return fmt.Errorf("compact database: %w", err)
 	}
+	s.full.Store(false)
 	drained, err := s.truncateJournal(ctx)
-	if err == nil && !drained {
+	if err != nil {
+		return err
+	}
+	if !drained {
 		return errors.New("database compacted, but a concurrent connection prevented WAL truncation")
 	}
-	return err
+	var used int64
+	if err := s.db.QueryRowContext(ctx, "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()").Scan(&used); err != nil {
+		return fmt.Errorf("read compacted size: %w", err)
+	}
+	if info, err := os.Stat(s.path); err != nil {
+		return err
+	} else if info.Size() > used {
+		return fmt.Errorf("database compacted to %d bytes, but another process holds the file open and it stays %d bytes; stop it and compact again", used, info.Size())
+	}
+	return nil
 }
 
 func (s *Store) truncateJournal(ctx context.Context) (drained bool, err error) {

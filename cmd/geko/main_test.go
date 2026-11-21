@@ -56,7 +56,7 @@ func TestDoctorReportsBusyListener(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "GEKO_LISTEN_ADDR") {
 		t.Fatalf("doctor error = %v, want a listener configuration hint", err)
 	}
-	if !strings.Contains(out.String(), "schema 14") {
+	if !strings.Contains(out.String(), "schema 15") {
 		t.Fatalf("doctor output %q does not include the database result", out.String())
 	}
 	if _, err := os.Stat("doctor.db"); err != nil {
@@ -88,7 +88,7 @@ func TestServeOTLPQueryAndShutdown(t *testing.T) {
 	}
 	ready := make(startupOutput, 1)
 	done := make(chan error, 1)
-	go func() { done <- serve(ctx, cfg, ready) }()
+	go func() { done <- serve(ctx, cfg, ready, serveOptions{}) }()
 
 	var baseURL string
 	select {

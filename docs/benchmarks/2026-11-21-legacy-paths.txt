@@ -1,0 +1,91 @@
+# Paired run of the legacy query fixes, 2026-11-21
+# before = 188caf3, after = this change; runs alternate before/after.
+# go test ./internal/storage/sqlite -run '^$' -bench <set> -benchtime 10x -count 1 -benchmem
+
+## ab-before-1
+goos: windows
+goarch: amd64
+pkg: github.com/YunusEmreAlps/geko/internal/storage/sqlite
+cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+BenchmarkApplicationNames-12                  	      10	   1851280 ns/op	    1536 B/op	      36 allocs/op
+BenchmarkWriteSpans-12                        	      10	   5547990 ns/op	     18025 spans/s	  402408 B/op	    5257 allocs/op
+BenchmarkFailures-12                          	      10	   2451420 ns/op	   86348 B/op	    1521 allocs/op
+BenchmarkFailureGroups-12                     	      10	  84923730 ns/op	  296937 B/op	    5989 allocs/op
+BenchmarkOverview200KFailures-12              	      10	  67332690 ns/op	  136840 B/op	    2858 allocs/op
+BenchmarkTraceSummary200KSpans-12             	      10	   1956120 ns/op	   16019 B/op	     284 allocs/op
+BenchmarkVersionComparisons100K-12            	      10	 854560290 ns/op	 1676076 B/op	   34878 allocs/op
+BenchmarkCompareTraceWithoutBaseline-12       	      10	 409900680 ns/op	 1380953 B/op	   28791 allocs/op
+BenchmarkWriteSpansAtCapacity/evict_oldest-12 	      10	  43021780 ns/op	 1381948 B/op	   21195 allocs/op
+BenchmarkWriteSpansAtCapacity/evict_fair-12   	      10	 140370420 ns/op	 1361902 B/op	   20848 allocs/op
+BenchmarkCompareTraceWithRecentBaseline-12    	      10	   2090330 ns/op	   15892 B/op	     356 allocs/op
+
+## ab-after-1
+goos: windows
+goarch: amd64
+pkg: github.com/YunusEmreAlps/geko/internal/storage/sqlite
+cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+BenchmarkApplicationNames-12                  	      10	   1776070 ns/op	    1526 B/op	      37 allocs/op
+BenchmarkWriteSpans-12                        	      10	   6350510 ns/op	     15747 spans/s	  406073 B/op	    5234 allocs/op
+BenchmarkFailures-12                          	      10	   2296120 ns/op	   86500 B/op	    1523 allocs/op
+BenchmarkFailureGroups-12                     	      10	  39386810 ns/op	   24099 B/op	     303 allocs/op
+BenchmarkOverview200KFailures-12              	      10	  53387790 ns/op	    3123 B/op	      72 allocs/op
+BenchmarkTraceSummary200KSpans-12             	      10	   1991420 ns/op	   15932 B/op	     284 allocs/op
+BenchmarkVersionComparisons100K-12            	      10	 128169780 ns/op	    4371 B/op	      96 allocs/op
+BenchmarkCompareTraceWithoutBaseline-12       	      10	   6261950 ns/op	   10846 B/op	     246 allocs/op
+BenchmarkWriteSpansAtCapacity/evict_oldest-12 	      10	  10534580 ns/op	  428542 B/op	    5601 allocs/op
+BenchmarkWriteSpansAtCapacity/evict_fair-12   	      10	  11056830 ns/op	  428664 B/op	    5605 allocs/op
+BenchmarkCompareTraceWithRecentBaseline-12    	      10	   2360250 ns/op	   16110 B/op	     359 allocs/op
+
+## ab-before-2
+goos: windows
+goarch: amd64
+pkg: github.com/YunusEmreAlps/geko/internal/storage/sqlite
+cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+BenchmarkApplicationNames-12                  	      10	   3298180 ns/op	    1491 B/op	      36 allocs/op
+BenchmarkWriteSpans-12                        	      10	   5587810 ns/op	     17896 spans/s	  402507 B/op	    5258 allocs/op
+BenchmarkFailures-12                          	      10	   2311160 ns/op	   86364 B/op	    1521 allocs/op
+BenchmarkFailureGroups-12                     	      10	  88872350 ns/op	  296936 B/op	    5989 allocs/op
+BenchmarkOverview200KFailures-12              	      10	  77269210 ns/op	  136952 B/op	    2859 allocs/op
+BenchmarkTraceSummary200KSpans-12             	      10	   1786470 ns/op	   16011 B/op	     285 allocs/op
+BenchmarkVersionComparisons100K-12            	      10	 853525330 ns/op	 1676166 B/op	   34878 allocs/op
+BenchmarkCompareTraceWithoutBaseline-12       	      10	 491786300 ns/op	 1380972 B/op	   28792 allocs/op
+BenchmarkWriteSpansAtCapacity/evict_oldest-12 	      10	 294103200 ns/op	 1315136 B/op	   20244 allocs/op
+BenchmarkWriteSpansAtCapacity/evict_fair-12   	      10	 158767020 ns/op	 1462608 B/op	   22561 allocs/op
+BenchmarkCompareTraceWithRecentBaseline-12    	      10	   2058000 ns/op	   15950 B/op	     357 allocs/op
+
+## ab-after-2
+goos: windows
+goarch: amd64
+pkg: github.com/YunusEmreAlps/geko/internal/storage/sqlite
+cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+BenchmarkApplicationNames-12                  	      10	   2496880 ns/op	    1539 B/op	      37 allocs/op
+BenchmarkWriteSpans-12                        	      10	  17522760 ns/op	      5707 spans/s	  405820 B/op	    5237 allocs/op
+BenchmarkFailures-12                          	      10	   2180040 ns/op	   86500 B/op	    1523 allocs/op
+BenchmarkFailureGroups-12                     	      10	  38890600 ns/op	   24084 B/op	     302 allocs/op
+BenchmarkOverview200KFailures-12              	      10	  55188840 ns/op	    3108 B/op	      72 allocs/op
+BenchmarkTraceSummary200KSpans-12             	      10	   1906040 ns/op	   15928 B/op	     284 allocs/op
+BenchmarkVersionComparisons100K-12            	      10	 123710480 ns/op	    4416 B/op	      96 allocs/op
+BenchmarkCompareTraceWithoutBaseline-12       	      10	   7255410 ns/op	   10804 B/op	     245 allocs/op
+BenchmarkWriteSpansAtCapacity/evict_oldest-12 	      10	  10136030 ns/op	  427883 B/op	    5598 allocs/op
+BenchmarkWriteSpansAtCapacity/evict_fair-12   	      10	  10317540 ns/op	  428417 B/op	    5604 allocs/op
+BenchmarkCompareTraceWithRecentBaseline-12    	      10	   2295670 ns/op	   16057 B/op	     358 allocs/op
+
+## writes at the size limit, three more alternating rounds (ns/op)
+before BenchmarkWriteSpansAtCapacity/evict_oldest-12 93073280
+before BenchmarkWriteSpansAtCapacity/evict_fair-12 197158330
+after BenchmarkWriteSpansAtCapacity/evict_oldest-12 9863270
+after BenchmarkWriteSpansAtCapacity/evict_fair-12 10968650
+before BenchmarkWriteSpansAtCapacity/evict_oldest-12 55062300
+before BenchmarkWriteSpansAtCapacity/evict_fair-12 161372160
+after BenchmarkWriteSpansAtCapacity/evict_oldest-12 9882140
+after BenchmarkWriteSpansAtCapacity/evict_fair-12 12726470
+before BenchmarkWriteSpansAtCapacity/evict_oldest-12 56921060
+before BenchmarkWriteSpansAtCapacity/evict_fair-12 145552410
+after BenchmarkWriteSpansAtCapacity/evict_oldest-12 11213610
+after BenchmarkWriteSpansAtCapacity/evict_fair-12 15922740
+
+## notifier check, internal/notify BenchmarkCheck, same run
+BenchmarkCheck/settled-12         	      10	   2902930 ns/op
+BenchmarkCheck/settled-12         	      10	   2391210 ns/op
+BenchmarkCheck/every-failure-12   	      10	 204836450 ns/op
+BenchmarkCheck/every-failure-12   	      10	 196049620 ns/op

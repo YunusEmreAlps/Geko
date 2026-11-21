@@ -327,7 +327,7 @@ The filter list behind `ApplicationNames`, measured as a matched pair at
 `-benchtime 50x -count 3` over the same 50,000-span store so that setup is
 amortized, went from 64.76 ms and 3,236 allocations per call to 0.43 ms and 28:
 a factor of 151. `FailureGroups` is the remaining query whose cost follows the
-whole window.
+whole window; the paired run of 2026-11-21 below halves it.
 
 #### Ingest concurrency on 2026-11-20
 
@@ -352,6 +352,68 @@ refuse: eight exporters lost half of their 256 exports and sixteen lost 397 of
 same throughput. The receiver now waits up to two seconds for a slot before it
 refuses, and the same sweep accepts every export at every level. An export that
 waits holds no payload, so the receiver's memory bound is unchanged.
+
+#### Paired run of the older query paths on 2026-11-21
+
+Paths that predate the fixes above, measured against the commit before they
+changed (`188caf3`) with before and after runs alternating, two rounds each
+and three more for writes at the size limit. Means of the rounds.
+[Raw output](benchmarks/2026-11-21-legacy-paths.txt)
+
+| Path | Fixture | Before | After | Change |
+| --- | --- | ---: | ---: | ---: |
+| Version comparison | 100,000 traces in two versions | 854.04 ms | 125.94 ms | 6.8x |
+| Trace comparison, no successful match | the same store | 450.84 ms | 6.76 ms | 67x |
+| Trace comparison, a recent match | the same store | 2.07 ms | 2.33 ms | unchanged |
+| Error groups | 10,000 traces, 2,500 failing | 86.90 ms | 39.14 ms | 2.2x |
+| Overview | 200,000 failing traces | 72.30 ms | 54.29 ms | 1.3x |
+| Export of 100 spans at the size limit, `evict_oldest` | 16 MiB limit | 57 ms median | 9.9 ms median | 5.8x |
+| The same, `evict_fair` | 16 MiB limit | 161 ms median | 12.7 ms median | 13x |
+| Webhook check with nothing new | 20,000 failing traces | 196–205 ms | 2.4–2.9 ms | 70x |
+| `WriteSpans` | 100 spans per export, in one binary | 7.26 ms | 6.96 ms | unchanged |
+
+What each change does:
+
+- **Readers map the database.** Each read connection maps up to 256 MiB of the
+  main file, so pages come from the OS cache without a read call each; on
+  Windows those calls were a third of the cost of grouping. The pool also keeps
+  its four connections instead of closing two after each burst. Windows cannot
+  shrink a mapped file and SQLite then skips the truncation silently, so
+  `geko compact` releases the maps first and reports another process holding
+  the file instead of leaving it unshrunk.
+- **Version comparison reads the newest 10,000 traces of each version.** The
+  entry span's `service.version` is projected onto the trace and indexed with
+  the receipt time, so the query reads two bounded index ranges instead of
+  every trace in a window that can reach seven days. Per-row cost does not
+  change: a narrower table and a covering index were both measured and neither
+  helped, so the gain comes from reading fewer rows, and the page says when a
+  version was sampled.
+- **Trace comparison looks the operation up.** It still scans the newest
+  successful traces first, but only the newest 1,000; a match there is the
+  newest match overall. Without one it reads the entry spans of that one
+  operation through a new partial index, instead of every older success.
+- **Error grouping skips joins it never used.** Grouping no longer joins the
+  pin table or the entry span's application mapping unless a filter needs
+  them, and finds reopened groups in the same pass that groups the traces.
+- **A full database evicts once per export.** An export at the size limit
+  first failed a write it could not fit, then evicted 1, 2, 4, 8 traces,
+  rewriting the whole export after each. It now starts with as many traces as
+  the export holds and skips the doomed first write while the free pages are
+  too few. `evict_fair` also looked up the largest owner with a scan of every
+  row of `trace_services` on each attempt; it now reuses the answer for up to a
+  second, and looks it up again as soon as that owner has nothing left to
+  evict.
+- **Webhook checks group only new failures.** A check grouped every stored
+  failure every 30 seconds to find each group's first receipt. It now groups
+  the failures since the previous check, and groups everything only when one of
+  them belongs to a group no full check has seen, or reopens a group
+  unannounced; otherwise no event is possible.
+
+Ingest cost was measured inside one test binary, against a store with the new
+index and trigger removed, because the host's spread between runs (6 to 15 ms
+for the same build) exceeded any difference: medians of six rounds were
+7.26 ms without and 6.96 ms with them. Error grouping still reads every failing
+trace in its window, at about 16 microseconds each.
 
 ### Facilitated study
 

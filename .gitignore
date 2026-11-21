@@ -12,3 +12,6 @@
 *.test.exe
 *.test
 __pycache__/
+
+# Walkthrough videos are re-recorded, not committed.
+docs/media/*.webm

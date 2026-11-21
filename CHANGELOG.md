@@ -2,6 +2,41 @@
 
 ## Unreleased
 
+- `geko demo` seeds six hours of synthetic traces from seven services into a
+  temporary database, keeps adding live traces, serves them and opens the
+  dashboard, with no clone, exporter or configuration. Its error groups include
+  a reopened, a muted and a noted group, and Version regressions flags the
+  release that made payment timeouts frequent. Any address other than loopback
+  serves it read-only to anyone, rate-limited per client;
+  [`deploy/demo`](deploy/demo/compose.yaml) runs it behind Caddy.
+- `geko serve --open` opens the dashboard once Geko is listening.
+- `read_only` (`GEKO_READ_ONLY`, `geko serve --read-only`) refuses exports,
+  triage, pins, notes, imports, application mappings and notification tests
+  with HTTP 403, and shows every page as a viewer sees it.
+- Install scripts for Linux, macOS and Windows that verify the archive against
+  `checksums.txt`, a Scoop bucket and a Homebrew formula in this repository, and
+  `scripts/update-packages.py` to refresh both after a release.
+- `scripts/record-walkthrough.mjs` records the walkthrough from Error groups to
+  the evidence span and Version regressions on the demo dataset.
+- Version comparison reads the 10,000 most recent traces of each version from
+  an index of the entry span's version, and says when it sampled: 854 ms to
+  126 ms over 100,000 traces, and bounded however long the window. Schema 15
+  adds that projection and an index of entry spans by operation.
+- Comparing a failing trace with a success looks the operation up when none of
+  the 1,000 newest successes matches: 451 ms to 6.8 ms over 100,000 traces.
+- An export into a database at its size limit evicts once instead of failing
+  and rewriting the export up to eight times, and `evict_fair` reuses the
+  largest owner for up to a second instead of reading every `trace_services`
+  row per attempt: 57 ms to 9.9 ms with `evict_oldest`, 161 ms to 12.7 ms with
+  `evict_fair`, per 100-span export.
+- Webhook checks group only failures received since the previous check unless
+  one of them belongs to a group not yet seen: 200 ms to 2.6 ms per check over
+  20,000 failing traces.
+- Read connections map the database file and stay open between bursts. Error
+  grouping, which also stopped joining pins and entry mappings it never used,
+  takes 39 ms instead of 87 ms over 2,500 failing traces. `geko compact` now
+  reports another process holding the file open instead of leaving it
+  unshrunk, which a mapped file caused on Windows.
 - The trace receiver waits up to two seconds for a free ingest slot before it
   refuses an export with HTTP 503 or gRPC `Unavailable`. An export that waits
   holds no payload, so the receiver's memory bound is unchanged. Eight

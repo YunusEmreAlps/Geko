@@ -198,3 +198,43 @@ func TestProxyAuthValidation(t *testing.T) {
 		t.Error("invalid prefix accepted")
 	}
 }
+
+func TestReadOnlyAdmitsReadsAndSigningInOnly(t *testing.T) {
+	handler := ReadOnly(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {}))
+	for _, tc := range []struct {
+		method, path string
+		want         int
+	}{
+		{http.MethodGet, "/failures", http.StatusOK},
+		{http.MethodHead, "/api/v1/failures", http.StatusOK},
+		{http.MethodPost, "/traces/attribute-search", http.StatusOK},
+		{http.MethodPost, "/mcp", http.StatusOK},
+		{http.MethodPost, "/login", http.StatusOK},
+		{http.MethodPost, "/logout", http.StatusOK},
+		{http.MethodPost, "/v1/traces", http.StatusForbidden},
+		{http.MethodPost, "/groups/state", http.StatusForbidden},
+		{http.MethodPost, "/groups/note", http.StatusForbidden},
+		{http.MethodPost, "/traces/0123/pin", http.StatusForbidden},
+		{http.MethodPost, "/traces/import", http.StatusForbidden},
+		{http.MethodPost, "/applications", http.StatusForbidden},
+		{http.MethodPost, "/settings/notifications/test", http.StatusForbidden},
+		{http.MethodDelete, "/failures", http.StatusForbidden},
+	} {
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, httptest.NewRequest(tc.method, tc.path, nil))
+		if recorder.Code != tc.want {
+			t.Errorf("%s %s = %d, want %d", tc.method, tc.path, recorder.Code, tc.want)
+		}
+	}
+}
+
+func TestAnyoneIsAuthenticatedWithoutACaller(t *testing.T) {
+	var authenticated, named bool
+	Anyone(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		authenticated = Authenticated(r.Context())
+		_, named = Caller(r.Context())
+	})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://demo.example.com/", nil))
+	if !authenticated || named {
+		t.Fatalf("authenticated %v, named caller %v", authenticated, named)
+	}
+}

@@ -4,6 +4,10 @@ import "time"
 
 const RegressionMinSamples = 10
 
+// RegressionSampleLimit bounds how many of the newest traces of each version
+// a comparison reads.
+const RegressionSampleLimit = 10000
+
 type RegressionFilter struct {
 	Baseline, Candidate, Service string
 	Since                        time.Time
@@ -14,6 +18,9 @@ type VersionMetrics struct {
 	Failures int    `json:"failures"`
 	Timed    int    `json:"timed_traces"`
 	MeanNS   *int64 `json:"mean_duration_ns"`
+	// Sampled reports that the version had more traces in the window than
+	// RegressionSampleLimit and these figures cover the newest of them.
+	Sampled bool `json:"sampled,omitempty"`
 }
 
 type VersionComparison struct {

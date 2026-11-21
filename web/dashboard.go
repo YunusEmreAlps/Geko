@@ -94,6 +94,8 @@ type Settings struct {
 	MaxDBBytes          int64
 	OnFull              storage.FullPolicy
 	Redaction           string
+	// ReadOnly shows every caller what a viewer sees; the server refuses changes.
+	ReadOnly bool
 }
 
 // Notifications describes the configured webhooks without their secret URLs.
@@ -122,6 +124,7 @@ type screen struct {
 	Page, Title string
 	Data        any
 	SignOut     bool
+	ReadOnly    bool
 	// Caller is who is signed in, when a token is configured.
 	Caller *access.Principal
 }
@@ -209,7 +212,7 @@ func (d *dashboard) local(handler http.HandlerFunc) http.HandlerFunc {
 }
 
 func (d *dashboard) render(w http.ResponseWriter, r *http.Request, status int, page, title string, data any) {
-	view := screen{Page: page, Title: title, Data: data, SignOut: d.settings.SignOut != nil && access.SessionAuthenticated(r)}
+	view := screen{Page: page, Title: title, Data: data, SignOut: d.settings.SignOut != nil && access.SessionAuthenticated(r), ReadOnly: d.settings.ReadOnly}
 	if caller, ok := access.Caller(r.Context()); ok {
 		view.Caller = &caller
 	}
@@ -255,10 +258,13 @@ func (d *dashboard) unavailable(w http.ResponseWriter, r *http.Request, ctx cont
 // caller is who made the request: a token, session or proxy user, or Local
 // without a token.
 func (d *dashboard) caller(r *http.Request) access.Principal {
-	if !d.settings.Tokens.Enabled() {
-		return access.Local
+	principal := access.Local
+	if d.settings.Tokens.Enabled() {
+		principal, _ = access.Caller(r.Context())
 	}
-	principal, _ := access.Caller(r.Context())
+	if d.settings.ReadOnly && principal.Role > access.RoleViewer {
+		principal.Role = access.RoleViewer
+	}
 	return principal
 }
 

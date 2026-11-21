@@ -26,10 +26,12 @@ func (d *dashboard) regressions(w http.ResponseWriter, r *http.Request) {
 	view := struct {
 		Baseline, Candidate, Service, Range string
 		Rows                                []regressionRow
-		Compared, Truncated                 bool
+		Compared, Truncated, Sampled        bool
+		SampleLimit                         int
 	}{
 		Baseline: strings.TrimSpace(params.Get("baseline")), Candidate: strings.TrimSpace(params.Get("candidate")),
 		Service: strings.TrimSpace(params.Get("service")), Range: params.Get("range"),
+		SampleLimit: investigation.RegressionSampleLimit,
 	}
 	if view.Range == "" {
 		view.Range = "24h"
@@ -58,6 +60,7 @@ func (d *dashboard) regressions(w http.ResponseWriter, r *http.Request) {
 		view.Compared = true
 		view.Truncated = len(rows) > 50
 		for _, row := range rows[:min(len(rows), 50)] {
+			view.Sampled = view.Sampled || row.Baseline.Sampled || row.Candidate.Sampled
 			signal := "No threshold crossed"
 			switch {
 			case row.FailureRegression && row.LatencyRegression:

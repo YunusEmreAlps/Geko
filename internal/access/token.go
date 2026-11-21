@@ -526,3 +526,25 @@ func (t Token) Protect(next http.Handler) http.Handler {
 		http.Error(w, "Authentication required", http.StatusUnauthorized)
 	})
 }
+
+// ReadOnly refuses every request that would store traces or change state:
+// exports, triage, imports, application mappings and notification tests.
+// Reading, searching and signing in still work.
+func ReadOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if readRequest(r) || publicRequest(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		http.Error(w, "This Geko instance is read-only", http.StatusForbidden)
+	})
+}
+
+// Anyone admits every request regardless of its Host, as a signed-in caller
+// would be. It is only for a public instance serving synthetic data, behind
+// ReadOnly.
+func Anyone(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), authenticatedKey{}, true)))
+	})
+}

@@ -229,3 +229,28 @@ IDs or telemetry text. `remote` comes from the connection and the
 `X-Forwarded-For` header, which a client can set, so treat it as a hint. Geko
 appends to the file and doesn't rotate it; use logrotate with `copytruncate`, or
 send standard error to your log collector.
+
+## Read-only instances
+
+`read_only: true` (`GEKO_READ_ONLY=true`, or `geko serve --read-only`) keeps an
+instance serving what it stores while refusing every change: exports, triage,
+pins, notes, imports, application mappings and notification tests answer
+HTTP 403. Tokens, roles and the sign-in proxy still decide who may read. Use
+it for an archived instance, or a copy restored from `geko backup` for a
+post-incident review. It cannot serve OTLP/gRPC.
+
+## Public demo
+
+[`deploy/demo/compose.yaml`](../deploy/demo/compose.yaml) runs `geko demo`
+behind Caddy, read-only and without a token, for anyone who reaches the
+domain:
+
+```sh
+cd deploy/demo
+GEKO_DOMAIN=demo.example.com docker compose up -d
+```
+
+Only the synthetic demo dataset is ever served without a token. Each client
+address may make 10 requests a second, with bursts of 40; `--trusted-proxy`
+tells the demo which proxy's `X-Forwarded-For` names the client. Nothing a
+visitor sends is stored, and the dataset is regenerated on every start.

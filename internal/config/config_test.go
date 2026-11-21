@@ -169,6 +169,7 @@ func clearConfigEnv(t *testing.T) {
 		t.Setenv(key, "")
 	}
 	t.Setenv("GEKO_WEBHOOK_URL", "")
+	t.Setenv("GEKO_READ_ONLY", "")
 	t.Setenv("GEKO_WEBHOOK_FORMAT", "")
 	t.Setenv("GEKO_APPLICATION_WEBHOOKS", "")
 	t.Setenv("GEKO_INGEST_APPLICATIONS", "")
@@ -488,5 +489,22 @@ func TestTokensFile(t *testing.T) {
 	t.Setenv("GEKO_READ_TOKENS", "other=9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "not both") {
 		t.Fatalf("tokens in a file and the environment: %v", err)
+	}
+}
+
+func TestReadOnlyFromYAMLAndEnvironment(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	writeConfig(t, defaultConfigPath, "read_only: true\n")
+	if cfg, err := Load(); err != nil || !cfg.ReadOnly {
+		t.Fatalf("read_only from YAML = %v, %v", cfg.ReadOnly, err)
+	}
+	t.Setenv("GEKO_READ_ONLY", "false")
+	if cfg, err := Load(); err != nil || cfg.ReadOnly {
+		t.Fatalf("GEKO_READ_ONLY=false = %v, %v", cfg.ReadOnly, err)
+	}
+	t.Setenv("GEKO_READ_ONLY", "sometimes")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GEKO_READ_ONLY") {
+		t.Fatalf("invalid GEKO_READ_ONLY = %v", err)
 	}
 }

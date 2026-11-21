@@ -46,16 +46,39 @@ online store with separate order, inventory, and payment services.*
 
 ## Quick start
 
-Requires Go 1.26.11 or later. Start Geko:
+See Geko on a synthetic dataset before you instrument anything. `geko demo`
+seeds six hours of traces from seven services into a temporary database,
+serves it, and opens the dashboard; stopping it deletes the data.
 
 ```sh
 git clone https://github.com/YunusEmreAlps/geko.git
 cd geko
-go run ./cmd/geko serve
+go run ./cmd/geko demo
 ```
 
-Open <http://127.0.0.1:4318>. In a second terminal, send a synthetic
-multi-service trace from the repository root:
+Open **Traces → Error groups**, select `java.net.http.HttpTimeoutException`,
+and open a trace: the evidence span is the payment gateway call that timed
+out. Then open **Regressions** and compare `5.12.0` with `5.13.0`, the
+web-frontend release that made those timeouts frequent.
+
+<details>
+<summary>The demo, step by step</summary>
+
+![Error groups in the demo: payment timeouts, a reopened NullPointerException, a database deadlock and a query timeout](docs/media/2-error-groups.png)
+![One error group with its note, issue link and matching traces](docs/media/3-group-traces.png)
+![A failing checkout trace with the payment gateway timeout as its evidence span](docs/media/4-trace-evidence.png)
+![Version regressions flagging a failure-rate and latency rise from 5.12.0 to 5.13.0](docs/media/5-version-regressions.png)
+
+</details>
+
+To try it with your own traces, start Geko and send one:
+
+```sh
+go run ./cmd/geko serve --open
+```
+
+In a second terminal, send a synthetic multi-service trace from the
+repository root:
 
 ```sh
 # bash / zsh
@@ -80,9 +103,17 @@ Refresh **Failures** and open **POST /checkout**. More examples:
 
 | Method | Command |
 | --- | --- |
-| Release binary | Download the archive for your platform from [GitHub Releases](https://github.com/YunusEmreAlps/geko/releases), extract it, and run `./geko serve` (`.\geko.exe serve` on Windows). |
+| Install script, Linux and macOS | `curl -fsSL https://raw.githubusercontent.com/YunusEmreAlps/geko/master/scripts/install.sh \| sh` installs to `~/.local/bin`. |
+| Install script, Windows | `irm https://raw.githubusercontent.com/YunusEmreAlps/geko/master/scripts/install.ps1 \| iex` installs to `%LOCALAPPDATA%\Programs\Geko` and adds it to your PATH. |
+| Scoop | `scoop bucket add geko https://github.com/YunusEmreAlps/geko`, then `scoop install geko/geko`. |
+| Homebrew | `brew tap yunusemrealps/geko https://github.com/YunusEmreAlps/geko`, then `brew install yunusemrealps/geko/geko`. |
+| Release archive | Download `geko_<version>_<os>_<arch>.tar.gz` (`.zip` on Windows) from [GitHub Releases](https://github.com/YunusEmreAlps/geko/releases), check it against `checksums.txt`, extract it, and run `./geko serve`. |
 | Go | `go install github.com/YunusEmreAlps/geko/cmd/geko@latest`, then `geko serve`. Replace `latest` with a tag to pin a version. |
 | Docker | `docker run --rm --network host -v geko-data:/data ghcr.io/yunusemrealps/geko`, or build it with `docker build -t geko .` |
+
+The install scripts verify the archive against the release's `checksums.txt`
+and take `GEKO_VERSION` to pin a release. `geko demo` and `serve --open` are
+in releases after v0.1.0.
 
 To run Geko for a team, in Docker with a token or on a server behind TLS, see
 [Run Geko for a team](docs/server.md).
@@ -156,6 +187,13 @@ python scripts/bench-ingest-concurrency.py --binary bin/geko
 
 The latest figures are in
 [competitive research](docs/competitive-research.md#single-process-measurement).
+
+To re-record the demo walkthrough and its screenshots, with Playwright
+installed (`PLAYWRIGHT_CHANNEL=msedge` or `chrome` uses an installed browser):
+
+```sh
+node scripts/record-walkthrough.mjs bin/geko docs/media
+```
 
 CI also runs staticcheck, govulncheck, race tests, `go mod tidy -diff`, and a
 Docker smoke test with the JSON exporters. CI also builds a release snapshot,
