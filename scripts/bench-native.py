@@ -307,6 +307,7 @@ def main():
     result["median_of_rounds"] = {key: round(statistics.median(round_[key] for round_ in result["rounds"]), 2)
                                  for key in numeric}
     if arguments.out:
+        Path(arguments.out).parent.mkdir(parents=True, exist_ok=True)
         Path(arguments.out).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result["median_of_rounds"], indent=2))
 

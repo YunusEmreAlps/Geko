@@ -1,0 +1,37 @@
+name: Benchmarks
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: go build -o bin/geko ./cmd/geko
+      - name: Measure one process end to end
+        run: python3 scripts/bench-native.py --binary bin/geko --rounds 3 --out bench/native.json
+      - name: Measure ingest concurrency
+        run: python3 scripts/bench-ingest-concurrency.py --binary bin/geko --connections 1,4,16 --out bench/ingest.json
+      - name: Compare with the baseline
+        # docs/benchmarks/ci-baseline.json is a native.json from this job,
+        # committed when a change moves the figures on purpose.
+        run: |
+          python3 scripts/bench-compare.py --current bench/native.json --ingest bench/ingest.json \
+            --baseline docs/benchmarks/ci-baseline.json --factor 1.5 | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: benchmarks
+          path: bench

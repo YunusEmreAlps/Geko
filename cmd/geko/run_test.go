@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/YunusEmreAlps/geko/internal/investigation"
 )
 
 // TestRunHelperProcess is the command that geko run starts in TestRunCommand.
@@ -61,7 +63,8 @@ func TestRunCommand(t *testing.T) {
 	t.Setenv("GEKO_RUN_HELPER", "1")
 
 	var stdout, stderr bytes.Buffer
-	err = runCommand(t.Context(), []string{"--", os.Args[0], "-test.run=^TestRunHelperProcess$"}, &stdout, &stderr)
+	report := filepath.Join(dir, "report")
+	err = runCommand(t.Context(), []string{"--report", report, "--", os.Args[0], "-test.run=^TestRunHelperProcess$"}, &stdout, &stderr)
 	var code exitError
 	if !errors.As(err, &code) || code != 3 {
 		t.Fatalf("run error = %v, stderr %s", err, stderr.String())
@@ -74,6 +77,18 @@ func TestRunCommand(t *testing.T) {
 		if !strings.Contains(summary, fragment) {
 			t.Errorf("summary missing %q:\n%s", fragment, summary)
 		}
+	}
+
+	markdown, err := os.ReadFile(filepath.Join(report, "report.md"))
+	if err != nil || !strings.Contains(string(markdown), "1 failing trace in this run") || strings.Contains(string(markdown), "unrelated failure") {
+		t.Fatalf("report.md = %s, %v", markdown, err)
+	}
+	if count, err := os.ReadFile(filepath.Join(report, "failures")); err != nil || string(count) != "1\n" {
+		t.Fatalf("failures = %q, %v", count, err)
+	}
+	trace, err := os.ReadFile(filepath.Join(report, "traces", "0b000000000000000000000000000001.json"))
+	if err != nil || !json.Valid(trace) || !bytes.Contains(trace, []byte("POST /pay")) {
+		t.Fatalf("saved trace = %s, %v", trace, err)
 	}
 
 	if err := runCommand(t.Context(), nil, &stdout, &stderr); err == nil {
@@ -187,5 +202,28 @@ func TestRunEnvironmentKeepsCallerSettings(t *testing.T) {
 	}
 	if env := strings.Join(runEnvironment(nil, "http://127.0.0.1:4318", "fresh", "3f9c"), "\n"); !strings.Contains(env, "OTEL_EXPORTER_OTLP_TRACES_HEADERS=authorization=Bearer%203f9c") {
 		t.Fatalf("environment without token header = %s", env)
+	}
+}
+
+func TestRunReportKeepsTelemetryInert(t *testing.T) {
+	status := 502
+	items := []investigation.TraceSummary{{
+		TraceID:   "0b000000000000000000000000000001",
+		EntrySpan: &investigation.SpanSummary{Operation: "POST /pay", Service: "checkout", HTTPStatus: &status},
+		Evidence: &investigation.Evidence{SpanSummary: investigation.SpanSummary{Operation: "charge", Service: "payments"},
+			Classification: "exception", ExceptionType: "Timeout",
+			ExceptionMessage: "@octocat see ![x](https://evil.example/x.png) | `rm -rf` \n" + strings.Repeat("a", 200)},
+	}}
+	report := runReport("abc", items, true)
+	for _, want := range []string{"More than 1 failing trace", "`@octocat see ![x](https://evil.example/x.png) \\| 'rm -rf'", "…`", "`POST /pay` in `checkout` · HTTP 502"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("report missing %q:\n%s", want, report)
+		}
+	}
+	if strings.Count(report, "\n") != 9 {
+		t.Errorf("a telemetry newline broke the table:\n%s", report)
+	}
+	if empty := runReport("abc", nil, false); !strings.Contains(empty, "no failure evidence") {
+		t.Errorf("empty report = %s", empty)
 	}
 }

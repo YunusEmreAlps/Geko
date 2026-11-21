@@ -134,6 +134,7 @@ def main():
         print(json.dumps(measurement), file=sys.stderr, flush=True)
         result["levels"].append(measurement)
     if arguments.out:
+        Path(arguments.out).parent.mkdir(parents=True, exist_ok=True)
         Path(arguments.out).write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2))
 

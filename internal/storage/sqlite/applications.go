@@ -1,10 +1,12 @@
 package sqlite
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -232,4 +234,72 @@ func (s *Store) DiscardAssignmentProgress(ctx context.Context) error {
 	defer s.assignment.Unlock()
 	_, err := s.db.ExecContext(ctx, "DELETE FROM assignment_progress WHERE id = 1")
 	return err
+}
+
+// StorageByApplication divides the stored spans between applications and
+// names evict_fair's next owner, from one pass over trace_services. Its cost
+// follows the number of stored traces, so callers should not run it per page.
+func (s *Store) StorageByApplication(ctx context.Context) (investigation.StorageUsage, error) {
+	var usage investigation.StorageUsage
+	mapped := map[string]string{}
+	mappings, err := s.read.QueryContext(ctx, "SELECT service_name, application FROM service_applications")
+	if err != nil {
+		return usage, err
+	}
+	for mappings.Next() {
+		var service, application string
+		if err := mappings.Scan(&service, &application); err != nil {
+			mappings.Close()
+			return usage, err
+		}
+		mapped[service] = application
+	}
+	if err := errors.Join(mappings.Err(), mappings.Close()); err != nil {
+		return usage, err
+	}
+	rows, err := s.read.QueryContext(ctx, `SELECT ts.namespace, ts.service_name, coalesce(ta.application, ''), sum(ts.span_count)
+ FROM trace_services ts LEFT JOIN trace_applications ta ON ta.trace_id = ts.trace_id
+ GROUP BY 1, 2, 3`)
+	if err != nil {
+		return usage, err
+	}
+	defer rows.Close()
+	applications, owners := map[string]int64{}, map[string]int64{}
+	for rows.Next() {
+		var namespace, service, assigned string
+		var spans int64
+		if err := rows.Scan(&namespace, &service, &assigned, &spans); err != nil {
+			return usage, err
+		}
+		// The same precedence as everywhere else: namespace, then a trace's
+		// assignment, then the service's mapping.
+		application, owner := namespace, "n:"+namespace
+		if namespace == "" {
+			application, owner = assigned, "s:"+service
+			if application == "" {
+				application = mapped[service]
+			}
+		}
+		applications[application] += spans
+		owners[owner] += spans
+		usage.Spans += spans
+	}
+	if err := rows.Err(); err != nil {
+		return usage, err
+	}
+	for application, spans := range applications {
+		usage.Applications = append(usage.Applications, investigation.ApplicationStorage{
+			Application: application, Spans: spans, Share: float64(spans) / float64(usage.Spans),
+		})
+	}
+	slices.SortFunc(usage.Applications, func(a, b investigation.ApplicationStorage) int {
+		return cmp.Or(cmp.Compare(b.Spans, a.Spans), cmp.Compare(a.Application, b.Application))
+	})
+	var largest int64
+	for owner, spans := range owners {
+		if spans > largest || spans == largest && owner < usage.FairOwner {
+			usage.FairOwner, largest = owner, spans
+		}
+	}
+	return usage, nil
 }

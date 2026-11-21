@@ -71,6 +71,7 @@
     <div><dt>Traces</dt><dd>{{.Count}} matching {{if eq .Count 1}}trace{{else}}traces{{end}}</dd></div>
     <div><dt>First received</dt><dd>{{timestamp .FirstObserved}}</dd></div>
     <div><dt>Last received</dt><dd>{{timestamp .LastObserved}}</dd></div>
+    {{with owner .Application .Service}}<div><dt>Owner</dt><dd>{{.}}</dd></div>{{end}}
     <div><dt>Request outcomes</dt><dd>{{.Outcomes.HTTP2xx}} 2xx · {{.Outcomes.HTTP5xx}} 5xx · {{.Outcomes.HTTPOther}} other HTTP · {{.Outcomes.HTTPUnknown}} unknown</dd></div>
   </dl>
   {{if or .Note .IssueURL}}
@@ -82,6 +83,7 @@
   {{end}}
   <div class="summary-links">
     <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Open the latest evidence span</a>
+    <a href="/groups/bundle?group={{$.Group}}" download title="The group, its note and its 10 newest traces as one file another Geko can import">Download failure bundle</a>
     <button type="button" class="button small" data-copy="group-evidence" data-copy-status="group-evidence-status" hidden>Copy as bug evidence</button><span role="status" class="subtle" id="group-evidence-status"></span>
   </div>
   <pre id="group-evidence" hidden>{{$.GroupEvidence}}</pre>
@@ -143,6 +145,17 @@
     <p id="restore-trace-limits">One OTLP JSON trace per file, up to 4 MiB and 2,048 spans.</p>
   </form>
 </details>
+<details class="restore">
+  <summary>Import a failure bundle</summary>
+  <form action="/groups/bundle" method="post" enctype="multipart/form-data" data-loading>
+    <div class="restore-controls">
+      <label class="sr-only" for="import-bundle-file">Failure bundle</label>
+      <input id="import-bundle-file" type="file" name="bundle_file" accept=".json,application/json" aria-describedby="import-bundle-limits" required>
+      <button class="button" type="submit">Import bundle</button>
+    </div>
+    <p id="import-bundle-limits">A bundle downloaded from an error group: its newest traces, and its note when this group has none.</p>
+  </form>
+</details>
 {{end}}
 {{end}}
 
@@ -153,7 +166,7 @@
 <table class="group-table"><thead><tr><th scope="col">Error / Operation</th><th scope="col">Service / Environment</th><th scope="col" class="num">Traces</th><th scope="col">First received</th><th scope="col">Last received</th></tr></thead><tbody>
 {{range .}}<tr data-first-received="{{.FirstObserved.UnixMilli}}">
   <td><a class="operation" href="{{.TracesURL}}">{{failureTitle .ExceptionType .Classification}}</a> {{template "group-state" .FailureGroup}}<span class="subtle">{{.Operation}}{{if .HTTPStatus}} · HTTP {{.HTTPStatus}}{{end}} · <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Latest example</a>{{with .IssueURL}} · <a href="{{.}}" target="_blank" rel="noopener noreferrer" title="{{.}}">Issue</a>{{end}}</span></td>
-  <td>{{serviceLabel .Application .Service}}{{$namespace := and .Namespace (ne .Namespace .Application)}}{{if or $namespace .Environment}}<span class="subtle">{{if $namespace}}{{.Namespace}}{{if .Environment}} · {{end}}{{end}}{{.Environment}}</span>{{end}}</td>
+  <td>{{serviceLabel .Application .Service}}{{$namespace := and .Namespace (ne .Namespace .Application)}}{{if or $namespace .Environment}}<span class="subtle">{{if $namespace}}{{.Namespace}}{{if .Environment}} · {{end}}{{end}}{{.Environment}}</span>{{end}}{{with owner .Application .Service}}<span class="subtle">Owner {{.}}</span>{{end}}</td>
   <td class="num"><a class="operation" href="{{.TracesURL}}">{{.Count}}</a></td>
   <td class="time">{{template "age" .FirstObserved}}</td><td class="time">{{template "age" .LastObserved}}</td>
 </tr>{{end}}</tbody></table>

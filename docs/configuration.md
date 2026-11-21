@@ -41,6 +41,8 @@ even if YAML configures a separate address.
 | — | `GEKO_MCP_TRIAGE` | `false`. Offer `set_group_state` on `/mcp` to clients with the triager or admin role. |
 | `on_full` | `GEKO_ON_FULL` | `evict_oldest`; `evict_fair` to evict from the application holding the most spans first; or `reject` to keep stored traces and return HTTP 503 |
 | `redaction` | `GEKO_REDACTION` | `best_effort`, or `strict`. The default is `strict` once `GEKO_ACCESS_TOKEN` is set, because other people can then read the data. |
+| `owners` | `GEKO_OWNERS` | Empty. Teams owning groups, by evidence service and then by application; YAML takes `services` and `applications` maps, the variable `service:<name>=<team>` and `application:<name>=<team>` pairs, and replaces the YAML. See [Owners](investigate.md#owners). |
+| `digest` | `GEKO_DIGEST` | Off. A weekday and whole hour in UTC, such as `monday 09:00`, for a weekly summary to every webhook. Needs `GEKO_WEBHOOK_URL` or `GEKO_APPLICATION_WEBHOOKS`. See [Weekly digest](investigate.md#weekly-digest). |
 | `read_only` | `GEKO_READ_ONLY` | `false`. Refuse exports, triage, pins, notes, imports, application mappings and notification tests with HTTP 403; reading, searching and signing in still work, and every page shows what a viewer sees. Cannot be combined with `grpc_addr`. `geko serve --read-only` sets it too. |
 | `collector_doctor` | — | Disabled until `config_file` or `metrics_url` is set. See [Collector Doctor](collector-doctor.md). |
 | `telemetry_budget` | — | Disabled. Set `enabled: true` to report hourly volume and cardinality. See [Telemetry Budget](telemetry-budget.md). |

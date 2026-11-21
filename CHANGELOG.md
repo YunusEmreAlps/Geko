@@ -2,6 +2,38 @@
 
 ## Unreleased
 
+- `investigate_group` on `/mcp` and `geko mcp` returns, in one call, a group,
+  its latest trace with span timings, the spans that recorded evidence with
+  their exceptions, stack traces and code locations, the latest successful
+  request to the same operation, and the versions the group's traces came
+  from. Other span attributes stay out, as with `get_trace`.
+- `geko mcp setup claude-code|cursor|vscode [--server URL]` adds Geko to the
+  client's project configuration and keeps every other server in it.
+- A GitHub Action (`action.yml`) runs a test command through `geko run`,
+  writes the failing traces to the job summary, comments them on the pull
+  request, updating its own comment on later pushes, and attaches each trace
+  as OTLP JSON. `geko run --report DIR` writes the same report, the failure
+  count and the traces. Telemetry text in the report is quoted as code, so
+  planted mentions, links and images stay plain text.
+- `owners` (`GEKO_OWNERS`) maps services and applications to teams. New and
+  reopened group notifications add the owner, and error groups, the group
+  summary, Settings and the MCP group tools show it.
+- `GEKO_DIGEST=monday 09:00` sends every webhook a weekly digest of its
+  applications' active, new, reopened, resolved and largest groups.
+- **Download failure bundle** saves a group, its note and its ten newest traces
+  in one file, and **Import a failure bundle** restores them into another
+  instance, copying the note when the group there has none.
+- **Settings → Storage → By application** shows each application's share of
+  the stored spans and of the size limit, and the owner `evict_fair` evicts
+  from first. `evict_fair` now looks the largest owner up every 10 seconds
+  instead of every second.
+- `scripts/bench-compare.py` and a nightly benchmark workflow compare
+  `bench-native.py` and `bench-ingest-concurrency.py` with a baseline and fail
+  on a regression beyond a factor, or any export refused with HTTP 503.
+  `scripts/soak.py` sends a million spans into a database at its size limit,
+  restarting the server halfway.
+- `examples/service-map` reads `OTEL_RESOURCE_ATTRIBUTES`, so `geko run`
+  attributes its trace to the run.
 - `geko demo` seeds six hours of synthetic traces from seven services into a
   temporary database, keeps adding live traces, serves them and opens the
   dashboard, with no clone, exporter or configuration. Its error groups include

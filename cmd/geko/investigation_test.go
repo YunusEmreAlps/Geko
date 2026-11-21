@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -50,7 +51,7 @@ func TestReadOnlyAgentQueries(t *testing.T) {
 	}
 	defer reader.Close()
 	serverTransport, clientTransport := mcp.NewInMemoryTransports()
-	server, err := investigationServer(reader).Connect(ctx, serverTransport, nil)
+	server, err := investigationServer(reader, ownership.Owners{}).Connect(ctx, serverTransport, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestReadOnlyAgentQueries(t *testing.T) {
 	}
 	defer client.Close()
 	tools, err := client.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 5 {
+	if err != nil || len(tools.Tools) != 6 {
 		t.Fatalf("tools = %v, %v", tools, err)
 	}
 	for _, tool := range tools.Tools {

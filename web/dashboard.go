@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/access"
@@ -28,6 +29,7 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"github.com/YunusEmreAlps/geko/internal/privacy"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
@@ -56,6 +58,7 @@ type Reader interface {
 	SetServiceApplication(context.Context, string, string) error
 	AssignTraceApplication(context.Context, time.Time, time.Time, string, string) (int64, error)
 	DiscardAssignmentProgress(context.Context) error
+	StorageByApplication(context.Context) (investigation.StorageUsage, error)
 }
 
 type Settings struct {
@@ -96,12 +99,16 @@ type Settings struct {
 	Redaction           string
 	// ReadOnly shows every caller what a viewer sees; the server refuses changes.
 	ReadOnly bool
+	// Owners names the team owning each group.
+	Owners ownership.Owners
 }
 
 // Notifications describes the configured webhooks without their secret URLs.
 // Format and Host are empty when only application webhooks are configured.
 type Notifications struct {
 	Format, Host string
+	// Digest is the weekly digest's schedule, or empty when it is off.
+	Digest       string
 	Applications []ApplicationWebhook
 	Test         func(context.Context) error
 }
@@ -118,6 +125,12 @@ type dashboard struct {
 	templates       *template.Template
 	slots           chan struct{}
 	collectorSample chan struct{}
+	// usage caches the storage breakdown, which reads every stored trace.
+	usage struct {
+		sync.Mutex
+		value investigation.StorageUsage
+		at    time.Time
+	}
 }
 
 type screen struct {
@@ -134,7 +147,11 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 		"sourceLinks": sourceLinks,
 		"duration":    formatDuration, "timestamp": formatTimestamp, "age": func(t time.Time) string { return formatAge(t, time.Now()) }, "classification": classification,
 		"size": formatSize, "evidenceLink": evidenceLink, "signal": signal,
-		"outcome": outcome, "outcomeClass": outcomeClass,
+		"percent":    func(share float64) string { return strconv.FormatFloat(100*share, 'f', 1, 64) + "%" },
+		"portion":    func(total int64, share float64) int64 { return int64(float64(total) * share) },
+		"ownerLabel": ownerLabel,
+		"owner":      settings.Owners.For,
+		"outcome":    outcome, "outcomeClass": outcomeClass,
 		"serviceLabel": serviceLabel, "failureTitle": failureTitle, "issueLabel": issueLabel,
 		"attributes": func(label string, values telemetry.Attributes) any {
 			return struct {
@@ -160,7 +177,9 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	mux.HandleFunc("GET /traces/{traceID}", d.local(d.trace))
 	mux.HandleFunc("GET /traces/{traceID}/compare", d.local(d.compareTrace))
 	mux.HandleFunc("GET /traces/{traceID}/otlp.json", d.local(d.downloadTrace))
+	mux.HandleFunc("GET /groups/bundle", d.local(d.downloadBundle))
 	mux.HandleFunc("GET /settings", d.local(d.status))
+	mux.HandleFunc("GET /settings/storage", d.local(d.storageUsage))
 	if settings.CollectorDoctor.Enabled() {
 		d.collectorSample = make(chan struct{}, 1)
 		mux.HandleFunc("GET /collector-doctor", d.local(d.collectorDoctor))
@@ -176,6 +195,7 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	mux.Handle("POST /traces/attribute-search", protect.Handler(d.local(d.searchAttribute)))
 	if settings.RestoreTrace != nil {
 		mux.Handle("POST /traces/import", protect.Handler(d.local(d.restoreTrace)))
+		mux.Handle("POST /groups/bundle", protect.Handler(d.local(d.importBundle)))
 	}
 	mux.Handle("POST /applications", protect.Handler(d.local(d.changeApplications)))
 	mux.Handle("POST /groups/state", protect.Handler(d.local(d.changeGroupState)))
@@ -542,6 +562,39 @@ func (d *dashboard) status(w http.ResponseWriter, r *http.Request) {
 			Notification  string
 			ReadOnly      bool
 		}{d.currentSettings(), status, receiver, d.traceEndpoint(r.Host), r.URL.Query().Get("notification"), d.readOnly(r)})
+	})
+}
+
+// ownerLabel describes an eviction owner: a namespace, or a service name for
+// spans without one.
+func ownerLabel(owner string) string {
+	if namespace, ok := strings.CutPrefix(owner, "n:"); ok {
+		return "namespace " + namespace
+	}
+	return "service " + strings.TrimPrefix(owner, "s:")
+}
+
+// usageCache is how long a storage breakdown is reused.
+const usageCache = time.Minute
+
+func (d *dashboard) storageUsage(w http.ResponseWriter, r *http.Request) {
+	d.withQuery(w, r, func(ctx context.Context) {
+		d.usage.Lock()
+		defer d.usage.Unlock()
+		if d.usage.at.IsZero() || time.Since(d.usage.at) > usageCache {
+			usage, err := d.store.StorageByApplication(ctx)
+			if err != nil {
+				d.unavailable(w, r, ctx)
+				return
+			}
+			d.usage.value, d.usage.at = usage, time.Now()
+		}
+		d.render(w, r, http.StatusOK, "storage", "Storage by application", struct {
+			investigation.StorageUsage
+			Computed   time.Time
+			OnFull     storage.FullPolicy
+			MaxDBBytes int64
+		}{d.usage.value, d.usage.at, d.settings.OnFull, d.settings.MaxDBBytes})
 	})
 }
 

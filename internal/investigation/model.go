@@ -97,6 +97,33 @@ type FailureGroup struct {
 	NoteChanged *time.Time `json:"note_changed,omitempty"`
 }
 
+// ApplicationStorage is one application's share of the stored spans, which
+// is what a size limit evicts.
+type ApplicationStorage struct {
+	Application string  `json:"application,omitempty"`
+	Spans       int64   `json:"spans"`
+	Share       float64 `json:"share"`
+}
+
+// StorageUsage divides the stored spans between applications, largest first.
+// FairOwner is what evict_fair evicts from next: a namespace, or a service
+// name for spans without one.
+type StorageUsage struct {
+	Applications []ApplicationStorage `json:"applications"`
+	Spans        int64                `json:"spans"`
+	FairOwner    string               `json:"fair_owner,omitempty"`
+}
+
+// GroupVersion counts a group's traces from one pair of versions: the entry
+// span's service.version and the evidence span's.
+type GroupVersion struct {
+	EntryVersion    string    `json:"entry_version"`
+	EvidenceVersion string    `json:"evidence_version"`
+	Count           int64     `json:"trace_count"`
+	FirstObserved   time.Time `json:"first_received"`
+	LastObserved    time.Time `json:"last_received"`
+}
+
 type RequestOutcomes struct {
 	HTTP2xx     int64 `json:"http_2xx"`
 	HTTP5xx     int64 `json:"http_5xx"`

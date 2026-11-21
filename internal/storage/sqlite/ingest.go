@@ -224,9 +224,9 @@ const evictOwner = `DELETE FROM traces WHERE trace_id IN (
 )`
 
 // ownerRefresh bounds how stale the largest owner may be. Finding it reads
-// every row of trace_services, which at the default size limit costs more
-// than the export being stored.
-const ownerRefresh = time.Second
+// every row of trace_services, 270 ms over 100,000 traces, so it is not
+// repeated for every export; shares between owners move slowly.
+const ownerRefresh = 10 * time.Second
 
 // largestOwner returns the owner to evict from, reusing a recent answer
 // unless refresh is set, and whether it was just looked up. Only the writer

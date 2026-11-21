@@ -54,6 +54,10 @@ func (r *Reader) CompareTrace(ctx context.Context, id telemetry.TraceID) (invest
 	return r.store.CompareTrace(ctx, id)
 }
 
+func (r *Reader) GroupVersions(ctx context.Context, key string) ([]investigation.GroupVersion, error) {
+	return r.store.GroupVersions(ctx, key)
+}
+
 func (r *Reader) VersionComparisons(ctx context.Context, filter investigation.RegressionFilter) ([]investigation.VersionComparison, error) {
 	return r.store.VersionComparisons(ctx, filter)
 }

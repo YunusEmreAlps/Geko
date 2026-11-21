@@ -48,6 +48,7 @@ Commands:
   run [--server URL] -- <command>  Run a command and list failures tagged with its run ID
   failures --json   Query failures in the local database, or a server with --server
   mcp       Serve read-only investigation tools over stdio (servers also serve /mcp)
+  mcp setup claude-code|cursor|vscode [--server URL]  Register Geko with an MCP client
   version   Print version and build information
 
 Environment:
@@ -77,6 +78,8 @@ Environment:
   GEKO_ON_FULL         evict_oldest (default), evict_fair or reject
   GEKO_REDACTION       best_effort, or strict (default once GEKO_ACCESS_TOKEN is set)
   GEKO_INGEST_CONCURRENCY  Exports decoded at once (default 4, up to 64)
+  GEKO_OWNERS          Owning teams as service:<name>=<team> or application:<name>=<team> pairs
+  GEKO_DIGEST          Weekly digest to every webhook, such as "monday 09:00" (UTC)
   GEKO_READ_ONLY       Refuse exports, triage, imports and other changes (true/false)
 `
 
@@ -107,6 +110,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if args[0] == "run" {
 		return runCommand(ctx, args[1:], out, os.Stderr)
+	}
+	if args[0] == "mcp" && len(args) > 1 {
+		return mcpSetupCommand(args[1:], out)
 	}
 	if args[0] == "doctor" && len(args) > 1 {
 		return collectorDoctorCommand(ctx, args[1:], out)
@@ -375,8 +381,11 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		if baseURL == "" {
 			baseURL = "http://" + dashboardAddr
 		}
-		notifier := notify.New(cfg.WebhookURL, cfg.WebhookFormat, baseURL, db, time.Now()).WithApplications(cfg.ApplicationWebhooks)
+		notifier := notify.New(cfg.WebhookURL, cfg.WebhookFormat, baseURL, db, time.Now()).WithApplications(cfg.ApplicationWebhooks).WithOwners(cfg.Owners).WithDigest(cfg.Digest)
 		notifications = &web.Notifications{Format: string(notifier.Format()), Host: notifier.Host(), Test: notifier.Test}
+		if cfg.Digest.Enabled {
+			notifications.Digest = cfg.Digest.String()
+		}
 		for _, application := range slices.Sorted(maps.Keys(cfg.ApplicationWebhooks)) {
 			webhook := cfg.ApplicationWebhooks[application]
 			notifications.Applications = append(notifications.Applications, web.ApplicationWebhook{
@@ -416,7 +425,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 	if cfg.MCPTriage {
 		triage = db
 	}
-	dashboardMux.Handle("/mcp", mcpHandler(db, triage, cfg.AccessToken.Enabled(), auditLog))
+	dashboardMux.Handle("/mcp", mcpHandler(db, triage, cfg.Owners, cfg.AccessToken.Enabled(), auditLog))
 	restore := receiver.RestoreTraceJSON
 	if cfg.ReadOnly {
 		restore = nil
@@ -441,6 +450,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		ConfigSource:      cfg.Source,
 		OnFull:            cfg.OnFull, Redaction: cfg.Redaction,
 		ReadOnly: cfg.ReadOnly,
+		Owners:   cfg.Owners,
 	}); err != nil {
 		return err
 	}

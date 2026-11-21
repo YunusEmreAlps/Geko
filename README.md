@@ -31,6 +31,11 @@ online store with separate order, inventory, and payment services.*
 - **Keeps outcome and evidence apart.** A checkout that returns HTTP 200 after a
   retried payment timeout still shows the payment exception next to the
   successful response.
+- **Hands the failure to your coding agent.** `geko mcp setup` registers Geko
+  with Claude Code, Cursor or VS Code, and one `investigate_group` call gives
+  the agent the stack trace, a successful request to compare with, and the
+  release the failure started in. A [GitHub Action](docs/agents.md#report-failures-on-pull-requests)
+  comments the failing traces of a test run on the pull request.
 - **Runs entirely on your machine.** A single process receives OTLP/HTTP and optional OTLP/gRPC,
   stores spans in SQLite with retention and a size limit, and serves the
   dashboard on a loopback address by default.

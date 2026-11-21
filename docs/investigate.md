@@ -144,12 +144,12 @@ or when a resolved group recurs. Muted groups never notify. Geko checks every
 
 `GEKO_WEBHOOK_FORMAT` is `slack`, `discord`, `ntfy` or `json`. Slack, Discord and
 ntfy.sh URLs are recognized automatically; any other URL receives JSON with an
-`event` (`new_group`, `reopened_group`, `summary` or `test`), a `text` summary,
+`event` (`new_group`, `reopened_group`, `summary`, `digest` or `test`), a `text` summary,
 the group's fields and a dashboard `url`. Links use `public_url`, or the
 dashboard address when it isn't set. Messages contain the exception type,
 operation, service and counts, but never exception messages, which can contain
 secrets. **Settings** shows the webhook's host and has **Send test
-notification**, which sends to every configured webhook. This is not alerting: there are no thresholds, schedules or
+notification**, which sends to every configured webhook. This is not alerting: there are no thresholds or
 escalation, and a failure in a trace that never reaches Geko sends nothing.
 
 To send each team only its own groups, set `GEKO_APPLICATION_WEBHOOKS` to
@@ -161,6 +161,54 @@ nothing. Each webhook gets at most five messages per check, and its summary
 links to that application's groups. The format is inferred from each URL, so a
 webhook that isn't Slack, Discord or ntfy.sh receives JSON. Application names
 can't contain `,` or `=`.
+
+### Owners
+
+`owners` names the team that owns a group, so its notification says who
+should look, before anyone has written a note:
+
+```yaml
+owners:
+  services:
+    payments: payments-team
+  applications:
+    Storefront: web-team
+```
+
+A rule for the evidence span's service wins over one for its application.
+`GEKO_OWNERS=service:payments=payments-team,application:Storefront=web-team`
+replaces the YAML rules. Notifications add an `Owner:` line and, in JSON, an
+`owner` field; error groups, the group summary and the MCP group tools show it,
+and **Settings** lists the rules.
+
+### Weekly digest
+
+`GEKO_DIGEST=monday 09:00` (or `digest: monday 09:00` in YAML), a weekday and a
+whole hour in UTC, sends every configured webhook a summary of the past seven
+days: how many of its groups received traces, the new, reopened and resolved
+ones, and the largest. Each application webhook gets its own application's
+groups, and `GEKO_WEBHOOK_URL` the rest. Muted groups are left out. JSON
+webhooks receive `"event": "digest"` with the groups under `digest`. The digest
+needs a webhook, and runs only while Geko is running at the scheduled hour.
+
+## Storage by application
+
+**Settings → Storage → By application** shows how the stored spans divide
+between applications and the share of the size limit each one holds, and which
+namespace or service `evict_fair` would evict from first. Counting reads every
+stored trace, about 0.65 seconds per 100,000, so the page keeps its answer for a
+minute.
+
+## Move an error group between instances
+
+**Download failure bundle** on an error group's summary saves one file with the
+group, its note and issue link, and its ten newest traces as OTLP JSON. On
+another Geko, **Import a failure bundle** at the bottom of **All traces**
+restores the traces, opens the group they form there, and copies the note and
+issue link when that group has none. The resolved or muted state stays behind,
+since it belongs to the team that set it. Traces already stored are skipped,
+so importing a bundle twice changes nothing. Importing needs the admin role,
+like restoring a trace.
 
 ## Transfer a trace
 

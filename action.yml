@@ -1,0 +1,98 @@
+name: Geko failing traces
+description: Run a test command with OpenTelemetry exporting to Geko, then report the failing traces on the job summary and the pull request.
+author: YunusEmreAlps
+branding:
+  icon: activity
+  color: green
+
+inputs:
+  run:
+    description: Command to run in bash, such as `go test ./...`. Its OpenTelemetry SDK must read the standard OTEL_* variables.
+    required: true
+  version:
+    description: Geko release to install, such as 0.2.0, or latest.
+    default: latest
+  geko-binary:
+    description: Path to a geko binary to use instead of installing a release.
+    default: ""
+  comment:
+    description: "Comment on the pull request when a run records failures (true or false). Needs the pull-requests: write permission."
+    default: "true"
+  github-token:
+    description: Token for the pull request comment.
+    default: ${{ github.token }}
+
+outputs:
+  failures:
+    description: Number of failing traces recorded, with a trailing + when there were more than 25.
+    value: ${{ steps.run.outputs.failures }}
+  exit-code:
+    description: Exit status of the command.
+    value: ${{ steps.run.outputs.status }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Geko
+      if: inputs.geko-binary == ''
+      shell: bash
+      env:
+        GEKO_VERSION: ${{ inputs.version != 'latest' && inputs.version || '' }}
+        GEKO_INSTALL_DIR: ${{ runner.temp }}/geko-bin
+      run: |
+        sh "$GITHUB_ACTION_PATH/scripts/install.sh"
+        echo "GEKO=$GEKO_INSTALL_DIR/geko" >> "$GITHUB_ENV"
+    - name: Use the given binary
+      if: inputs.geko-binary != ''
+      shell: bash
+      env:
+        BINARY: ${{ inputs.geko-binary }}
+      run: echo "GEKO=$(cd "$(dirname "$BINARY")" && pwd)/$(basename "$BINARY")" >> "$GITHUB_ENV"
+    - name: Run with Geko
+      id: run
+      shell: bash
+      env:
+        COMMAND: ${{ inputs.run }}
+        REPORT: ${{ runner.temp }}/geko-report
+      run: |
+        rm -rf "$REPORT"
+        set +e
+        GEKO_CONFIG= GEKO_DB_PATH="$RUNNER_TEMP/geko-run.db" "$GEKO" run --report "$REPORT" -- bash -c "$COMMAND"
+        status=$?
+        set -e
+        echo "status=$status" >> "$GITHUB_OUTPUT"
+        failures=$(tr -d '\n' < "$REPORT/failures" 2>/dev/null || echo 0)
+        echo "failures=${failures:-0}" >> "$GITHUB_OUTPUT"
+        [ -f "$REPORT/report.md" ] && cat "$REPORT/report.md" >> "$GITHUB_STEP_SUMMARY"
+        exit 0
+    - name: Attach failing traces
+      if: steps.run.outputs.failures != '0'
+      uses: actions/upload-artifact@v4
+      with:
+        name: geko-traces-${{ github.job }}-${{ github.run_attempt }}
+        path: ${{ runner.temp }}/geko-report/traces
+        if-no-files-found: ignore
+    - name: Comment on the pull request
+      if: inputs.comment == 'true' && github.event_name == 'pull_request' && steps.run.outputs.failures != '0'
+      # Pull requests from forks get a read-only token; the summary still has the report.
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        NUMBER: ${{ github.event.pull_request.number }}
+        REPORT: ${{ runner.temp }}/geko-report/report.md
+      # Update this action's earlier comment instead of adding one per push.
+      run: |
+        body="$RUNNER_TEMP/geko-comment.md"
+        { echo '<!-- geko-run-report -->'; cat "$REPORT"; } > "$body"
+        id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$NUMBER/comments" --paginate \
+          --jq '.[] | select(.body | startswith("<!-- geko-run-report -->")) | .id' | tail -n 1)
+        if [ -n "$id" ]; then
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F "body=@$body" > /dev/null
+        else
+          gh pr comment "$NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$body"
+        fi
+    - name: Keep the command's exit status
+      if: steps.run.outputs.status != '0'
+      shell: bash
+      run: exit ${{ steps.run.outputs.status }}

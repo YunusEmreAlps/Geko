@@ -112,3 +112,14 @@ func BenchmarkCompareTraceWithRecentBaseline(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkStorageByApplication100K(b *testing.B) {
+	store := versionedStore(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		usage, err := store.StorageByApplication(b.Context())
+		if err != nil || len(usage.Applications) != 1 || usage.FairOwner != "n:Storefront" {
+			b.Fatal(usage, err)
+		}
+	}
+}

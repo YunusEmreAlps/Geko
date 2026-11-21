@@ -13,6 +13,7 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/access"
 	"github.com/YunusEmreAlps/geko/internal/api"
 	"github.com/YunusEmreAlps/geko/internal/audit"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -65,7 +66,7 @@ func remoteServer(t *testing.T) *httptest.Server {
 	}
 	mux := http.NewServeMux()
 	api.Register(mux, store)
-	mux.Handle("/mcp", mcpHandler(store, store, true, audit.New(&remoteAudit)))
+	mux.Handle("/mcp", mcpHandler(store, store, ownership.Owners{}, true, audit.New(&remoteAudit)))
 	server := httptest.NewServer(token.Protect(mux))
 	t.Cleanup(server.Close)
 	return server
@@ -104,7 +105,7 @@ func TestMCPRequiresLoopbackHostWithoutToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	handler := mcpHandler(store, nil, false, nil)
+	handler := mcpHandler(store, nil, ownership.Owners{}, false, nil)
 	body := `{"jsonrpc":"2.0","id":1,"method":"ping"}`
 	for host, want := range map[string]int{"evil.example": http.StatusForbidden, "127.0.0.1:4318": http.StatusOK} {
 		r := httptest.NewRequest(http.MethodPost, "http://"+host+"/mcp", strings.NewReader(body))

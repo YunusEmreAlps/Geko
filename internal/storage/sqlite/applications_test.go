@@ -219,3 +219,43 @@ func TestApplicationExistsUsesTheNamespaceIndex(t *testing.T) {
 		t.Fatalf("application lookup must use the namespace index:\n%s", steps)
 	}
 }
+
+func TestStorageByApplicationFollowsApplicationPrecedence(t *testing.T) {
+	ctx := t.Context()
+	store := openTestStore(t)
+	now := time.Now()
+	span := func(trace byte, service, namespace string) telemetry.Span {
+		resource := telemetry.Attributes{}
+		if namespace != "" {
+			resource["service.namespace"] = namespace
+		}
+		return telemetry.Span{TraceID: telemetry.TraceID{trace}, ID: telemetry.SpanID{trace}, ServiceName: service, Name: "work",
+			StartTime: now, EndTime: now.Add(time.Millisecond), ResourceAttributes: resource}
+	}
+	spans := []telemetry.Span{
+		span(1, "api", "Shop"), span(2, "api", "Shop"), span(3, "api", "Shop"),
+		span(4, "worker", ""), span(5, "worker", ""),
+		span(6, "cron", ""),
+	}
+	if err := store.WriteSpans(ctx, now, spans); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.SetServiceApplication(ctx, "worker", "Back office"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AssignTraceApplication(ctx, now.Add(-time.Minute), now.Add(time.Minute), "cron", "Reports"); err != nil {
+		t.Fatal(err)
+	}
+	usage, err := store.StorageByApplication(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int64{}
+	for _, application := range usage.Applications {
+		got[application.Application] = application.Spans
+	}
+	if usage.Spans != 6 || got["Shop"] != 3 || got["Back office"] != 2 || got["Reports"] != 1 ||
+		usage.Applications[0].Application != "Shop" || usage.Applications[0].Share != 0.5 || usage.FairOwner != "n:Shop" {
+		t.Fatalf("usage = %+v", usage)
+	}
+}

@@ -19,6 +19,7 @@ import (
 
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/demo"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 )
@@ -68,6 +69,9 @@ func demoCommand(ctx context.Context, args []string, out io.Writer) error {
 			OnFull: demoSetting, Redaction: demoSetting, IngestSlots: demoSetting,
 			DashboardAddr: demoSetting, GRPCAddr: demoSetting, PublicURL: demoSetting,
 		},
+	}
+	if cfg.Owners, err = ownership.Parse(demo.Owners); err != nil {
+		return err
 	}
 	var dataset *demo.Dataset
 	options := serveOptions{

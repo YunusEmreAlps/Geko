@@ -413,7 +413,40 @@ Ingest cost was measured inside one test binary, against a store with the new
 index and trigger removed, because the host's spread between runs (6 to 15 ms
 for the same build) exceeded any difference: medians of six rounds were
 7.26 ms without and 6.96 ms with them. Error grouping still reads every failing
-trace in its window, at about 16 microseconds each.
+trace in its window, at about 16 microseconds each. The two schema 15 indexes do
+cost disk: the main file of the four-round end-to-end fixture, two spans per
+trace, grew from 17.7 to 19.7 MiB, about 55 bytes per span; traces with more
+spans per entry span pay proportionally less.
+
+#### One million spans at the size limit on 2026-11-21
+
+[`scripts/soak.py`](../scripts/soak.py) sent 1,000,064 spans, 64 two-span
+failing traces per export over four connections, into a database limited to
+64 MiB, and restarted the server after half of them.
+[Raw measurements](benchmarks/2026-11-21-soak-1m.json)
+
+| Spans sent | Spans/s | Median export | p95 export | Main file | WAL | Memory | Evicted traces |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 100,096 | 11,994 | 34.37 ms | 51.01 ms | 52.9 MiB | 2.7 MiB | 35.0 MiB | 0 |
+| 200,192 | 5,019 | 74.94 ms | 122.77 ms | 64.0 MiB | 0.4 MiB | 34.3 MiB | 40,704 |
+| 500,480 | 4,924 | 74.84 ms | 105.50 ms | 64.0 MiB | 4.3 MiB | 34.8 MiB | 190,592 |
+| 600,576 (after restart) | 4,774 | 77.05 ms | 262.90 ms | 64.0 MiB | 0.8 MiB | 34.0 MiB | 240,832 |
+| 1,000,064 | 4,468 | 86.19 ms | 124.40 ms | 64.0 MiB | 4.2 MiB | 35.7 MiB | 440,832 |
+
+- The main file never passed the limit and no export was refused; the WAL
+  stayed under 4.3 MiB and memory between 34 and 36 MiB.
+- The server answered `/readyz` 0.56 seconds after its first start and 0.51
+  seconds after the restart on the full database.
+- At the limit the database kept 59,200 traces, 567 bytes of main file per
+  span including indexes and free pages.
+- Reaching the limit halves throughput, from 12,000 to about 4,800 spans per
+  second, because every export now also deletes as many traces as it adds.
+  Median export latency then drifts from 75 to 86 ms over the next 800,000
+  spans.
+- On the full database the failures API took 1.58 ms, the Failures page
+  2.21 ms and Overview 49.87 ms, but **Error groups took 892 ms**: it groups
+  every failing trace, and this fixture keeps 59,200 of them. That is the
+  measured case for bounding error grouping.
 
 ### Facilitated study
 

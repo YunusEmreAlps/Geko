@@ -34,7 +34,12 @@ func run() (result error) {
 	start := time.Now().Add(-time.Second)
 	var providers []*sdktrace.TracerProvider
 	tracerFor := func(service string) trace.Tracer {
-		provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", "demo-"+service))))
+		// OTEL_RESOURCE_ATTRIBUTES, such as geko run's run ID, apply to every service.
+		attributes, err := resource.Merge(resource.Environment(), resource.NewSchemaless(attribute.String("service.name", "demo-"+service)))
+		if err != nil {
+			attributes = resource.NewSchemaless(attribute.String("service.name", "demo-"+service))
+		}
+		provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(attributes))
 		providers = append(providers, provider)
 		return provider.Tracer("github.com/YunusEmreAlps/geko/synthetic-service-map")
 	}

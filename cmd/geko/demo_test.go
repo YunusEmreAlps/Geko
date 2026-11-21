@@ -64,7 +64,7 @@ func TestDemoOpensTheSeededDashboardAndRefusesChangesWhenReadOnly(t *testing.T) 
 		request, _ := http.NewRequest(http.MethodGet, base+path, nil)
 		return fetch(t, request)
 	}
-	if status, body := get("/failures?view=groups"); status != http.StatusOK || !strings.Contains(body, "HttpTimeoutException") ||
+	if status, body := get("/failures?view=groups"); status != http.StatusOK || !strings.Contains(body, "HttpTimeoutException") || !strings.Contains(body, "Owner payments-team") ||
 		!strings.Contains(body, "This instance is read-only") || strings.Contains(body, `action="/groups/state"`) {
 		t.Fatalf("groups page = %d:\n%s", status, body)
 	}

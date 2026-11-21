@@ -90,6 +90,35 @@ jobs:
           name: browser-checks
           path: dist/browser-checks
 
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: Build Geko and a failing example
+        run: |
+          go build -o ./bin/geko ./cmd/geko
+          go build -o ./bin/service-map ./examples/service-map
+      - id: geko
+        uses: ./
+        with:
+          geko-binary: ./bin/geko
+          run: ./bin/service-map
+          comment: "false"
+      - name: Check the action's report
+        env:
+          FAILURES: ${{ steps.geko.outputs.failures }}
+          EXIT_CODE: ${{ steps.geko.outputs.exit-code }}
+        run: |
+          test "$FAILURES" = 1
+          test "$EXIT_CODE" = 0
+          grep -q 'payment gateway timed out' "$RUNNER_TEMP/geko-report/report.md"
+          ls "$RUNNER_TEMP"/geko-report/traces/*.json
+
   analysis:
     runs-on: ubuntu-latest
     steps:

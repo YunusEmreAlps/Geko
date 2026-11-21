@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
@@ -370,5 +371,35 @@ func BenchmarkCheck(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func TestNotificationsNameTheOwner(t *testing.T) {
+	ctx := t.Context()
+	store, err := sqlite.Open(ctx, filepath.Join(t.TempDir(), "owners.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	owners, err := ownership.Parse("service:checkout=payments-team")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now().UTC().Truncate(time.Second)
+	for _, format := range []Format{JSON, Slack} {
+		server, messages := webhook(t, http.StatusOK)
+		n := New(server.URL, format, "https://geko.example.com", store, start).WithOwners(owners)
+		record(t, store, byte(len(format)), "POST /pay/"+string(format), start.Add(time.Second))
+		if err := n.Check(ctx, start.Add(2*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		got := messages()
+		if len(got) != 1 || !strings.Contains(got[0].body, `Owner: payments-team`) {
+			t.Fatalf("%s messages = %+v", format, got)
+		}
+		if format == JSON && !strings.Contains(got[0].body, `"owner":"payments-team"`) {
+			t.Fatalf("JSON payload has no owner: %s", got[0].body)
+		}
+		start = start.Add(time.Minute)
 	}
 }

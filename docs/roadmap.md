@@ -180,16 +180,20 @@ are addressed here, starting with the ones a shared instance hits first.
       only new failures (200 ms to 2.6 ms), and read connections map the file
       (error grouping 87 ms to 39 ms).
 - [ ] Bound error grouping. It still reads every failing trace in its window,
-      at about 16 microseconds each, so a seven-day window over 200,000
-      failures takes three seconds. Unlike Overview its counts and first
+      at about 15 microseconds each: 892 ms over the 59,200 failing traces
+      of the soak run, three seconds over 200,000. Unlike Overview its counts and first
       receipt must stay exact, so it needs a per-group projection rather than
       a sample.
-- [ ] A nightly run of [`scripts/bench-native.py`](../scripts/bench-native.py)
+- [x] A nightly run of [`scripts/bench-native.py`](../scripts/bench-native.py)
       and [`scripts/bench-ingest-concurrency.py`](../scripts/bench-ingest-concurrency.py)
       in CI that publishes their JSON and fails on a regression beyond a
-      configured factor.
-- [ ] A soak run of one million spans: eviction at the size limit, retention
-      deletion, restart recovery, and the resulting bytes per span.
+      configured factor, or any export refused with HTTP 503.
+- [ ] Commit the first nightly result as `docs/benchmarks/ci-baseline.json`,
+      so the nightly run compares instead of only reporting.
+- [x] A soak run of one million spans at a 64 MiB limit, with a restart
+      halfway: the file held at the limit, no export was refused, memory
+      stayed under 36 MiB, the restart took half a second, and the database
+      kept 567 bytes per span. Error groups took 892 ms on the full database.
 
 ## Phase 10: the coding agent as the first reader
 
@@ -197,15 +201,21 @@ Geko already serves `/mcp`, `compare_trace` and `compare_versions`. This phase
 treats an agent, not a person, as the first thing that reads a failure, because
 that is the workflow no local trace viewer covers today.
 
-- [ ] One command to register Geko with an MCP client, and a documented setup
-      for Claude Code, Cursor and the VS Code extensions.
-- [ ] A GitHub Action that runs a test suite through `geko run --server` and
-      comments the failing traces, with evidence, on the pull request.
-- [ ] One MCP call that returns a complete investigation bundle for a group:
-      representative trace, evidence spans, the same operation when it
-      succeeded, and the version where it started failing.
+- [x] One command to register Geko with an MCP client: `geko mcp setup
+      claude-code|cursor|vscode`, locally over stdio or with `--server` over
+      Streamable HTTP, keeping the other servers in the file.
+- [x] A GitHub Action that runs a test suite through `geko run`, writes the
+      failing traces to the job summary, comments them on the pull request,
+      and attaches each as OTLP JSON to restore in any Geko. CI runs it
+      against the example on every push.
+- [x] One MCP call, `investigate_group`, that returns the group, its latest
+      trace with span timings, the evidence spans with exceptions, stack
+      traces and code locations, the same operation when it succeeded, and
+      the versions its traces came from, oldest first.
 - [ ] A recorded session of an agent reading a failing trace and proposing the
       fix, next to the walkthrough from phase 8.
+- [ ] A release that ships the action's `geko run --report`, so
+      `uses: YunusEmreAlps/geko@v0.2.0` works without `geko-binary`.
 
 ## Phase 11: a team that keeps using it
 
@@ -213,13 +223,19 @@ Adoption after the first week depends on Geko reaching people without their
 opening it. Still not production monitoring: no logs, no metrics, no threshold
 alerts.
 
-- [ ] A weekly digest per application, over the existing webhooks: new groups,
-      reopened groups, the largest groups, and what was resolved.
-- [ ] Group ownership, so a new group's notification names the owning team.
-- [ ] A portable failure bundle: one file with a group, its traces and its
-      notes, exported from one instance and imported into another.
-- [ ] Per-application retention and eviction figures in Settings, so a shared
-      instance shows which application is consuming the size limit.
+- [x] A weekly digest per webhook, `GEKO_DIGEST=monday 09:00`: active, new,
+      reopened, resolved and the largest groups of each application's week.
+- [x] Group ownership: `owners` rules map services and applications to
+      teams, and notifications, the digest, the dashboard and the MCP group
+      tools name the owner.
+- [x] A portable failure bundle: the group, its note and issue link and its
+      ten newest traces in one file, downloaded from the group and imported
+      into another instance, which copies the note when its group has none.
+- [x] Per-application storage in Settings: each application's share of the
+      stored spans and of the size limit, and the owner `evict_fair` evicts
+      from first.
+- [ ] Count evictions per application, so the storage page also shows what
+      each application lost to the size limit, not only what it holds.
 
 Not in scope: Geko keeps no user or password database; people sign in with a
 token or through your identity provider's proxy.

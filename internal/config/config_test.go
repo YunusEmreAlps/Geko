@@ -170,6 +170,8 @@ func clearConfigEnv(t *testing.T) {
 	}
 	t.Setenv("GEKO_WEBHOOK_URL", "")
 	t.Setenv("GEKO_READ_ONLY", "")
+	t.Setenv("GEKO_OWNERS", "")
+	t.Setenv("GEKO_DIGEST", "")
 	t.Setenv("GEKO_WEBHOOK_FORMAT", "")
 	t.Setenv("GEKO_APPLICATION_WEBHOOKS", "")
 	t.Setenv("GEKO_INGEST_APPLICATIONS", "")
@@ -506,5 +508,40 @@ func TestReadOnlyFromYAMLAndEnvironment(t *testing.T) {
 	t.Setenv("GEKO_READ_ONLY", "sometimes")
 	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GEKO_READ_ONLY") {
 		t.Fatalf("invalid GEKO_READ_ONLY = %v", err)
+	}
+}
+
+func TestOwnersFromYAMLAndEnvironment(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	writeConfig(t, defaultConfigPath, "owners:\n  services:\n    payments: payments-team\n  applications:\n    Storefront: web-team\n")
+	cfg, err := Load()
+	if err != nil || cfg.Owners.For("Storefront", "payments") != "payments-team" || cfg.Owners.For("Storefront", "cart") != "web-team" {
+		t.Fatalf("owners from YAML = %v, %v", cfg.Owners.Rules(), err)
+	}
+	t.Setenv("GEKO_OWNERS", "service:cart=cart-team")
+	if cfg, err := Load(); err != nil || cfg.Owners.For("Storefront", "cart") != "cart-team" || cfg.Owners.For("Storefront", "payments") != "" {
+		t.Fatalf("GEKO_OWNERS = %v, %v", cfg.Owners.Rules(), err)
+	}
+	t.Setenv("GEKO_OWNERS", "cart=cart-team")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GEKO_OWNERS") {
+		t.Fatalf("malformed GEKO_OWNERS = %v", err)
+	}
+}
+
+func TestDigestNeedsAWebhook(t *testing.T) {
+	t.Chdir(t.TempDir())
+	clearConfigEnv(t)
+	t.Setenv("GEKO_DIGEST", "friday 16:00")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GEKO_WEBHOOK_URL") {
+		t.Fatalf("digest without a webhook = %v", err)
+	}
+	t.Setenv("GEKO_WEBHOOK_URL", "https://hooks.example.com/geko")
+	if cfg, err := Load(); err != nil || cfg.Digest.String() != "Friday 16:00 UTC" {
+		t.Fatalf("digest = %v, %v", cfg.Digest, err)
+	}
+	t.Setenv("GEKO_DIGEST", "someday")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "GEKO_DIGEST") {
+		t.Fatalf("invalid digest = %v", err)
 	}
 }

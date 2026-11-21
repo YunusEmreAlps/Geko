@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 )
 
@@ -28,7 +29,7 @@ func TestMCPAnswersMalformedLinesAndContinues(t *testing.T) {
 	outReader, outWriter := io.Pipe()
 	done := make(chan error, 1)
 	go func() {
-		done <- serveMCP(ctx, reader, inReader, outWriter)
+		done <- serveMCP(ctx, reader, ownership.Owners{}, inReader, outWriter)
 		outWriter.Close()
 	}()
 	responses := bufio.NewScanner(outReader)

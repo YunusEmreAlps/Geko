@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 )
 
 type Format string
@@ -92,6 +93,8 @@ type Notifier struct {
 	client       *http.Client
 	since        time.Time
 	recent       map[string]time.Time
+	owners       ownership.Owners
+	digest       Digest
 	// settled holds groups a full check has seen, so later checks can skip
 	// grouping every stored failure while nothing new appears.
 	settled map[string]time.Time
@@ -110,6 +113,12 @@ func New(webhook string, format Format, baseURL string, store Store, start time.
 
 // WithApplications sends groups of these applications to their own webhook
 // instead of the shared one.
+// WithOwners names each group's owning team in its notifications.
+func (n *Notifier) WithOwners(owners ownership.Owners) *Notifier {
+	n.owners = owners
+	return n
+}
+
 func (n *Notifier) WithApplications(webhooks map[string]Webhook) *Notifier {
 	n.applications = webhooks
 	return n
@@ -132,6 +141,10 @@ func (n *Notifier) destination(application string) (Webhook, bool) {
 func (n *Notifier) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	var digestAt time.Time
+	if n.digest.Enabled {
+		digestAt = n.digest.Next(time.Now())
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -139,6 +152,12 @@ func (n *Notifier) Run(ctx context.Context, interval time.Duration) {
 		case now := <-ticker.C:
 			if err := n.Check(ctx, now); err != nil && ctx.Err() == nil {
 				log.Printf("notifications: %v", err)
+			}
+			if n.digest.Enabled && !now.Before(digestAt) {
+				if err := n.SendDigest(ctx, now); err != nil && ctx.Err() == nil {
+					log.Printf("weekly digest: %v", err)
+				}
+				digestAt = n.digest.Next(now)
 			}
 		}
 	}
@@ -151,6 +170,11 @@ type event struct {
 	More  int
 	// Application names whose webhook a test message is for.
 	Application string
+	// Owner is the team owning the group, from the ownership rules.
+	Owner string
+	// Digest and Summary describe a weekly digest.
+	Digest  *digestSummary
+	Summary string
 }
 
 // advance forgets notifications sent before window and starts the next check at now.
@@ -239,7 +263,7 @@ func (n *Notifier) Check(ctx context.Context, now time.Time) error {
 		switch {
 		case group.State == investigation.GroupOpen && !group.FirstObserved.Before(window):
 			if _, sent := n.recent[group.Key]; !sent {
-				events = append(events, event{Kind: "new_group", Group: group})
+				events = append(events, event{Kind: "new_group", Group: group, Owner: n.owners.For(group.Application, group.Service)})
 			}
 		case group.State == investigation.GroupReopened && group.StateChanged != nil:
 			notified, err := n.store.GroupNotified(ctx, group.Key)
@@ -247,7 +271,7 @@ func (n *Notifier) Check(ctx context.Context, now time.Time) error {
 				return err
 			}
 			if notified.Before(*group.StateChanged) {
-				events = append(events, event{Kind: "reopened_group", Group: group})
+				events = append(events, event{Kind: "reopened_group", Group: group, Owner: n.owners.For(group.Application, group.Service)})
 			}
 		}
 	}
@@ -337,6 +361,8 @@ func (e event) title() string {
 		return "Resolved error group recurred"
 	case e.Kind == "test":
 		return "Geko test notification"
+	case e.Kind == "digest":
+		return "Weekly error digest"
 	default:
 		return "More error group changes"
 	}
@@ -345,6 +371,9 @@ func (e event) title() string {
 // text describes the group without exception messages, which can contain
 // secrets. Names come from instrumented services and are shortened.
 func (e event) text() string {
+	if e.Kind == "digest" {
+		return e.Summary
+	}
 	if e.Kind == "test" {
 		if e.Application != "" {
 			return "Webhook notifications from Geko are working for " + clip(e.Application) + "."
@@ -371,7 +400,11 @@ func (e event) text() string {
 	if g.HTTPStatus != 0 {
 		detail += fmt.Sprintf(" · evidence HTTP %d", g.HTTPStatus)
 	}
-	return strings.Join(append(lines, detail), "\n")
+	lines = append(lines, detail)
+	if e.Owner != "" {
+		lines = append(lines, "Owner: "+clip(e.Owner))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func plural(n int64, one, many string) string {
@@ -424,8 +457,13 @@ func (n *Notifier) send(ctx context.Context, webhook Webhook, e event) error {
 		switch e.Kind {
 		case "new_group", "reopened_group":
 			payload["group"] = e.Group
+			if e.Owner != "" {
+				payload["owner"] = e.Owner
+			}
 		case "summary":
 			payload["count"] = e.More
+		case "digest":
+			payload["digest"] = e.Digest
 		}
 		body, err = marshal(payload)
 	}

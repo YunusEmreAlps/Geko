@@ -16,6 +16,7 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/api"
 	"github.com/YunusEmreAlps/geko/internal/audit"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -27,11 +28,11 @@ import (
 // With triage, triagers and admins (or any caller when no token is configured)
 // also get set_group_state; viewers never do. Each triager gets a server that
 // names them in the group state and the audit log.
-func mcpHandler(store investigationReader, triage groupTriage, tokenEnabled bool, auditLog *audit.Log) http.Handler {
-	readOnly := investigationServer(store)
+func mcpHandler(store investigationReader, triage groupTriage, owners ownership.Owners, tokenEnabled bool, auditLog *audit.Log) http.Handler {
+	readOnly := investigationServer(store, owners)
 	var local *mcp.Server
 	if triage != nil && !tokenEnabled {
-		local = investigationServer(store)
+		local = investigationServer(store, owners)
 		addTriageTool(local, triage, access.Local, "", auditLog)
 	}
 	choose := func(r *http.Request) *mcp.Server {
@@ -42,7 +43,7 @@ func mcpHandler(store investigationReader, triage groupTriage, tokenEnabled bool
 		if triage == nil || !ok || caller.Role < access.RoleTriager {
 			return readOnly
 		}
-		server := investigationServer(store)
+		server := investigationServer(store, owners)
 		addTriageTool(server, triage, caller, caller.Name, auditLog)
 		return server
 	}

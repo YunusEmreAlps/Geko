@@ -103,3 +103,51 @@ func TestApplicationGrouping(t *testing.T) {
 	post(assignment, "http://127.0.0.1", http.StatusSeeOther)
 	contains(get("/failures?application=group:Kavun"), "old Nar request", true)
 }
+
+func TestStorageByApplicationPage(t *testing.T) {
+	store, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "usage.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	mux := http.NewServeMux()
+	if err := Register(mux, store, Settings{OnFull: "evict_fair", MaxDBBytes: 256 << 20}); err != nil {
+		t.Fatal(err)
+	}
+	get := func() string {
+		t.Helper()
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/settings/storage", nil))
+		if w.Code != http.StatusOK {
+			t.Fatalf("storage page returned %d", w.Code)
+		}
+		return w.Body.String()
+	}
+	if body := get(); !strings.Contains(body, "No spans are stored yet") {
+		t.Fatalf("empty storage page:\n%s", body)
+	}
+	now := time.Now()
+	for i, namespace := range []string{"Shop", "Shop", "Shop", ""} {
+		span := telemetry.Span{TraceID: telemetry.TraceID{byte(i + 1)}, ID: telemetry.SpanID{1}, ServiceName: "api", Name: "work",
+			StartTime: now, EndTime: now.Add(time.Millisecond), ResourceAttributes: telemetry.Attributes{"service.namespace": namespace}}
+		if err := store.WriteSpans(t.Context(), now, []telemetry.Span{span}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The first answer is reused for a minute.
+	if body := get(); !strings.Contains(body, "No spans are stored yet") {
+		t.Fatal("the breakdown was recomputed within its cache window")
+	}
+	w := httptest.NewRecorder()
+	fresh := http.NewServeMux()
+	if err := Register(fresh, store, Settings{OnFull: "evict_fair", MaxDBBytes: 256 << 20}); err != nil {
+		t.Fatal(err)
+	}
+	fresh.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/settings/storage", nil))
+	body := w.Body.String()
+	for _, want := range []string{"<td>Shop</td>", "75.0%", "192.0 MiB", "No application", "evicts the oldest traces of namespace Shop first"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("storage page missing %q:\n%s", want, body)
+		}
+	}
+}

@@ -35,6 +35,7 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	flags := flag.NewFlagSet("run", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	server := flags.String("server", "", "Geko server URL; set GEKO_TOKEN for read access")
+	report := flags.String("report", "", "write report.md, the failure count and the failing traces as OTLP JSON to this directory")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -46,7 +47,7 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		args = args[1:]
 	}
 	if len(args) == 0 {
-		return errors.New("usage: geko run [--server URL] -- <command> [arguments]")
+		return errors.New("usage: geko run [--server URL] [--report DIR] -- <command> [arguments]")
 	}
 	var runIDBytes [16]byte
 	rand.Read(runIDBytes[:])
@@ -119,6 +120,11 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	}
 	if err := summarizeRun(ctx, cfg, queryBase, base, token, runID, counts, start, end, embedded, stderr); err != nil {
 		fmt.Fprintf(stderr, "geko: could not summarize the run: %v\n", err)
+	}
+	if *report != "" {
+		if err := writeRunReport(ctx, queryBase, token, runID, *report); err != nil {
+			fmt.Fprintf(stderr, "geko: could not write the run report: %v\n", err)
+		}
 	}
 	if exitCode != nil {
 		return exitError(exitCode.ExitCode())

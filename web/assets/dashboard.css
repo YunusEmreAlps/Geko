@@ -245,6 +245,8 @@ a.operation:hover { text-decoration: underline; }
 .ranking th:nth-child(1) { width: 55%; }
 .ranking th:nth-child(2) { width: 32%; }
 .num { text-align: right; font-variant-numeric: tabular-nums; }
+.usage th:first-child { width: 60%; }
+.usage .num { white-space: nowrap; }
 .pagination { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 
 /* Sections, cards and lists */

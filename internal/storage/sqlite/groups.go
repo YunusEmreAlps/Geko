@@ -181,3 +181,29 @@ func (s *Store) GroupNotified(ctx context.Context, key string) (time.Time, error
 	}
 	return time.Unix(0, notified).UTC(), err
 }
+
+// GroupVersions reports the versions a group's traces came from, oldest first,
+// so a reader can see which release it started in. It examines every failing
+// trace, like a group view without a time range.
+func (s *Store) GroupVersions(ctx context.Context, key string) ([]investigation.GroupVersion, error) {
+	base, args := traceListQuery(investigation.FailureFilter{GroupKey: key}, true, true)
+	rows, err := s.read.QueryContext(ctx, `SELECT coalesce(t.entry_version, ''),
+ coalesce(json_extract(s.resource_attributes, '$."service.version"'), ''),
+ count(*), min(t.first_observed_ns), max(t.last_observed_ns) `+base+`
+ GROUP BY 1, 2 ORDER BY 4, 1, 2 LIMIT 20`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	versions := []investigation.GroupVersion{}
+	for rows.Next() {
+		var version investigation.GroupVersion
+		var first, last int64
+		if err := rows.Scan(&version.EntryVersion, &version.EvidenceVersion, &version.Count, &first, &last); err != nil {
+			return nil, err
+		}
+		version.FirstObserved, version.LastObserved = time.Unix(0, first).UTC(), time.Unix(0, last).UTC()
+		versions = append(versions, version)
+	}
+	return versions, rows.Err()
+}

@@ -15,6 +15,7 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/budget"
 	"github.com/YunusEmreAlps/geko/internal/collectordoctor"
 	"github.com/YunusEmreAlps/geko/internal/notify"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"github.com/YunusEmreAlps/geko/internal/privacy"
 	"github.com/YunusEmreAlps/geko/internal/storage"
 
@@ -62,6 +63,10 @@ type Config struct {
 	IngestSlots   int                `yaml:"ingest_concurrency"`
 	OnFull        storage.FullPolicy `yaml:"on_full"`
 	Redaction     string             `yaml:"redaction"`
+	// Digest schedules a weekly summary to every configured webhook.
+	Digest notify.Digest `yaml:"-"`
+	// Owners names the team owning each group in notifications and the dashboard.
+	Owners ownership.Owners `yaml:"-"`
 	// ReadOnly refuses exports, triage, imports and other changes, so an
 	// instance only serves what it already stores.
 	ReadOnly bool   `yaml:"read_only"`
@@ -250,6 +255,19 @@ func Load() (Config, error) {
 	}
 	if cfg.ApplicationWebhooks, err = applicationWebhooks(os.Getenv("GEKO_APPLICATION_WEBHOOKS")); err != nil {
 		return Config{}, err
+	}
+	if value := os.Getenv("GEKO_DIGEST"); value != "" {
+		if cfg.Digest, err = notify.ParseDigest(value); err != nil {
+			return Config{}, fmt.Errorf("GEKO_DIGEST: %w", err)
+		}
+	}
+	if cfg.Digest.Enabled && cfg.WebhookURL == "" && len(cfg.ApplicationWebhooks) == 0 {
+		return Config{}, errors.New("the weekly digest needs GEKO_WEBHOOK_URL or GEKO_APPLICATION_WEBHOOKS")
+	}
+	if value := os.Getenv("GEKO_OWNERS"); value != "" {
+		if cfg.Owners, err = ownership.Parse(value); err != nil {
+			return Config{}, fmt.Errorf("GEKO_OWNERS: %w", err)
+		}
 	}
 	if value := os.Getenv("GEKO_READ_ONLY"); value != "" {
 		if cfg.ReadOnly, err = strconv.ParseBool(value); err != nil {
@@ -450,6 +468,11 @@ func loadFile(path string, optional bool) (Config, error) {
 		TraceLinkURL    *string                 `yaml:"trace_link_url"`
 		TraceLinkName   *string                 `yaml:"trace_link_name"`
 		ReadOnly        *bool                   `yaml:"read_only"`
+		Digest          *string                 `yaml:"digest"`
+		Owners          *struct {
+			Services     map[string]string `yaml:"services"`
+			Applications map[string]string `yaml:"applications"`
+		} `yaml:"owners"`
 	}
 	err = decoder.Decode(&values)
 	if errors.Is(err, io.EOF) {
@@ -489,6 +512,16 @@ func loadFile(path string, optional bool) (Config, error) {
 	}
 	if values.ReadOnly != nil {
 		cfg.ReadOnly = *values.ReadOnly
+	}
+	if values.Digest != nil && *values.Digest != "" {
+		if cfg.Digest, err = notify.ParseDigest(*values.Digest); err != nil {
+			return Config{}, fmt.Errorf("config %q: %w", path, err)
+		}
+	}
+	if values.Owners != nil {
+		if cfg.Owners, err = ownership.New(values.Owners.Services, values.Owners.Applications); err != nil {
+			return Config{}, fmt.Errorf("config %q owners: %w", path, err)
+		}
 	}
 	cfg.CollectorDoctor = values.CollectorDoctor
 	cfg.TelemetryBudget = values.TelemetryBudget

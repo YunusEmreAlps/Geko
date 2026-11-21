@@ -36,8 +36,10 @@ const (
 	Deployed = 3 * time.Hour
 	// Baseline and Candidate are the web-frontend versions to compare.
 	Baseline, Candidate = "5.12.0", "5.13.0"
-	seededTraces        = 2400
-	exportSize          = 40
+	// Owners assigns the demo's services to teams, in GEKO_OWNERS form.
+	Owners       = "service:payments=payments-team,service:inventory=fulfilment-team,application:storefront=web-team,application:back-office=back-office-team"
+	seededTraces = 2400
+	exportSize   = 40
 )
 
 // Dataset generates further traces after Seed, so the dashboard keeps moving.
