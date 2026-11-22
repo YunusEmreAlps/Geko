@@ -1,0 +1,64 @@
+{
+  "date": "2026-11-21",
+  "host": {
+    "platform": "win32",
+    "logical_cpus": 12
+  },
+  "ingest_concurrency": "default",
+  "exports_per_connection": 32,
+  "fixture": "One OTLP/HTTP JSON export per batch: 64 two-span traces, all failing.",
+  "levels": [
+    {
+      "connections": 1,
+      "exports_sent": 32,
+      "accepted_exports": 32,
+      "rejected_503_exports": 0,
+      "accepted_spans": 4096,
+      "wall_seconds": 0.684,
+      "accepted_spans_per_second": 5988,
+      "ms_per_accepted_export": 21.38
+    },
+    {
+      "connections": 2,
+      "exports_sent": 64,
+      "accepted_exports": 64,
+      "rejected_503_exports": 0,
+      "accepted_spans": 8192,
+      "wall_seconds": 1.124,
+      "accepted_spans_per_second": 7291,
+      "ms_per_accepted_export": 17.55
+    },
+    {
+      "connections": 4,
+      "exports_sent": 128,
+      "accepted_exports": 128,
+      "rejected_503_exports": 0,
+      "accepted_spans": 16384,
+      "wall_seconds": 1.703,
+      "accepted_spans_per_second": 9619,
+      "ms_per_accepted_export": 13.31
+    },
+    {
+      "connections": 8,
+      "exports_sent": 256,
+      "accepted_exports": 256,
+      "rejected_503_exports": 0,
+      "accepted_spans": 32768,
+      "wall_seconds": 3.855,
+      "accepted_spans_per_second": 8499,
+      "ms_per_accepted_export": 15.06
+    },
+    {
+      "connections": 16,
+      "exports_sent": 512,
+      "accepted_exports": 512,
+      "rejected_503_exports": 0,
+      "accepted_spans": 65536,
+      "wall_seconds": 10.304,
+      "accepted_spans_per_second": 6360,
+      "ms_per_accepted_export": 20.12
+    }
+  ],
+  "binary_sha256": "2c24efbb9ac1e3eaebeaf4ed5e6c18eaea73a05c7924f80a7a9b368a26a352bb",
+  "harness_sha256": "a1a149360a3070e3492ad1a665657f98838dce9150493b152e56d3d8752526bf"
+}

@@ -1,0 +1,24 @@
+goos: windows
+goarch: amd64
+pkg: github.com/YunusEmreAlps/geko/internal/storage/sqlite
+cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+BenchmarkGroupingProfiles/mixed/whole_hours/legacy-12         	      10	  20190930 ns/op	         7.000 identities	         0.4631 partitions/member	   11268 B/op	     213 allocs/op
+BenchmarkGroupingProfiles/mixed/whole_hours/optimized-12      	      10	   3659760 ns/op	         7.000 identities	         0.4631 partitions/member	   11291 B/op	     213 allocs/op
+BenchmarkGroupingProfiles/mixed/15_minutes/legacy-12          	      10	   1863430 ns/op	         7.000 identities	         0.4631 partitions/member	   11211 B/op	     213 allocs/op
+BenchmarkGroupingProfiles/mixed/15_minutes/optimized-12       	      10	   1266360 ns/op	         7.000 identities	         0.4631 partitions/member	   11233 B/op	     212 allocs/op
+BenchmarkGroupingProfiles/mixed/two_edges/legacy-12           	      10	  13797330 ns/op	         7.000 identities	         0.4631 partitions/member	   11246 B/op	     213 allocs/op
+BenchmarkGroupingProfiles/mixed/two_edges/optimized-12        	      10	   4514300 ns/op	         7.000 identities	         0.4631 partitions/member	   11488 B/op	     213 allocs/op
+BenchmarkGroupingProfiles/rare/whole_hours/legacy-12          	      10	   1991540 ns/op	         1.000 identities	         1.000 partitions/member	    3811 B/op	      71 allocs/op
+BenchmarkGroupingProfiles/rare/whole_hours/optimized-12       	      10	   1150490 ns/op	         1.000 identities	         1.000 partitions/member	    3876 B/op	      71 allocs/op
+BenchmarkGroupingProfiles/rare/15_minutes/legacy-12           	      10	   1264490 ns/op	         1.000 identities	         1.000 partitions/member	    3808 B/op	      71 allocs/op
+BenchmarkGroupingProfiles/rare/15_minutes/optimized-12        	      10	   1068100 ns/op	         1.000 identities	         1.000 partitions/member	    3888 B/op	      71 allocs/op
+BenchmarkGroupingProfiles/rare/two_edges/legacy-12            	      10	   1668320 ns/op	         1.000 identities	         1.000 partitions/member	    3796 B/op	      71 allocs/op
+BenchmarkGroupingProfiles/rare/two_edges/optimized-12         	      10	   1295850 ns/op	         1.000 identities	         1.000 partitions/member	    4064 B/op	      71 allocs/op
+BenchmarkGroupingProfiles/unique_versions/whole_hours/legacy-12         	      10	  20189460 ns/op	         7.000 identities	         1.000 partitions/member	   11256 B/op	     213 allocs/op
+BenchmarkGroupingProfiles/unique_versions/whole_hours/optimized-12      	      10	   4338160 ns/op	         7.000 identities	         1.000 partitions/member	   11291 B/op	     213 allocs/op
+BenchmarkGroupingProfiles/unique_versions/15_minutes/legacy-12          	      10	   1845950 ns/op	         7.000 identities	         1.000 partitions/member	   11198 B/op	     212 allocs/op
+BenchmarkGroupingProfiles/unique_versions/15_minutes/optimized-12       	      10	   1249130 ns/op	         7.000 identities	         1.000 partitions/member	   11211 B/op	     212 allocs/op
+BenchmarkGroupingProfiles/unique_versions/two_edges/legacy-12           	      10	  14128580 ns/op	         7.000 identities	         1.000 partitions/member	   11246 B/op	     213 allocs/op
+BenchmarkGroupingProfiles/unique_versions/two_edges/optimized-12        	      10	   4054380 ns/op	         7.000 identities	         1.000 partitions/member	   11500 B/op	     213 allocs/op
+PASS
+ok  	github.com/YunusEmreAlps/geko/internal/storage/sqlite	7.420s

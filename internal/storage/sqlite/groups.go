@@ -71,26 +71,42 @@ func (s *Store) FailureGroups(ctx context.Context, f investigation.FailureFilter
 }
 
 func failureGroupsQuery(f investigation.FailureFilter, after *investigation.GroupCursor) (string, []any, error) {
+	matching, args, ok := summarizedGroupMatches(f)
+	if !ok {
+		matching, args, ok = projectedGroupMatches(f)
+	}
+	if !ok {
+		matching, args = legacyGroupMatches(f)
+	}
+	return assembleGroupsQuery(f, after, matching, args)
+}
+
+func legacyGroupMatches(f investigation.FailureFilter) (string, []any) {
+	base, args := traceListQuery(f, true, true)
+	return `SELECT ` + failureGroupKey + ` AS group_key,
+ t.first_observed_ns AS first_ns,t.last_observed_ns AS last_ns,r.http_status AS request_status,
+ printf('%020d',t.last_observed_ns)||hex(t.trace_id)||hex(s.span_id) AS sample,
+ coalesce(json_extract(s.resource_attributes, '$."service.version"'),'') AS version, 1 AS weight
+ ` + base, args
+}
+
+func assembleGroupsQuery(f investigation.FailureFilter, after *investigation.GroupCursor, matching string, args []any) (string, []any, error) {
 	if _, ok := groupStateCondition[f.GroupState]; !ok {
 		return "", nil, errors.New("invalid group state")
 	}
-	base, args := traceListQuery(f, true, true)
 	// One pass over the matching traces both groups them and finds the ones
 	// that reopen a resolved group.
-	query := `WITH matching AS (
- SELECT ` + failureGroupKey + ` AS group_key, ` + evidenceApplication + ` AS application,
- s.service_namespace AS namespace,s.service_name AS service,` + evidenceEnvironment + ` AS environment,
- s.name AS operation,e.rank,coalesce(e.exception_type,'') AS exception_type,coalesce(s.http_status,0) AS http_status,
- t.first_observed_ns AS first_ns,t.last_observed_ns AS last_ns,r.http_status AS request_status,
- printf('%020d',t.last_observed_ns)||hex(t.trace_id)||hex(s.span_id) AS sample,
- coalesce(json_extract(s.resource_attributes, '$."service.version"'),'') AS version
- ` + base + `), grouped AS (
- SELECT m.group_key,application,namespace,service,environment,operation,rank,exception_type,http_status,
- count(*) AS traces,min(first_ns) AS first_ns,max(last_ns) AS last_ns,substr(max(sample),21,32) AS trace_id,substr(max(sample),53,16) AS span_id,
- count(*) FILTER (WHERE request_status BETWEEN 200 AND 299) AS ok,
- count(*) FILTER (WHERE request_status BETWEEN 500 AND 599) AS server_error,
- count(*) FILTER (WHERE request_status BETWEEN 100 AND 199 OR request_status BETWEEN 300 AND 499) AS other,
- count(*) FILTER (WHERE request_status IS NULL OR request_status NOT BETWEEN 100 AND 599) AS unknown,
+	query := `WITH matching AS (` + matching + `), grouped AS (
+ SELECT m.group_key,
+ json_extract(m.group_key,'$[0]') AS application,json_extract(m.group_key,'$[1]') AS namespace,
+ json_extract(m.group_key,'$[2]') AS service,json_extract(m.group_key,'$[3]') AS environment,
+ json_extract(m.group_key,'$[4]') AS operation,json_extract(m.group_key,'$[5]') AS rank,
+ json_extract(m.group_key,'$[6]') AS exception_type,json_extract(m.group_key,'$[7]') AS http_status,
+ sum(weight) AS traces,min(first_ns) AS first_ns,max(last_ns) AS last_ns,substr(max(sample),21,32) AS trace_id,substr(max(sample),53,16) AS span_id,
+ coalesce(sum(weight) FILTER (WHERE request_status BETWEEN 200 AND 299),0) AS ok,
+ coalesce(sum(weight) FILTER (WHERE request_status BETWEEN 500 AND 599),0) AS server_error,
+ coalesce(sum(weight) FILTER (WHERE request_status BETWEEN 100 AND 199 OR request_status BETWEEN 300 AND 499),0) AS other,
+ coalesce(sum(weight) FILTER (WHERE request_status IS NULL OR request_status NOT BETWEEN 100 AND 599),0) AS unknown,
  max(last_ns) FILTER (WHERE gs.state = 'resolved' AND last_ns > gs.changed_ns AND (gs.version = '' OR m.version = gs.version)) AS recurred_ns
  FROM matching m LEFT JOIN group_states gs ON gs.group_key = m.group_key GROUP BY m.group_key)
  SELECT * FROM (SELECT g.group_key,g.application,g.namespace,g.service,g.environment,g.operation,g.rank,g.exception_type,g.http_status,

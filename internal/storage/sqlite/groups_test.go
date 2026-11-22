@@ -57,6 +57,7 @@ VALUES (?, ?, ?, 'inventory', 'reserve', 2, 20, 40, 2, '{"http.response.status_c
 		t.Fatal(err)
 	}
 	defer store.Close()
+	assertGroupProjection(t, store, investigation.FailureFilter{Limit: 10}, nil)
 
 	app := "commerce"
 	filter := investigation.FailureFilter{Application: &app, Service: "gateway", EvidenceService: "inventory", HTTPStatus: 200, Limit: 10}

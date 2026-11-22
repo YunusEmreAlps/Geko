@@ -105,7 +105,7 @@ func TestBulkSpanWriteRollsBackEarlierChunks(t *testing.T) {
 	if err := store.WriteSpans(t.Context(), now, spans); err == nil {
 		t.Fatal("expected metadata encoding failure")
 	}
-	for _, table := range []string{"traces", "spans", "span_evidence", "trace_services"} {
+	for _, table := range []string{"traces", "spans", "span_evidence", "trace_services", "failure_group_members"} {
 		var count int
 		if err := store.read.QueryRowContext(t.Context(), "SELECT count(*) FROM "+table).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("%s after rollback = %d, %v", table, count, err)

@@ -50,6 +50,10 @@ func (r *Reader) Trace(ctx context.Context, id telemetry.TraceID, after *investi
 	return r.store.Trace(ctx, id, after, limit)
 }
 
+func (r *Reader) EvidenceDetails(ctx context.Context, id telemetry.TraceID, selected telemetry.SpanID, limit int) ([]investigation.Span, bool, error) {
+	return r.store.EvidenceDetails(ctx, id, selected, limit)
+}
+
 func (r *Reader) CompareTrace(ctx context.Context, id telemetry.TraceID) (investigation.TraceSummary, *investigation.TraceSummary, error) {
 	return r.store.CompareTrace(ctx, id)
 }

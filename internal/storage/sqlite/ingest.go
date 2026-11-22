@@ -188,16 +188,16 @@ func (s *Store) writeSpanBatch(ctx context.Context, observedNS int64, spans []te
 		}
 		// The largest owner may only hold traces in this export; fall back.
 		if err == nil && deleted == 0 {
-			deleted, err = evict(ctx, tx, fmt.Sprintf(deleteOldest, unprotected), observedNS, protected, limit)
+			deleted, err = evictSelected(ctx, tx, fmt.Sprintf(selectOldest, unprotected), observedNS, protected, limit)
 		}
 		if err != nil {
-			return 0, err
+			return deleted, err
 		}
 		if deleted == 0 {
 			return 0, storage.ErrCapacity
 		}
 		if _, err := tx.ExecContext(ctx, "UPDATE storage_counters SET evicted_traces = evicted_traces + ? WHERE id = 1", deleted); err != nil {
-			return 0, fmt.Errorf("record evicted traces: %w", writeError(err))
+			return deleted, fmt.Errorf("record evicted traces: %w", writeError(err))
 		}
 	}
 	if err := insertSpanBatch(ctx, tx, observedNS, spans); err != nil {
@@ -215,13 +215,11 @@ const ownerKey = "CASE WHEN namespace <> '' THEN 'n:' || namespace ELSE 's:' || 
 const largestOwnerQuery = `SELECT ` + ownerKey + ` AS owner FROM trace_services
     GROUP BY owner ORDER BY sum(span_count) DESC, owner LIMIT 1`
 
-// evictOwner deletes the oldest traces containing spans of one owner.
-const evictOwner = `DELETE FROM traces WHERE trace_id IN (
-    SELECT t.trace_id FROM traces t
+// selectOwner finds the oldest traces containing spans of one owner.
+const selectOwner = `SELECT t.trace_id FROM traces t
     WHERE t.last_observed_ns < ? ` + unpinned + ` ` + unprotected + `
     AND EXISTS (SELECT 1 FROM trace_services ts WHERE ts.trace_id = t.trace_id AND ` + ownerKey + ` = ?)
-    ORDER BY t.last_observed_ns, t.trace_id LIMIT ?
-)`
+    ORDER BY t.last_observed_ns, t.trace_id LIMIT ?`
 
 // ownerRefresh bounds how stale the largest owner may be. Finding it reads
 // every row of trace_services, 270 ms over 100,000 traces, so it is not
@@ -255,23 +253,11 @@ func (s *Store) evictFairly(ctx context.Context, tx *sql.Tx, observedNS int64, p
 		if err != nil || owner == "" {
 			return 0, err
 		}
-		result, err := tx.ExecContext(ctx, evictOwner, observedNS, protected, owner, limit)
-		if err != nil {
-			return 0, fmt.Errorf("evict traces: %w", writeError(err))
-		}
-		deleted, err := result.RowsAffected()
+		deleted, err := evictSelected(ctx, tx, selectOwner, observedNS, protected, owner, limit)
 		if err != nil || deleted > 0 || fresh {
 			return deleted, err
 		}
 	}
-}
-
-func evict(ctx context.Context, tx *sql.Tx, query string, observedNS int64, protected string, limit int64) (int64, error) {
-	result, err := tx.ExecContext(ctx, query, observedNS, protected, limit)
-	if err != nil {
-		return 0, fmt.Errorf("evict traces: %w", writeError(err))
-	}
-	return result.RowsAffected()
 }
 
 func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []telemetry.Span) error {
@@ -284,7 +270,10 @@ func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []
 			return err
 		}
 	}
-	return updateServiceProjections(ctx, tx, services)
+	if err := updateServiceProjections(ctx, tx, services); err != nil {
+		return err
+	}
+	return refreshGroupMembers(ctx, tx, spans)
 }
 
 func insertSpanChunk(ctx context.Context, tx *sql.Tx, spans []telemetry.Span, services map[serviceProjection]projectedSpans) error {

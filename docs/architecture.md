@@ -25,6 +25,45 @@ span start time. Parent IDs have no foreign key to another span, allowing a
 child to arrive before its parent or remain orphaned. Span timestamps preserve
 the recorded values so the investigation layer can account for clock skew.
 
+Schema 16 introduced primary-evidence facts. Schema 17 shares group identities
+and hourly filter partitions: members store references, receipt times and the
+selected span ID. A partition distinguishes evidence version, request outcome,
+root service, raw service topology, assignment and pin state. Complete hours
+use exact weighted totals; up to two partial hours read actual members. Windows
+without a complete hour use the member time index. Counts, receipt bounds,
+samples and reopening state stay exact, including late spans and retries.
+
+Ingest refreshes affected traces after selecting root/evidence in the export's
+transaction. Pin and historical assignment changes refresh members in their
+own transactions. Service mappings stay query-time decisions. Cascading deletes
+maintain totals and collect empty partitions/identities. Schema 20 materializes
+only the affected export's input, and refreshes extrema only when a former
+contributor changes. It does not materialize all stored traces on each write.
+
+Search, run/attribute and alternate-evidence filters retain exact fallback
+queries. Unusually large metadata or topologies get a marker instead of another
+large copy; a partial index restricts their fallback. Query work depends on
+partition diversity and boundary-hour density, so this is not a universal
+constant-time guarantee. The profile benchmarks cover narrow windows, edge
+hours, rare failures and unique versions as well as the dense default fixture.
+
+Schemas 18–19 persist application eviction losses in the same transaction as
+capacity deletion and the export. Attribution is read before cascades; counters
+are written after deletion frees pages. Retention does not increment them.
+The ledger tracks at most 512 labels, each at most 512 UTF-8 bytes. Excess label
+memberships are accumulated visibly in a separate overflow counter; the global
+trace counter stays complete. A cross-application trace counts for each label
+it touched. Labels retain their deletion-time meaning across later rule changes.
+Pre-upgrade global losses are reported separately because they cannot be
+reconstructed from deleted spans.
+
+Backfills can temporarily need both old and new cache pages. SQLite does not
+automatically shrink the resulting file. In `reject` mode a physical file above
+the configured limit still rejects writes even if its live pages fit; startup
+now explains this and recommends stopping Geko and running `geko compact`,
+raising the limit or choosing eviction. No automatic VACUUM or data deletion is
+introduced during startup.
+
 ## OTLP ingestion
 
 `internal/ingest/otlp` decodes OTLP/HTTP protobuf and JSON using the official

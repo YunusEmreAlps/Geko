@@ -171,6 +171,7 @@ def main():
             for name, path in [("failures_api", "/api/v1/failures?limit=50"), ("failures_page", "/failures"),
                                ("error_groups_page", "/failures?view=groups"), ("overview_page", "/overview")]:
                 result[f"mean_{name}_ms"] = harness.mean_request_ms(server.port, path, headers, count=20)[0]
+            result["group_cache_shape"] = harness.group_cache_shape(directory)
         finally:
             server.stop()
             server.log.close()

@@ -43,7 +43,7 @@ durations per operation between two `service.version` values.
 
 `investigate_group` answers in one call what an agent needs to explain a
 group: the group with its counts and note, its latest trace with up to 100 span
-timings, the spans of that trace that recorded evidence with their status
+timings, up to ten evidence spans with their status
 description, exception events including any stack trace, and `code.*`
 location, the latest successful request to the same operation with the
 duration difference, and the group's traces by entry and evidence
@@ -52,6 +52,12 @@ It returns no other span attributes, like `get_trace`. Ask for example
 *"Investigate the open error groups in Geko and propose a fix for the largest
 one"*; on the [demo dataset](../README.md#quick-start) the payment timeout group
 points at `GatewayClient.authorize` and at web-frontend 5.13.0.
+
+The selected primary evidence is always first in `evidence_spans`, even when
+it falls outside the first timeline page or follows ten earlier errors.
+`evidence_has_more` is true when additional evidence details were omitted;
+open `group.evidence_path` in the dashboard to inspect them. Timeline pagination
+is independent: pass `representative_trace.next_cursor` to `get_trace`.
 
 On a server, Geko serves the same read-only tools over Streamable HTTP at
 `/mcp` on the dashboard listener. Give the agent a read token:
@@ -136,6 +142,16 @@ export `geko.run.id` from `OTEL_RESOURCE_ATTRIBUTES`. The job keeps the
 command's exit status. Later runs on the same pull request update the comment
 instead of adding one, and pull requests from forks, whose token cannot
 comment, still get the job summary. Outside the action, `geko run --report DIR`
-writes the same `report.md`, the failure count in `failures`, and the traces
-under `traces/`. The report quotes every telemetry value as code, so a planted
+writes the same `report.md`, a `report.json` status manifest, the failure count
+in `failures`, and the traces under `traces/`. The manifest is published as
+`telemetry_status: available` only after the run-filtered query and all requested
+trace artifacts have been collected. This confirms report collection, not SDK
+export coverage. A successful query with no recorded failure evidence has
+`failures: 0`; a query/download/report error has `telemetry_status: unavailable`
+and `failures: null`. Earlier count files are removed on failure.
+
+The Action exposes `telemetry-status` and `failures` outputs. An unavailable or
+invalid manifest produces `failures: unknown`, a job-summary warning and no
+failure-count PR comment. It preserves the child command's exit code. The report
+quotes every telemetry value as code, so a planted
 mention, link or image in an exception message stays plain text.

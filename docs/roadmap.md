@@ -3,6 +3,46 @@
 This checklist distinguishes implemented functionality from planned work.
 The latest release is [v0.1.0](https://github.com/YunusEmreAlps/geko/releases/tag/v0.1.0).
 
+## Current implementation status (2026-11-21)
+
+Reviewed against `55d61fe` plus the current working tree. The three requested
+code milestones are implemented:
+
+- [x] Shared group identities and compact member references (schema 17).
+      Empty partitions and identities are collected transactionally. Schema 20
+      prepares only the affected export and avoids recomputing unchanged extrema.
+- [x] Exact hourly group totals, with individual members for at most two edge
+      hours. Short windows and search/run/alternate-evidence filters retain
+      exact member/legacy paths. There is no sampling or universal constant-time
+      claim; high partition diversity can reduce compression.
+- [x] Persistent application eviction counters (schemas 18–19), committed with
+      deletion and the incoming export. Retention is excluded. A trace counts
+      once for each application it touched. The breakdown tracks at most 512
+      labels of up to 512 UTF-8 bytes; excess memberships go to a visible overflow
+      counter. Earlier global losses are not assigned invented application names.
+- [x] Product, security and performance agent source reviews. Their scope,
+      evidence, resolved findings and next acceptance criteria are in the
+      [product review](product-review-2026-11-21.md). These are not human usability
+      sessions or a formal security audit.
+
+Next development order from that review:
+
+1. **Completed 2026-11-22:** Always include the selected primary evidence in `investigate_group`, even
+   beyond the first 100 spans or after ten earlier errors; disclose partial data.
+2. **Completed 2026-11-22:** Distinguish unavailable telemetry/reporting from zero failures in `geko run`
+   reports and the GitHub Action, while preserving the child command's exit code.
+3. Validate the release/install/action path before promoting unreleased commands.
+4. Resolve effective MCP config/database paths during setup; disclose truncated
+   version history; investigate capacity controls on growing triage metadata.
+5. Continue measuring write amplification, diverse partitions and full-database
+   upgrades before considering any weaker ingest acknowledgement policy.
+
+Durable acknowledgement stays the default. Opportunistic group commit already
+exists; an optional early-ack policy is a deferred decision, not a release gate.
+The CI baseline must come from the actual nightly Linux job, not Windows data.
+Hosted CI verification, a release/public demo, a real agent session recording
+and the five-developer study remain delivery or validation work below.
+
 ## Phase 1
 
 - [x] Indexed trace summaries and query-plan regression coverage.
@@ -151,11 +191,10 @@ are addressed here, starting with the ones a shared instance hits first.
 - [ ] Run the [five-developer study](competitive-research.md#facilitated-study)
       and publish time to evidence, navigation actions and wrong conclusions
       per tool.
-- [ ] Group commit for ingest, with `ingest_ack: durable` (today's behaviour,
-      acknowledge after commit) and `ingest_ack: batched`. Target: median
-      export under 10 ms where a durable commit now takes 24 ms, and accepted
-      throughput above 5,300 spans per second, with the durability difference
-      stated in the configuration reference.
+- [ ] Deferred: evaluate an optional early-ack policy only after optimizing
+      write amplification and proving a practical need. Group commit already
+      exists; exports currently wait for commit. An earlier acknowledgement
+      changes the durability guarantee and is not required for the next release.
 - [x] Wait up to two seconds for an ingest slot instead of refusing at once.
       Eight exporters lost half their exports to HTTP 503 at the default four
       slots and sixteen lost 397 of 512; the same sweep now accepts every
@@ -179,11 +218,14 @@ are addressed here, starting with the ones a shared instance hits first.
       9.9 ms, and 161 ms to 12.7 ms with `evict_fair`), webhook checks group
       only new failures (200 ms to 2.6 ms), and read connections map the file
       (error grouping 87 ms to 39 ms).
-- [ ] Bound error grouping. It still reads every failing trace in its window,
-      at about 15 microseconds each: 892 ms over the 59,200 failing traces
-      of the soak run, three seconds over 200,000. Unlike Overview its counts and first
-      receipt must stay exact, so it needs a per-group projection rather than
-      a sample.
+- [x] Project compact primary-evidence facts for error grouping (schema 16),
+      preserving exact counts and resolving application mappings at query time.
+      Keep evidence-search and oversized-metadata fallbacks exact.
+- [x] Aggregate complete hours from exact per-partition totals. Only up to two
+      edge hours need member reads; narrow windows use the member time index.
+      Search/run/alternate-evidence fallbacks remain exact. Diverse versions and
+      topologies can increase partition count; see the profile measurements.
+      This bounds history scanning, not every possible query's wall-clock time.
 - [x] A nightly run of [`scripts/bench-native.py`](../scripts/bench-native.py)
       and [`scripts/bench-ingest-concurrency.py`](../scripts/bench-ingest-concurrency.py)
       in CI that publishes their JSON and fails on a regression beyond a
@@ -191,9 +233,11 @@ are addressed here, starting with the ones a shared instance hits first.
 - [ ] Commit the first nightly result as `docs/benchmarks/ci-baseline.json`,
       so the nightly run compares instead of only reporting.
 - [x] A soak run of one million spans at a 64 MiB limit, with a restart
-      halfway: the file held at the limit, no export was refused, memory
-      stayed under 36 MiB, the restart took half a second, and the database
-      kept 567 bytes per span. Error groups took 892 ms on the full database.
+      halfway. Schema 16 was retested: the file held at the limit, no export
+      was refused, sampled memory peaked at 36.26 MiB, and restart took
+      0.511 seconds. It retained 47,808 traces at 702 main-file bytes per
+      span, versus schema 15's 59,200 traces and 567 bytes per span. Groups
+      took 149.9 ms on the smaller final store, versus 891.6 ms before.
 
 ## Phase 10: the coding agent as the first reader
 
@@ -234,8 +278,10 @@ alerts.
 - [x] Per-application storage in Settings: each application's share of the
       stored spans and of the size limit, and the owner `evict_fair` evicts
       from first.
-- [ ] Count evictions per application, so the storage page also shows what
-      each application lost to the size limit, not only what it holds.
+- [x] Count capacity evictions per application and show retained history,
+      persistent losses, coverage gaps and bounded-label overflow on Storage.
+      Retention is not counted; cross-application totals need not sum to the
+      global trace count.
 
 Not in scope: Geko keeps no user or password database; people sign in with a
 token or through your identity provider's proxy.

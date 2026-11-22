@@ -1,0 +1,12 @@
+goos: windows
+goarch: amd64
+pkg: github.com/YunusEmreAlps/geko/internal/storage/sqlite
+cpu: Intel(R) Core(TM) i7-8750H CPU @ 2.20GHz
+BenchmarkFailureGroupProjection/legacy-12         	      20	  54336920 ns/op	   12256 B/op	     244 allocs/op
+BenchmarkFailureGroupProjection/legacy-12         	      20	  50044095 ns/op	   11257 B/op	     227 allocs/op
+BenchmarkFailureGroupProjection/legacy-12         	      20	  45601160 ns/op	   11257 B/op	     227 allocs/op
+BenchmarkFailureGroupProjection/projected-12      	      20	   7099915 ns/op	   11284 B/op	     227 allocs/op
+BenchmarkFailureGroupProjection/projected-12      	      20	   7400635 ns/op	   11257 B/op	     227 allocs/op
+BenchmarkFailureGroupProjection/projected-12      	      20	   8771580 ns/op	   11257 B/op	     227 allocs/op
+PASS
+ok  	github.com/YunusEmreAlps/geko/internal/storage/sqlite	6.299s

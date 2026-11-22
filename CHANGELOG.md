@@ -2,6 +2,46 @@
 
 ## Unreleased
 
+- MCP investigations always return the selected primary evidence first,
+  independently of the first 100 timeline spans and ten-detail evidence limit.
+  `evidence_has_more` discloses additional omitted details.
+- Run reports publish `report.json` with an explicit available/unavailable
+  collection state. Query or artifact errors invalidate stale counts. The
+  Action reports unknown failures and warns instead of presenting zero,
+  while preserving the child command's exit code.
+
+- Shared group identities and exact hourly totals replace per-trace identity
+  copies. Whole hours read weighted totals; at most two boundary hours read
+  actual members. Pin/assignment changes, late spans, retries and eviction
+  update totals transactionally. Export preparation is limited to the affected
+  batch, and unchanged extrema are not reread on each deletion. Narrow and
+  alternate-evidence paths remain exact; high partition diversity is measured
+  separately rather than hidden by a constant-time claim (schemas 17 and 20).
+- Storage shows persistent capacity losses per application, including labels
+  with no remaining spans. Old global losses are explicitly unattributed;
+  retention is excluded. A bounded 512-label/512-byte ledger sends excess
+  application memberships to visible overflow without losing the global trace
+  count (schemas 18–19). A failed export rolls all related changes back.
+- Startup explains `reject` blocking on an oversized physical file even when
+  pages are reusable, with compact/limit/policy recovery choices. No automatic
+  VACUUM or deletion is added to startup.
+- Product, security and performance agent reviews and the next acceptance
+  criteria are recorded in `docs/product-review-2026-11-21.md`.
+- `scripts/bench-paired.py` runs alternating baseline/candidate measurements,
+  saves binary and workload hashes, and marks incomplete runs. The comparator
+  reads paired candidate medians and rejects unfinished measurements. Native,
+  concurrency and million-span capacity benchmarks were repeated; the capacity
+  record documents schema 16's query gain and reduced retained history.
+- Schema 16 backfills compact primary-evidence facts for error grouping and
+  refreshes them within each export. Normal group queries avoid rereading span
+  JSON while preserving exact counts, time windows, outcomes and application
+  reassignment. Search and alternate-evidence filters keep the existing query;
+  oversized historical metadata uses an indexed fallback instead of another
+  large copy. Grouping still scales with the number of matching failures.
+- Demo seeding keeps all 2,400 traces while writing at most 1,024 spans per
+  export, reducing startup's durable commits from 60 to 12. The startup test
+  allows for slow Windows CI storage, bounds browser and HTTP waits, and
+  always waits for the demo server to stop after an assertion fails.
 - `investigate_group` on `/mcp` and `geko mcp` returns, in one call, a group,
   its latest trace with span timings, the spans that recorded evidence with
   their exceptions, stack traces and code locations, the latest successful

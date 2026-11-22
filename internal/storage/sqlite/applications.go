@@ -241,8 +241,13 @@ func (s *Store) DiscardAssignmentProgress(ctx context.Context) error {
 // follows the number of stored traces, so callers should not run it per page.
 func (s *Store) StorageByApplication(ctx context.Context) (investigation.StorageUsage, error) {
 	var usage investigation.StorageUsage
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return usage, err
+	}
+	defer tx.Rollback()
 	mapped := map[string]string{}
-	mappings, err := s.read.QueryContext(ctx, "SELECT service_name, application FROM service_applications")
+	mappings, err := tx.QueryContext(ctx, "SELECT service_name, application FROM service_applications")
 	if err != nil {
 		return usage, err
 	}
@@ -257,7 +262,7 @@ func (s *Store) StorageByApplication(ctx context.Context) (investigation.Storage
 	if err := errors.Join(mappings.Err(), mappings.Close()); err != nil {
 		return usage, err
 	}
-	rows, err := s.read.QueryContext(ctx, `SELECT ts.namespace, ts.service_name, coalesce(ta.application, ''), sum(ts.span_count)
+	rows, err := tx.QueryContext(ctx, `SELECT ts.namespace, ts.service_name, ta.application, sum(ts.span_count)
  FROM trace_services ts LEFT JOIN trace_applications ta ON ta.trace_id = ts.trace_id
  GROUP BY 1, 2, 3`)
 	if err != nil {
@@ -266,7 +271,8 @@ func (s *Store) StorageByApplication(ctx context.Context) (investigation.Storage
 	defer rows.Close()
 	applications, owners := map[string]int64{}, map[string]int64{}
 	for rows.Next() {
-		var namespace, service, assigned string
+		var namespace, service string
+		var assigned sql.NullString
 		var spans int64
 		if err := rows.Scan(&namespace, &service, &assigned, &spans); err != nil {
 			return usage, err
@@ -275,8 +281,8 @@ func (s *Store) StorageByApplication(ctx context.Context) (investigation.Storage
 		// assignment, then the service's mapping.
 		application, owner := namespace, "n:"+namespace
 		if namespace == "" {
-			application, owner = assigned, "s:"+service
-			if application == "" {
+			application, owner = assigned.String, "s:"+service
+			if !assigned.Valid {
 				application = mapped[service]
 			}
 		}
@@ -284,12 +290,39 @@ func (s *Store) StorageByApplication(ctx context.Context) (investigation.Storage
 		owners[owner] += spans
 		usage.Spans += spans
 	}
-	if err := rows.Err(); err != nil {
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return usage, err
+	}
+	losses := map[string]int64{}
+	ledger, err := tx.QueryContext(ctx, "SELECT application,evicted_traces FROM application_evictions")
+	if err != nil {
+		return usage, err
+	}
+	for ledger.Next() {
+		var application string
+		var evicted int64
+		if err := ledger.Scan(&application, &evicted); err != nil {
+			ledger.Close()
+			return usage, err
+		}
+		losses[application] = evicted
+		if _, exists := applications[application]; !exists {
+			applications[application] = 0
+		}
+	}
+	if err := errors.Join(ledger.Err(), ledger.Close()); err != nil {
+		return usage, err
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT evicted_traces,application_eviction_baseline,application_eviction_overflow FROM storage_counters WHERE id=1").Scan(&usage.EvictedTraces, &usage.EarlierEvictions, &usage.EvictionOverflow); err != nil {
 		return usage, err
 	}
 	for application, spans := range applications {
+		var share float64
+		if usage.Spans > 0 {
+			share = float64(spans) / float64(usage.Spans)
+		}
 		usage.Applications = append(usage.Applications, investigation.ApplicationStorage{
-			Application: application, Spans: spans, Share: float64(spans) / float64(usage.Spans),
+			Application: application, Spans: spans, Share: share, EvictedTraces: losses[application],
 		})
 	}
 	slices.SortFunc(usage.Applications, func(a, b investigation.ApplicationStorage) int {
@@ -301,5 +334,5 @@ func (s *Store) StorageByApplication(ctx context.Context) (investigation.Storage
 			usage.FairOwner, largest = owner, spans
 		}
 	}
-	return usage, nil
+	return usage, tx.Commit()
 }

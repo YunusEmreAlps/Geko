@@ -1,0 +1,151 @@
+{
+  "date": "2026-11-21",
+  "host": {
+    "platform": "win32",
+    "logical_cpus": 12
+  },
+  "spans": 1000064,
+  "limit_mib": 64,
+  "connections": 4,
+  "segments": [
+    {
+      "spans_sent": 100096,
+      "spans_per_second": 7308,
+      "median_export_ms": 57.03,
+      "p95_export_ms": 87.98,
+      "main_file_mib": 64.0,
+      "wal_mib": 3.0,
+      "memory_mib": 35.63,
+      "evicted_traces": 704,
+      "rejected_exports": 0
+    },
+    {
+      "spans_sent": 200192,
+      "spans_per_second": 3621,
+      "median_export_ms": 124.66,
+      "p95_export_ms": 172.82,
+      "main_file_mib": 64.0,
+      "wal_mib": 1.1,
+      "memory_mib": 35.26,
+      "evicted_traces": 49984,
+      "rejected_exports": 0
+    },
+    {
+      "spans_sent": 300288,
+      "spans_per_second": 3359,
+      "median_export_ms": 126.72,
+      "p95_export_ms": 259.56,
+      "main_file_mib": 64.0,
+      "wal_mib": 1.7,
+      "memory_mib": 35.29,
+      "evicted_traces": 100416,
+      "rejected_exports": 0
+    },
+    {
+      "spans_sent": 400384,
+      "spans_per_second": 3511,
+      "median_export_ms": 125.93,
+      "p95_export_ms": 177.16,
+      "main_file_mib": 64.0,
+      "wal_mib": 1.1,
+      "memory_mib": 36.4,
+      "evicted_traces": 150720,
+      "rejected_exports": 0
+    },
+    {
+      "spans_sent": 500480,
+      "spans_per_second": 3357,
+      "median_export_ms": 132.24,
+      "p95_export_ms": 181.09,
+      "main_file_mib": 64.0,
+      "wal_mib": 2.8,
+      "memory_mib": 35.52,
+      "evicted_traces": 200768,
+      "rejected_exports": 0
+    },
+    {
+      "spans_sent": 600576,
+      "spans_per_second": 3439,
+      "median_export_ms": 132.11,
+      "p95_export_ms": 180.86,
+      "main_file_mib": 64.0,
+      "wal_mib": 2.9,
+      "memory_mib": 34.93,
+      "evicted_traces": 250752,
+      "rejected_exports": 0
+    },
+    {
+      "spans_sent": 700672,
+      "spans_per_second": 3274,
+      "median_export_ms": 132.28,
+      "p95_export_ms": 255.59,
+      "main_file_mib": 64.0,
+      "wal_mib": 1.7,
+      "memory_mib": 35.21,
+      "evicted_traces": 301376,
+      "rejected_exports": 0
+    },
+    {
+      "spans_sent": 800768,
+      "spans_per_second": 3165,
+      "median_export_ms": 138.51,
+      "p95_export_ms": 241.99,
+      "main_file_mib": 64.0,
+      "wal_mib": 1.8,
+      "memory_mib": 34.32,
+      "evicted_traces": 351680,
+      "rejected_exports": 0
+    },
+    {
+      "spans_sent": 900864,
+      "spans_per_second": 3283,
+      "median_export_ms": 131.44,
+      "p95_export_ms": 251.62,
+      "main_file_mib": 64.0,
+      "wal_mib": 0.6,
+      "memory_mib": 35.32,
+      "evicted_traces": 400576,
+      "rejected_exports": 0
+    },
+    {
+      "spans_sent": 1000064,
+      "spans_per_second": 3354,
+      "median_export_ms": 131.76,
+      "p95_export_ms": 176.81,
+      "main_file_mib": 64.0,
+      "wal_mib": 2.0,
+      "memory_mib": 35.21,
+      "evicted_traces": 450368,
+      "rejected_exports": 0
+    }
+  ],
+  "startup_seconds": 0.56,
+  "restart_seconds": 0.511,
+  "mean_failures_api_ms": 1.87,
+  "mean_failures_page_ms": 2.6,
+  "mean_error_groups_page_ms": 1.85,
+  "mean_overview_page_ms": 55.96,
+  "group_cache_shape": {
+    "members": 49664,
+    "partitions": 1,
+    "identities": 1,
+    "cached_members": 49664,
+    "partitions_per_cached_member": 2e-05
+  },
+  "summary": {
+    "kept_traces": 49664,
+    "main_file_bytes_per_kept_span": 676,
+    "evicted_traces": 450368,
+    "rejected_exports": 0,
+    "main_file_mib_max": 64.0,
+    "median_export_ms_first_last": [
+      57.03,
+      131.76
+    ],
+    "memory_mib_max": 36.4
+  },
+  "binary_sha256": "55abad345dedea5bb130405df166b53b340210c30230e968a56c27bfe213d63d",
+  "harness_sha256": "c564132f60fac657485b3c6db29987c4ba01e5216d95af9a09e48e1701859c7a",
+  "native_harness_sha256": "76754584bc94b485e8c7045bf661ab6caceebdd42ea6506b1b80f0ae77ebb8fb",
+  "environment_note": "Native Windows; Docker Desktop and existing background containers were running. Historical schema16 soak ran before Docker startup; throughput is contextual, not an isolated paired-capacity result."
+}

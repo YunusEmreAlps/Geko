@@ -1,0 +1,42 @@
+{
+  "date": "2026-11-21",
+  "host": {
+    "platform": "win32",
+    "logical_cpus": 12
+  },
+  "ingest_concurrency": "default",
+  "exports_per_connection": 32,
+  "fixture": "One OTLP/HTTP JSON export per batch: 64 two-span traces, all failing.",
+  "levels": [
+    {
+      "connections": 1,
+      "exports_sent": 32,
+      "accepted_exports": 32,
+      "rejected_503_exports": 0,
+      "accepted_spans": 4096,
+      "wall_seconds": 0.647,
+      "accepted_spans_per_second": 6327,
+      "ms_per_accepted_export": 20.23
+    },
+    {
+      "connections": 4,
+      "exports_sent": 128,
+      "accepted_exports": 128,
+      "rejected_503_exports": 0,
+      "accepted_spans": 16384,
+      "wall_seconds": 2.21,
+      "accepted_spans_per_second": 7414,
+      "ms_per_accepted_export": 17.26
+    },
+    {
+      "connections": 16,
+      "exports_sent": 512,
+      "accepted_exports": 512,
+      "rejected_503_exports": 0,
+      "accepted_spans": 65536,
+      "wall_seconds": 9.548,
+      "accepted_spans_per_second": 6863,
+      "ms_per_accepted_export": 18.65
+    }
+  ]
+}

@@ -28,6 +28,7 @@ METRICS = [
     ("mean_search_api_ms", "ms", True),
     ("mean_trace_api_ms", "ms", True),
     ("mean_failures_page_ms", "ms", True),
+    ("mean_groups_page_ms", "ms", True),
     ("mean_overview_page_ms", "ms", True),
     ("post_ingest_memory_mib", "MiB", True),
     ("bytes_per_span", "bytes", True),
@@ -39,7 +40,9 @@ def load(path):
 
 
 def medians(result):
-    return result.get("median_of_rounds") or result
+    if result.get("complete") is False:
+        raise ValueError("benchmark run is incomplete")
+    return result.get("median_of_rounds") or result.get("after_median") or result
 
 
 def compare(current, baseline, factor):
@@ -72,10 +75,13 @@ def main():
     arguments = parser.parse_args()
     if arguments.factor <= 1:
         parser.error("--factor must be above 1")
-    current = medians(load(arguments.current))
-    baseline = None
-    if arguments.baseline and Path(arguments.baseline).exists():
-        baseline = medians(load(arguments.baseline))
+    try:
+        current = medians(load(arguments.current))
+        baseline = None
+        if arguments.baseline and Path(arguments.baseline).exists():
+            baseline = medians(load(arguments.baseline))
+    except ValueError as error:
+        parser.error(str(error))
     rows, failures = compare(current, baseline, arguments.factor)
     print("### Geko benchmarks\n")
     if baseline is None:

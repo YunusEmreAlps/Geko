@@ -65,6 +65,10 @@ relative `GEKO_DB_PATH` resolves from the working directory.
   oldest traces of any application instead.
 - If you lower the limit below the current file size, eviction reuses
   existing pages and evicts traces as needed without growing the file.
+  In `reject` mode the physical file must fit, even if many pages are reusable.
+  Schema backfills can temporarily grow the file. Startup warns when this
+  blocks exports; stop Geko and other database readers and run `geko compact`,
+  raise the limit, or choose eviction. Upgrades do not run VACUUM automatically.
 - Pinned traces are neither expired nor evicted, and still count toward the
   size limit. When only pinned traces remain to evict, exports get HTTP 503
   until you unpin some. After unpinning, a trace older than the retention
@@ -72,6 +76,20 @@ relative `GEKO_DB_PATH` resolves from the working directory.
 - The WAL and shared-memory files use space beyond the limit. Stop the server
   and run `geko compact` to shrink the main file. `geko doctor` reports each
   file's size and the reusable pages.
+
+**Settings → Storage → By application** also reports persistent capacity
+evictions. A trace counts once for each application it touched, using
+namespace, then trace assignment, then service mapping at deletion time.
+Cross-application totals can exceed the global trace count. Retention is not
+counted, and later rule changes do not relabel historical losses. Applications
+with losses remain visible even after their last stored span expires.
+
+The breakdown tracks up to 512 application labels of at most 512 UTF-8 bytes.
+Additional or oversized labels accumulate in a separate visible **overflow
+membership** counter, so metadata cannot consume the entire trace budget.
+The global evicted-trace counter remains complete. Empty application names
+(`No application`) are distinct from overflow. Losses from before schema 18
+are shown as earlier global evictions with no recoverable application breakdown.
 
 ## Privacy
 

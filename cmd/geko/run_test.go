@@ -21,6 +21,8 @@ func TestRunHelperProcess(t *testing.T) {
 	switch os.Getenv("GEKO_RUN_HELPER") {
 	case "quiet":
 		os.Exit(0)
+	case "exit7":
+		os.Exit(7)
 	case "1":
 	default:
 		t.Skip("helper process")
@@ -43,6 +45,33 @@ func TestRunHelperProcess(t *testing.T) {
 		os.Exit(9)
 	}
 	os.Exit(3)
+}
+
+func TestRunKeepsChildStatusWhenReportUnavailable(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	t.Setenv("GEKO_TOKEN", "")
+	for _, helper := range []string{"quiet", "exit7"} {
+		t.Run(helper, func(t *testing.T) {
+			t.Setenv("GEKO_RUN_HELPER", helper)
+			dir := t.TempDir()
+			var stderr bytes.Buffer
+			err := runCommand(t.Context(), []string{"--server", server.URL, "--report", dir, "--", os.Args[0], "-test.run=^TestRunHelperProcess$"}, io.Discard, &stderr)
+			var code exitError
+			if helper == "quiet" && err != nil || helper == "exit7" && (!errors.As(err, &code) || code != 7) {
+				t.Fatalf("child status = %v, stderr %s", err, &stderr)
+			}
+			if !strings.Contains(stderr.String(), "could not write the run report") {
+				t.Fatalf("missing report diagnostic: %s", &stderr)
+			}
+			data, err := os.ReadFile(filepath.Join(dir, "report.json"))
+			if err != nil || !bytes.Contains(data, []byte(`"telemetry_status": "unavailable"`)) {
+				t.Fatalf("status = %s, %v", data, err)
+			}
+		})
+	}
 }
 
 func TestRunCommand(t *testing.T) {

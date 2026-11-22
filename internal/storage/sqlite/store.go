@@ -66,7 +66,28 @@ var evidenceWithoutEventsSchema string
 //go:embed migrations/015_entry_operations.sql
 var entryOperationsSchema string
 
-var migrations = []string{initialSchema, evidenceSchema, applicationSchema, maintenanceSchema, exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema, groupStateSchema, groupStateActorSchema, groupNoteSchema, tracePinSchema, runIDSchema, evidenceWithoutEventsSchema, entryOperationsSchema}
+//go:embed migrations/016_failure_group_members.sql
+var failureGroupMembersSchema string
+
+//go:embed migrations/017_shared_group_totals.sql
+var sharedGroupTotalsSchema string
+
+//go:embed migrations/018_application_evictions.sql
+var applicationEvictionsSchema string
+
+//go:embed migrations/019_eviction_counter_budget.sql
+var evictionCounterBudgetSchema string
+
+//go:embed migrations/020_group_refresh_batch.sql
+var groupRefreshBatchSchema string
+
+var migrations = []string{
+	initialSchema, evidenceSchema, applicationSchema, maintenanceSchema,
+	exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema,
+	groupStateSchema, groupStateActorSchema, groupNoteSchema, tracePinSchema, runIDSchema,
+	evidenceWithoutEventsSchema, entryOperationsSchema, failureGroupMembersSchema,
+	sharedGroupTotalsSchema, applicationEvictionsSchema, evictionCounterBudgetSchema, groupRefreshBatchSchema,
+}
 
 type Store struct {
 	revision   atomic.Uint64

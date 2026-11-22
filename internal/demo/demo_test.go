@@ -83,6 +83,47 @@ func TestTracesAreDeterministic(t *testing.T) {
 
 type discard struct{}
 
+// Check batching independently of the filesystem: every trace must survive,
+// exports stay bounded, and receipt timestamps must not precede their spans.
+func TestSeedBatchesStayBoundedAndPreserveHistory(t *testing.T) {
+	store := &seedRecorder{t: t, traces: make(map[telemetry.TraceID]bool)}
+	now := time.Unix(1_800_000_000, 0)
+	if _, err := Seed(t.Context(), store, now); err != nil {
+		t.Fatal(err)
+	}
+	if len(store.traces) != seededTraces || !store.observed.Equal(now) {
+		t.Fatalf("seeded %d traces, last observed %v", len(store.traces), store.observed)
+	}
+	if store.exports >= 60 {
+		t.Fatalf("seed still needs %d durable commits", store.exports)
+	}
+	t.Logf("seeded %d traces in %d bounded exports", len(store.traces), store.exports)
+}
+
+type seedRecorder struct {
+	discard
+	t        *testing.T
+	traces   map[telemetry.TraceID]bool
+	observed time.Time
+	exports  int
+}
+
+func (s *seedRecorder) WriteSpans(_ context.Context, observed time.Time, spans []telemetry.Span) error {
+	s.t.Helper()
+	if len(spans) == 0 || len(spans) > seedBatchSpans || observed.Before(s.observed) {
+		s.t.Fatalf("invalid seed export: %d spans, observed %v after %v", len(spans), observed, s.observed)
+	}
+	for _, span := range spans {
+		if span.EndTime.After(observed) {
+			s.t.Fatalf("span ends at %v after receipt %v", span.EndTime, observed)
+		}
+		s.traces[span.TraceID] = true
+	}
+	s.exports++
+	s.observed = observed
+	return nil
+}
+
 func (discard) WriteSpans(context.Context, time.Time, []telemetry.Span) error { return nil }
 func (discard) FailureGroups(context.Context, investigation.FailureFilter, *investigation.GroupCursor) (investigation.FailureGroups, error) {
 	return investigation.FailureGroups{}, nil

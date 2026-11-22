@@ -1,0 +1,171 @@
+{
+  "traces": 8192,
+  "spans": 16384,
+  "batches": 128,
+  "rounds": [
+    {
+      "geko_sqlite": {
+        "image_id": "sha256:f03bca8b4779003aa1e2388d7f2687ab371fad10f514b750cb10225923e4cf6d",
+        "idle_memory": "11.3MiB",
+        "post_ingest_memory": "20.89MiB",
+        "writable_layer_before_bytes": 155648,
+        "writable_layer_after_bytes": 13799424,
+        "writable_layer_growth_bytes": 13643776,
+        "median_export_ms": 49.5,
+        "p95_export_ms": 77.55,
+        "median_trace_lookup_ms": 4.59,
+        "p95_trace_lookup_ms": 23.05
+      },
+      "jaeger_in_memory": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "18.54MiB",
+        "post_ingest_memory": "37.99MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 3.98,
+        "p95_export_ms": 27.72,
+        "median_trace_lookup_ms": 2.71,
+        "p95_trace_lookup_ms": 28.21
+      },
+      "jaeger_badger": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "18.02MiB",
+        "post_ingest_memory": "125.4MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 5.23,
+        "p95_export_ms": 28.0,
+        "median_trace_lookup_ms": 4.83,
+        "p95_trace_lookup_ms": 19.78
+      },
+      "tempo_local": {
+        "image_id": "sha256:78439f7f7cf3c97122846c13a832e060c6c7ef67dcc814dccf0a5f3f78393a93",
+        "idle_memory": "29.83MiB",
+        "post_ingest_memory": "44.7MiB",
+        "writable_layer_before_bytes": 53248,
+        "writable_layer_after_bytes": 57344,
+        "writable_layer_growth_bytes": 4096,
+        "median_export_ms": 4.87,
+        "p95_export_ms": 27.61,
+        "median_trace_lookup_ms": 7.35,
+        "p95_trace_lookup_ms": 37.76
+      }
+    },
+    {
+      "jaeger_in_memory": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "18.04MiB",
+        "post_ingest_memory": "37.73MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 5.21,
+        "p95_export_ms": 25.11,
+        "median_trace_lookup_ms": 4.07,
+        "p95_trace_lookup_ms": 29.73
+      },
+      "jaeger_badger": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "19.96MiB",
+        "post_ingest_memory": "126.4MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 4.34,
+        "p95_export_ms": 28.0,
+        "median_trace_lookup_ms": 5.68,
+        "p95_trace_lookup_ms": 30.86
+      },
+      "tempo_local": {
+        "image_id": "sha256:78439f7f7cf3c97122846c13a832e060c6c7ef67dcc814dccf0a5f3f78393a93",
+        "idle_memory": "29.68MiB",
+        "post_ingest_memory": "44.5MiB",
+        "writable_layer_before_bytes": 53248,
+        "writable_layer_after_bytes": 57344,
+        "writable_layer_growth_bytes": 4096,
+        "median_export_ms": 6.28,
+        "p95_export_ms": 24.63,
+        "median_trace_lookup_ms": 7.98,
+        "p95_trace_lookup_ms": 31.73
+      },
+      "geko_sqlite": {
+        "image_id": "sha256:f03bca8b4779003aa1e2388d7f2687ab371fad10f514b750cb10225923e4cf6d",
+        "idle_memory": "13.89MiB",
+        "post_ingest_memory": "22.62MiB",
+        "writable_layer_before_bytes": 155648,
+        "writable_layer_after_bytes": 13799424,
+        "writable_layer_growth_bytes": 13643776,
+        "median_export_ms": 35.08,
+        "p95_export_ms": 55.16,
+        "median_trace_lookup_ms": 6.27,
+        "p95_trace_lookup_ms": 28.2
+      }
+    },
+    {
+      "jaeger_badger": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "15.92MiB",
+        "post_ingest_memory": "124.6MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 5.17,
+        "p95_export_ms": 27.68,
+        "median_trace_lookup_ms": 3.65,
+        "p95_trace_lookup_ms": 27.18
+      },
+      "tempo_local": {
+        "image_id": "sha256:78439f7f7cf3c97122846c13a832e060c6c7ef67dcc814dccf0a5f3f78393a93",
+        "idle_memory": "25.5MiB",
+        "post_ingest_memory": "44.43MiB",
+        "writable_layer_before_bytes": 53248,
+        "writable_layer_after_bytes": 57344,
+        "writable_layer_growth_bytes": 4096,
+        "median_export_ms": 4.59,
+        "p95_export_ms": 24.7,
+        "median_trace_lookup_ms": 6.75,
+        "p95_trace_lookup_ms": 30.76
+      },
+      "geko_sqlite": {
+        "image_id": "sha256:f03bca8b4779003aa1e2388d7f2687ab371fad10f514b750cb10225923e4cf6d",
+        "idle_memory": "13.38MiB",
+        "post_ingest_memory": "22.59MiB",
+        "writable_layer_before_bytes": 155648,
+        "writable_layer_after_bytes": 13795328,
+        "writable_layer_growth_bytes": 13639680,
+        "median_export_ms": 44.94,
+        "p95_export_ms": 67.07,
+        "median_trace_lookup_ms": 6.17,
+        "p95_trace_lookup_ms": 24.34
+      },
+      "jaeger_in_memory": {
+        "image_id": "sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e",
+        "idle_memory": "19.49MiB",
+        "post_ingest_memory": "36.05MiB",
+        "writable_layer_before_bytes": 4096,
+        "writable_layer_after_bytes": 4096,
+        "writable_layer_growth_bytes": 0,
+        "median_export_ms": 4.59,
+        "p95_export_ms": 20.88,
+        "median_trace_lookup_ms": 3.45,
+        "p95_trace_lookup_ms": 18.03
+      }
+    }
+  ],
+  "date": "2026-11-21",
+  "docker_server_version": "28.5.1",
+  "docker_host": "12 CPUs; 16698753024 bytes memory",
+  "background_before": {
+    "running_container_count": 9,
+    "aggregate_cpu_percent": 294.42
+  },
+  "background_after": {
+    "running_container_count": 9,
+    "aggregate_cpu_percent": 392.62
+  },
+  "background_note": "Existing background containers were left running. These are mixed-load measurements; do not treat differences from historical runs as an isolated code effect.",
+  "harness_sha256": "8fb2bd66ef5b30dba126ba13efcec76d4c3f4a3d60d1d5a401250b5946ad7cd6",
+  "fixture_sha256": "94bd6ccf0069865a9bf1a8ab35c2652afaed9659fdf13f75afb08e2362c277b6"
+}

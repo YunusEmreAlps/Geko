@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,8 +14,77 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
+
+func TestInvestigateIncludesLatePrimaryEvidence(t *testing.T) {
+	for _, earlierErrors := range []int{0, 12} {
+		t.Run(fmt.Sprintf("earlier_errors_%d", earlierErrors), func(t *testing.T) {
+			ctx := t.Context()
+			path := filepath.Join(t.TempDir(), "late.db")
+			store, err := sqlite.Open(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			start := time.Now().Add(-time.Minute)
+			spans := make([]telemetry.Span, 120)
+			for i := range spans {
+				spans[i] = telemetry.Span{TraceID: telemetry.TraceID{1}, ID: telemetry.SpanID{byte(i + 1)},
+					ServiceName: "api", Name: "work", StartTime: start.Add(time.Duration(i) * time.Millisecond), EndTime: start.Add(time.Second)}
+				if i > 0 {
+					spans[i].ParentID = spans[0].ID
+				}
+				if i < earlierErrors {
+					spans[i].StatusCode = telemetry.StatusError
+				}
+			}
+			spans[0].Kind = telemetry.KindServer
+			primary := &spans[119]
+			primary.Events = []telemetry.Event{{Name: "exception", Time: primary.StartTime, Attributes: telemetry.Attributes{
+				"exception.type": "LateException", "exception.stacktrace": "Worker.finish:42", "private.detail": "hidden",
+			}}}
+			primary.Attributes = telemetry.Attributes{"code.function.name": "finish", "url.full": "hidden"}
+			if err := store.WriteSpans(ctx, time.Now(), spans); err != nil {
+				t.Fatal(err)
+			}
+			groups, err := store.FailureGroups(ctx, investigation.FailureFilter{Limit: 10}, nil)
+			if err != nil || len(groups.Items) != 1 {
+				t.Fatalf("groups = %+v, %v", groups, err)
+			}
+			reader, err := sqlite.OpenReadOnly(ctx, path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reader.Close()
+			serverTransport, clientTransport := mcp.NewInMemoryTransports()
+			server, err := investigationServer(reader, ownership.Owners{}).Connect(ctx, serverTransport, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer server.Close()
+			session, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientTransport, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Close()
+			var result investigateResult
+			callTool(t, session, "investigate_group", map[string]any{"group_id": investigation.EncodeGroupKey(groups.Items[0].Key)}, &result)
+			if len(result.Trace.Spans) != 100 || result.Trace.NextCursor == "" {
+				t.Fatalf("timeline is not paginated: %+v", result.Trace)
+			}
+			want := hex.EncodeToString(primary.ID[:])
+			if len(result.EvidenceSpans) != min(earlierErrors+1, maxEvidenceSpans) || result.EvidenceSpans[0].SpanID != want || result.EvidenceHasMore != (earlierErrors >= maxEvidenceSpans) {
+				t.Fatalf("primary %s, evidence %+v, more %v", want, result.EvidenceSpans, result.EvidenceHasMore)
+			}
+			encoded, _ := json.Marshal(result.EvidenceSpans)
+			if !strings.Contains(string(encoded), "Worker.finish:42") || strings.Contains(string(encoded), "hidden") {
+				t.Fatalf("evidence filtering: %s", encoded)
+			}
+		})
+	}
+}
 
 func TestInvestigateGroupExplainsTheDemoTimeouts(t *testing.T) {
 	ctx := t.Context()

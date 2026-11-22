@@ -103,6 +103,8 @@ jobs:
         run: |
           go build -o ./bin/geko ./cmd/geko
           go build -o ./bin/service-map ./examples/service-map
+      - name: Test report availability handling
+        run: node --test scripts/action-report.test.mjs
       - id: geko
         uses: ./
         with:
@@ -113,9 +115,11 @@ jobs:
         env:
           FAILURES: ${{ steps.geko.outputs.failures }}
           EXIT_CODE: ${{ steps.geko.outputs.exit-code }}
+          TELEMETRY_STATUS: ${{ steps.geko.outputs.telemetry-status }}
         run: |
           test "$FAILURES" = 1
           test "$EXIT_CODE" = 0
+          test "$TELEMETRY_STATUS" = available
           grep -q 'payment gateway timed out' "$RUNNER_TEMP/geko-report/report.md"
           ls "$RUNNER_TEMP"/geko-report/traces/*.json
 

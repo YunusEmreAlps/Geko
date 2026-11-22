@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -11,15 +12,51 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/YunusEmreAlps/geko/internal/api"
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 )
 
 // reportLimit bounds the traces a run report lists and saves.
 const reportLimit = 25
 
+type runReportStatus struct {
+	RunID           string `json:"run_id"`
+	TelemetryStatus string `json:"telemetry_status"`
+	Failures        *int   `json:"failures"`
+	Truncated       bool   `json:"truncated"`
+}
+
+func saveRunReportStatus(dir string, status runReportStatus) error {
+	data, err := json.MarshalIndent(status, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "report.json"), append(data, '\n'), 0o644)
+}
+
 // writeRunReport saves a Markdown summary of the run's failures, their
 // number, and each failing trace as OTLP JSON that any Geko can import.
-func writeRunReport(ctx context.Context, base, token, runID, dir string) error {
+func writeRunReport(ctx context.Context, base, token, runID, dir string) (reportErr error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	// Invalidate earlier successful counts before any fallible network work.
+	if err := os.Remove(filepath.Join(dir, "failures")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	unavailable := runReportStatus{RunID: runID, TelemetryStatus: "unavailable"}
+	defer func() {
+		if reportErr != nil {
+			reportErr = errors.Join(reportErr, saveRunReportStatus(dir, unavailable))
+			if err := os.Remove(filepath.Join(dir, "failures")); err != nil && !errors.Is(err, os.ErrNotExist) {
+				reportErr = errors.Join(reportErr, err)
+			}
+			reportErr = errors.Join(reportErr, os.WriteFile(filepath.Join(dir, "report.md"), []byte("### Geko: telemetry report unavailable\n\nThe run's failure evidence could not be collected completely. The failure count is unknown; this is not a zero-failure result. Check the Geko command's diagnostic output.\n"), 0o644))
+		}
+	}()
+	if err := saveRunReportStatus(dir, unavailable); err != nil {
+		return err
+	}
 	query := url.Values{"run_id": {runID}, "limit": {strconv.Itoa(reportLimit)}}
 	body, err := gekoGet(ctx, base+"/api/v1/failures?"+query.Encode(), token)
 	if err != nil {
@@ -29,14 +66,24 @@ func writeRunReport(ctx context.Context, base, token, runID, dir string) error {
 	if err := json.Unmarshal(body, &page); err != nil {
 		return fmt.Errorf("decode failures: %w", err)
 	}
+	if page.RunID != runID || page.Items == nil || len(page.Items) > reportLimit ||
+		(page.NextCursor != "" && len(page.Items) != reportLimit) {
+		return errors.New("invalid or unsupported run-filtered failures response")
+	}
 	traces := filepath.Join(dir, "traces")
 	if err := os.MkdirAll(traces, 0o755); err != nil {
 		return err
 	}
 	for _, trace := range page.Items {
+		if _, err := api.ParseTraceID(trace.TraceID); err != nil {
+			return errors.New("invalid trace ID in run report response")
+		}
 		data, err := gekoGet(ctx, base+"/traces/"+trace.TraceID+"/otlp.json", token)
 		if err != nil {
 			return fmt.Errorf("download trace %s: %w", trace.TraceID, err)
+		}
+		if !json.Valid(data) {
+			return errors.New("invalid trace JSON in run report response")
 		}
 		if err := os.WriteFile(filepath.Join(traces, trace.TraceID+".json"), data, 0o644); err != nil {
 			return err
@@ -49,7 +96,11 @@ func writeRunReport(ctx context.Context, base, token, runID, dir string) error {
 	if err := os.WriteFile(filepath.Join(dir, "failures"), []byte(count+"\n"), 0o644); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "report.md"), []byte(runReport(runID, page.Items, page.NextCursor != "")), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "report.md"), []byte(runReport(runID, page.Items, page.NextCursor != "")), 0o644); err != nil {
+		return err
+	}
+	known := len(page.Items)
+	return saveRunReportStatus(dir, runReportStatus{RunID: runID, TelemetryStatus: "available", Failures: &known, Truncated: page.NextCursor != ""})
 }
 
 // runReport describes the failures as Markdown for a pull request or a job

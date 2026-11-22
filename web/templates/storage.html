@@ -1,19 +1,22 @@
 {{define "storage"}}
 <header class="page-head">
-  <div class="title"><h1>Storage by application</h1><span class="muted">{{.Spans}} stored {{if eq .Spans 1}}span{{else}}spans{{end}}</span></div>
+  <div class="title"><h1>Storage by application</h1><span class="muted">{{.Spans}} stored {{if eq .Spans 1}}span{{else}}spans{{end}} · {{.EvictedTraces}} traces evicted at capacity</span></div>
   <div class="actions"><a class="button" href="/settings">Back to settings</a></div>
 </header>
 <section class="section first">
   {{if .Applications}}
   <div class="table-wrap" tabindex="0" role="region" aria-label="Stored spans by application">
     <table class="usage">
-      <thead><tr><th scope="col">Application</th><th scope="col" class="num">Spans</th><th scope="col" class="num">Share</th>{{if .MaxDBBytes}}<th scope="col" class="num">Of the limit</th>{{end}}</tr></thead>
-      <tbody>{{range .Applications}}<tr><td>{{if .Application}}{{.Application}}{{else}}<span class="muted">No application</span>{{end}}</td><td class="num">{{.Spans}}</td><td class="num">{{percent .Share}}</td>{{if $.MaxDBBytes}}<td class="num">{{size (portion $.MaxDBBytes .Share)}}</td>{{end}}</tr>{{end}}</tbody>
+      <thead><tr><th scope="col">Application</th><th scope="col" class="num">Spans</th><th scope="col" class="num">Share</th>{{if .MaxDBBytes}}<th scope="col" class="num">Of the limit</th>{{end}}<th scope="col" class="num">Evicted traces</th></tr></thead>
+      <tbody>{{range .Applications}}<tr><td>{{if .Application}}{{.Application}}{{else}}<span class="muted">No application</span>{{end}}</td><td class="num">{{.Spans}}</td><td class="num">{{percent .Share}}</td>{{if $.MaxDBBytes}}<td class="num">{{size (portion $.MaxDBBytes .Share)}}</td>{{end}}<td class="num">{{.EvictedTraces}}</td></tr>{{end}}</tbody>
     </table>
   </div>
-  {{if eq (printf "%s" .OnFull) "evict_fair"}}<p class="note">At the size limit, <code>evict_fair</code> evicts the oldest traces of {{ownerLabel .FairOwner}} first, because it holds the most spans.</p>
-  {{else}}<p class="note">At the size limit, <code>{{or .OnFull "evict_oldest"}}</code> evicts the oldest traces whatever their application. <code>evict_fair</code> would evict from {{ownerLabel .FairOwner}} first.</p>{{end}}
+  {{if .Spans}}{{if eq (printf "%s" .OnFull) "evict_fair"}}<p class="note">At the size limit, <code>evict_fair</code> evicts the oldest traces of {{ownerLabel .FairOwner}} first, because it holds the most spans.</p>
+  {{else}}<p class="note">At the size limit, <code>{{or .OnFull "evict_oldest"}}</code> evicts the oldest traces whatever their application. <code>evict_fair</code> would evict from {{ownerLabel .FairOwner}} first.</p>{{end}}{{end}}
   <p class="note">Spans are attributed by namespace, then by a trace's assignment, then by the service's mapping. A trace with spans from several applications counts toward each. Counted {{age .Computed}}; the page reuses the count for a minute.</p>
   {{else}}<div class="empty compact"><p>No spans are stored yet.</p></div>{{end}}
+  <p class="note">Evicted traces are counted once per application they touched, using assignments at deletion time. These totals can exceed the global trace count. They survive restarts; retention expiry is not included.</p>
+  {{if .EarlierEvictions}}<p class="note">{{.EarlierEvictions}} earlier trace evictions have no application breakdown. Per-application counters started when this database was upgraded.</p>{{end}}
+  {{if .EvictionOverflow}}<p class="note">{{.EvictionOverflow}} evicted application memberships are in overflow: the breakdown tracks up to 512 application labels of at most 512 UTF-8 bytes. The global trace eviction total remains complete; one trace may touch several applications.</p>{{end}}
 </section>
 {{end}}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -154,6 +155,7 @@ type investigationReader interface {
 	CompareTrace(context.Context, telemetry.TraceID) (investigation.TraceSummary, *investigation.TraceSummary, error)
 	VersionComparisons(context.Context, investigation.RegressionFilter) ([]investigation.VersionComparison, error)
 	GroupVersions(context.Context, string) ([]investigation.GroupVersion, error)
+	EvidenceDetails(context.Context, telemetry.TraceID, telemetry.SpanID, int) ([]investigation.Span, bool, error)
 }
 
 // groupTriage changes error group state; only a running server provides it.
@@ -199,13 +201,14 @@ type investigateArgs struct {
 const maxEvidenceSpans = 10
 
 type investigateResult struct {
-	Group         failureGroupCitation         `json:"group"`
-	Trace         traceResult                  `json:"representative_trace" jsonschema:"The group's latest trace with up to 100 span timings; pass next_cursor to get_trace for more"`
-	EvidenceSpans []evidenceSpan               `json:"evidence_spans" jsonschema:"Spans of the representative trace with an exception, HTTP 5xx or error status, at most 10"`
-	Baseline      *investigation.TraceSummary  `json:"successful_baseline" jsonschema:"Latest successful request to the same entry operation, service, application and environment; null when none is stored"`
-	DeltaNS       *int64                       `json:"duration_difference_ns,omitempty" jsonschema:"Representative minus baseline entry span duration"`
-	Versions      []investigation.GroupVersion `json:"versions" jsonschema:"The group's traces by entry and evidence service.version, oldest first; the first row is where it was first seen"`
-	Next          []string                     `json:"suggested_next_steps"`
+	Group           failureGroupCitation         `json:"group"`
+	Trace           traceResult                  `json:"representative_trace" jsonschema:"The group's latest trace with up to 100 span timings; pass next_cursor to get_trace for more"`
+	EvidenceSpans   []evidenceSpan               `json:"evidence_spans" jsonschema:"Spans of the representative trace with an exception, HTTP 5xx or error status, at most 10"`
+	EvidenceHasMore bool                         `json:"evidence_has_more" jsonschema:"Additional evidence is omitted; open group.evidence_path in the dashboard. The selected primary evidence is always first."`
+	Baseline        *investigation.TraceSummary  `json:"successful_baseline" jsonschema:"Latest successful request to the same entry operation, service, application and environment; null when none is stored"`
+	DeltaNS         *int64                       `json:"duration_difference_ns,omitempty" jsonschema:"Representative minus baseline entry span duration"`
+	Versions        []investigation.GroupVersion `json:"versions" jsonschema:"The group's traces by entry and evidence service.version, oldest first; the first row is where it was first seen"`
+	Next            []string                     `json:"suggested_next_steps"`
 }
 
 // evidenceSpan adds what explains a failure to a span's timing: its status
@@ -410,7 +413,7 @@ func investigationServer(store investigationReader, owners ownership.Owners) *mc
 		return nil, result, nil
 	})
 	mcp.AddTool(server, &mcp.Tool{
-		Name: "investigate_group", Description: "Everything needed to explain one error group in a single call: the group, its latest trace with span timings, full details of the spans that recorded evidence, the latest successful request to the same operation, and the versions its traces came from. Differences from the baseline and version changes are observations, not proof of cause. " + untrustedTelemetry, Annotations: readOnly,
+		Name: "investigate_group", Description: "A bounded investigation of one error group: its latest trace with paginated timings, up to ten evidence details with the selected primary evidence first, a successful comparison and version history. evidence_has_more discloses omitted evidence; open group.evidence_path for more. Differences are observations, not proof of cause. " + untrustedTelemetry, Annotations: readOnly,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, args investigateArgs) (*mcp.CallToolResult, investigateResult, error) {
 		select {
 		case slots <- struct{}{}:
@@ -455,9 +458,20 @@ func investigateGroup(ctx context.Context, store investigationReader, groupID st
 	result.Trace = traceResult{Trace: summary, Spans: make([]spanTiming, 0, len(page.Items)), NextCursor: api.EncodeCursor(page.Next)}
 	for _, span := range page.Items {
 		result.Trace.Spans = append(result.Trace.Spans, spanTiming{span.SpanSummary, span.ParentID, span.Start, span.End, span.StatusCode})
-		if len(result.EvidenceSpans) < maxEvidenceSpans && recordsEvidence(span) {
-			result.EvidenceSpans = append(result.EvidenceSpans, explainEvidence(span))
-		}
+	}
+	var selected telemetry.SpanID
+	decoded, err := hex.DecodeString(group.SpanID)
+	if err != nil || len(decoded) != len(selected) {
+		return result, errors.New("invalid selected evidence span ID")
+	}
+	copy(selected[:], decoded)
+	evidence, more, err := store.EvidenceDetails(ctx, id, selected, maxEvidenceSpans)
+	if err != nil {
+		return result, err
+	}
+	result.EvidenceHasMore = more
+	for _, span := range evidence {
+		result.EvidenceSpans = append(result.EvidenceSpans, explainEvidence(span))
 	}
 	if _, baseline, err := store.CompareTrace(ctx, id); err != nil {
 		return result, err
@@ -473,19 +487,6 @@ func investigateGroup(ctx context.Context, store investigationReader, groupID st
 	}
 	result.Next = nextSteps(result)
 	return result, nil
-}
-
-// recordsEvidence matches how Geko classifies a span as failure evidence.
-func recordsEvidence(span investigation.Span) bool {
-	if span.StatusCode == telemetry.StatusError || span.HTTPStatus != nil && *span.HTTPStatus >= 500 {
-		return true
-	}
-	for _, event := range span.Events {
-		if event.Name == "exception" {
-			return true
-		}
-	}
-	return false
 }
 
 func nextSteps(result investigateResult) []string {

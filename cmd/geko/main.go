@@ -27,7 +27,6 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 	"github.com/YunusEmreAlps/geko/internal/notify"
-	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 	"github.com/YunusEmreAlps/geko/web"
 )
@@ -287,13 +286,8 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		}
 	}
 	// Migrations and earlier larger limits can leave the file above max_db_mib.
-	if status, err := db.Status(ctx); err == nil && status.MainBytes-status.FreeBytes > maxBytes {
-		advice := "Geko evicts the oldest traces as exports arrive"
-		if cfg.OnFull == storage.Reject {
-			advice = "every export is rejected until space is freed; raise max_db_mib or set on_full to evict_oldest or evict_fair"
-		}
-		fmt.Fprintf(out, "Warning: the database uses %d MiB, above max_db_mib (%d MiB); %s.\n",
-			(status.MainBytes-status.FreeBytes)>>20, cfg.MaxDBMiB, advice)
+	if status, err := db.Status(ctx); err == nil {
+		warnStorageLimit(out, cfg, status)
 	}
 
 	listener, err := listen(ctx, cfg.ListenAddr)

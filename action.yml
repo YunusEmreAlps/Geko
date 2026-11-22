@@ -24,8 +24,11 @@ inputs:
 
 outputs:
   failures:
-    description: Number of failing traces recorded, with a trailing + when there were more than 25.
+    description: Number of failing traces recorded, with a trailing + when there were more than 25; unknown when the report is unavailable.
     value: ${{ steps.run.outputs.failures }}
+  telemetry-status:
+    description: available when the run's evidence report was collected; unavailable when the count is unknown. This does not prove SDK export coverage.
+    value: ${{ steps.run.outputs.telemetry_status }}
   exit-code:
     description: Exit status of the command.
     value: ${{ steps.run.outputs.status }}
@@ -61,19 +64,17 @@ runs:
         status=$?
         set -e
         echo "status=$status" >> "$GITHUB_OUTPUT"
-        failures=$(tr -d '\n' < "$REPORT/failures" 2>/dev/null || echo 0)
-        echo "failures=${failures:-0}" >> "$GITHUB_OUTPUT"
-        [ -f "$REPORT/report.md" ] && cat "$REPORT/report.md" >> "$GITHUB_STEP_SUMMARY"
+        node "$GITHUB_ACTION_PATH/scripts/action-report.mjs"
         exit 0
     - name: Attach failing traces
-      if: steps.run.outputs.failures != '0'
+      if: steps.run.outputs.telemetry_status == 'available' && steps.run.outputs.failures != '0'
       uses: actions/upload-artifact@v4
       with:
         name: geko-traces-${{ github.job }}-${{ github.run_attempt }}
         path: ${{ runner.temp }}/geko-report/traces
         if-no-files-found: ignore
     - name: Comment on the pull request
-      if: inputs.comment == 'true' && github.event_name == 'pull_request' && steps.run.outputs.failures != '0'
+      if: inputs.comment == 'true' && github.event_name == 'pull_request' && steps.run.outputs.telemetry_status == 'available' && steps.run.outputs.failures != '0'
       # Pull requests from forks get a read-only token; the summary still has the report.
       continue-on-error: true
       shell: bash

@@ -145,9 +145,46 @@ func TestStorageByApplicationPage(t *testing.T) {
 	}
 	fresh.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/settings/storage", nil))
 	body := w.Body.String()
-	for _, want := range []string{"<td>Shop</td>", "75.0%", "192.0 MiB", "No application", "evicts the oldest traces of namespace Shop first"} {
+	for _, want := range []string{"<td>Shop</td>", "75.0%", "192.0 MiB", "No application", "evicts the oldest traces of namespace Shop first", "Evicted traces", "retention expiry is not included"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("storage page missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestStorageKeepsLossesVisibleAfterAllSpansExpire(t *testing.T) {
+	store, err := sqlite.OpenWithLimit(t.Context(), filepath.Join(t.TempDir(), "losses.db"), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	now := time.Now()
+	span := telemetry.Span{TraceID: telemetry.TraceID{1}, ID: telemetry.SpanID{1}, ServiceName: "api", Kind: telemetry.KindClient,
+		Name: strings.Repeat("x", 750<<10), StatusCode: telemetry.StatusError, StartTime: now, EndTime: now.Add(time.Second),
+		ResourceAttributes: telemetry.Attributes{"service.namespace": "old-app"}}
+	if err := store.WriteSpans(t.Context(), now.Add(-time.Hour), []telemetry.Span{span}); err != nil {
+		t.Fatal(err)
+	}
+	span.TraceID, span.Name = telemetry.TraceID{2}, strings.Repeat("y", 600<<10)
+	span.ResourceAttributes = telemetry.Attributes{"service.namespace": "new-app"}
+	if err := store.WriteSpans(t.Context(), now, []telemetry.Span{span}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Prune(t.Context(), now.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	if err := Register(mux, store, Settings{MaxDBBytes: 1 << 20}); err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "http://127.0.0.1/settings/storage", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("storage page = %d: %s", w.Code, w.Body.String())
+	}
+	for _, want := range []string{"0 stored spans", "1 traces evicted at capacity", "old-app", "Evicted traces"} {
+		if !strings.Contains(w.Body.String(), want) {
+			t.Errorf("loss-only page missing %q: %s", want, w.Body.String())
 		}
 	}
 }

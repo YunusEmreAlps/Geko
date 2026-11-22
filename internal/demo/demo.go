@@ -39,7 +39,9 @@ const (
 	// Owners assigns the demo's services to teams, in GEKO_OWNERS form.
 	Owners       = "service:payments=payments-team,service:inventory=fulfilment-team,application:storefront=web-team,application:back-office=back-office-team"
 	seededTraces = 2400
-	exportSize   = 40
+	// Bound the temporary export by spans, reducing durable commits during
+	// startup without changing the history or the number of demo traces.
+	seedBatchSpans = 1024
 )
 
 // Dataset generates further traces after Seed, so the dashboard keeps moving.
@@ -57,15 +59,30 @@ func Seed(ctx context.Context, store Store, now time.Time) (*Dataset, error) {
 	start := now.Add(-History)
 	step := History / seededTraces
 	var batch []telemetry.Span
+	var observed time.Time
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		if err := store.WriteSpans(ctx, observed, batch); err != nil {
+			return fmt.Errorf("store demo traces: %w", err)
+		}
+		batch = nil
+		return nil
+	}
 	for i := range seededTraces {
 		end := start.Add(time.Duration(i+1) * step)
-		batch = append(batch, d.Trace(end)...)
-		if (i+1)%exportSize == 0 || i == seededTraces-1 {
-			if err := store.WriteSpans(ctx, end, batch); err != nil {
-				return nil, fmt.Errorf("store demo traces: %w", err)
+		spans := d.Trace(end)
+		if len(batch)+len(spans) > seedBatchSpans {
+			if err := flush(); err != nil {
+				return nil, err
 			}
-			batch = nil
 		}
+		batch = append(batch, spans...)
+		observed = end
+	}
+	if err := flush(); err != nil {
+		return nil, err
 	}
 	d.Traces = seededTraces
 	return d, d.triage(ctx, store, now)

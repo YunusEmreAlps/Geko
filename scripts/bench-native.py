@@ -23,12 +23,14 @@ process working set; database size includes the WAL and shared-memory files.
 """
 
 import argparse
+from contextlib import closing
 import copy
 import http.client
 import json
 import math
 import os
 import socket
+import sqlite3
 import statistics
 import subprocess
 import sys
@@ -160,6 +162,32 @@ def database_bytes(directory):
             for name in ("geko.db", "geko.db-wal", "geko.db-shm")}
 
 
+def group_cache_shape(directory):
+    """Read-only diagnostics after ingest; no telemetry strings leave SQLite."""
+    try:
+        return read_group_cache_shape(directory)
+    except sqlite3.DatabaseError:
+        # Host Python can ship an older SQLite than Geko's embedded engine.
+        # Optional diagnostics must not invalidate otherwise successful runs.
+        return {"unavailable": "host SQLite could not inspect the cache", "sqlite_version": sqlite3.sqlite_version}
+
+
+def read_group_cache_shape(directory):
+    uri = (Path(directory) / "geko.db").resolve().as_uri() + "?mode=ro"
+    with closing(sqlite3.connect(uri, uri=True, timeout=10)) as database:
+        database.execute("BEGIN")
+        tables = {row[0] for row in database.execute("SELECT name FROM sqlite_schema WHERE type='table'")}
+        if "failure_group_members" not in tables:
+            return {}
+        result = {"members": database.execute("SELECT count(*) FROM failure_group_members").fetchone()[0]}
+        if "failure_group_partitions" in tables:
+            result["partitions"] = database.execute("SELECT count(*) FROM failure_group_partitions").fetchone()[0]
+            result["identities"] = database.execute("SELECT count(*) FROM failure_group_keys").fetchone()[0]
+            result["cached_members"] = database.execute("SELECT count(*) FROM failure_group_members WHERE partition_id IS NOT NULL").fetchone()[0]
+            result["partitions_per_cached_member"] = round(result["partitions"] / result["cached_members"], 6) if result["cached_members"] else None
+        return result
+
+
 def run_round(binary, batches, label):
     port = free_port()
     parallel = PARALLEL_CONNECTIONS * PARALLEL_EXPORTS_EACH
@@ -193,7 +221,8 @@ def run_round(binary, batches, label):
                 fresh = http.client.HTTPConnection("127.0.0.1", port, timeout=60)
                 start = time.perf_counter()
                 try:
-                    export(fresh, payload, headers)
+                    if not export(fresh, payload, headers):
+                        raise RuntimeError("one connection should never exhaust the ingest slots")
                 finally:
                     fresh.close()
                 cold.append(time.perf_counter() - start)
@@ -231,11 +260,12 @@ def run_round(binary, batches, label):
 
             query_until_complete(base, headers, 64 * batches)
             post_memory, post_database = working_set_mib(process.pid), database_bytes(directory)
-            stored_spans = 128 * len(payloads)
+            stored_spans = 128 * (batches + COLD_EXPORTS + counted["accepted"])
             failures_api, failures_bytes = mean_request_ms(port, "/api/v1/failures?limit=50", headers)
             search_api, _ = mean_request_ms(port, "/api/v1/failures?q=inventory&limit=50", headers)
             trace_api, trace_bytes = mean_request_ms(port, f"/api/v1/traces/{trace_id(32 * batches)}", headers)
             failures_page, _ = mean_request_ms(port, "/failures", headers)
+            groups_page, _ = mean_request_ms(port, "/failures?view=groups", headers)
             overview_page, _ = mean_request_ms(port, "/overview", headers)
             return {
                 "label": label,
@@ -245,6 +275,7 @@ def run_round(binary, batches, label):
                 "post_ingest_database_bytes": post_database,
                 "database_growth_bytes": sum(post_database.values()) - sum(idle_database.values()),
                 "stored_spans": stored_spans,
+                "group_cache_shape": group_cache_shape(directory),
                 "bytes_per_span": round((sum(post_database.values()) - sum(idle_database.values())) / stored_spans, 1),
                 "sequential_exports": batches,
                 "sequential_spans_per_second": round(128 * batches / sequential_wall),
@@ -261,6 +292,7 @@ def run_round(binary, batches, label):
                 "mean_search_api_ms": search_api,
                 "mean_trace_api_ms": trace_api,
                 "mean_failures_page_ms": failures_page,
+                "mean_groups_page_ms": groups_page,
                 "mean_overview_page_ms": overview_page,
                 "failures_api_response_bytes": failures_bytes,
                 "trace_api_response_bytes": trace_bytes,

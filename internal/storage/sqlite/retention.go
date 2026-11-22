@@ -21,10 +21,10 @@ const (
 	maintenanceWALThreshold = 4 << 20
 )
 
-const deleteOldest = `DELETE FROM traces WHERE trace_id IN (
-    SELECT trace_id FROM traces WHERE last_observed_ns < ? ` + unpinned + ` %s
-    ORDER BY last_observed_ns, trace_id LIMIT ?
-)`
+const selectOldest = `SELECT trace_id FROM traces WHERE last_observed_ns < ? ` + unpinned + ` %s
+    ORDER BY last_observed_ns, trace_id LIMIT ?`
+
+const deleteOldest = `DELETE FROM traces WHERE trace_id IN (` + selectOldest + `)`
 
 // unpinned excludes pinned traces from retention and eviction.
 const unpinned = "AND trace_id NOT IN (SELECT trace_id FROM trace_pins)"
