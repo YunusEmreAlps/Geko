@@ -1,7 +1,23 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 (2026-11-23)
 
+- `investigate_group` lists the 10 oldest and 10 newest version pairs of a
+  group with more than 20, with `version_count` and `versions_truncated`, so
+  an agent no longer mistakes the 20th oldest release for the latest.
+- `geko mcp setup` resolves the configuration and database the way `geko serve`
+  would in the current directory, including an implicit `geko.yaml` with a
+  relative `db_path`, and pins their absolute paths. A client started in
+  another directory reads the same database. Token values are never written.
+- Group notes, issue links, triage states and pins are held to `max_db_mib`
+  like exports, also before the first export after startup. The dashboard
+  explains a refused change as a capacity limit instead of a server error.
+- `geko run --report DIR` removes an earlier run's traces from `DIR`, and
+  `report.json` records the report's `limit`, which the Action validates
+  instead of a copy of the number.
+- `TestUpgradeMeasurement` upgrades a copy of an older database and records
+  peak main/WAL size, an interrupted upgrade and a concurrent reader; see
+  `docs/benchmarks/2026-11-23-upgrade-schema15-20.json`.
 - MCP investigations always return the selected primary evidence first,
   independently of the first 100 timeline spans and ten-detail evidence limit.
   `evidence_has_more` discloses additional omitted details.

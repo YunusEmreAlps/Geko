@@ -152,6 +152,23 @@ func (s *Store) checkWriteCapacity(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+// withinCapacity runs a change that can add pages, such as triage metadata,
+// under the same size limit as an export. Removals don't need it.
+func (s *Store) withinCapacity(ctx context.Context, change func(*sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := s.checkWriteCapacity(ctx, tx); err != nil {
+		return err
+	}
+	if err := change(tx); err != nil {
+		return writeError(err)
+	}
+	return writeError(tx.Commit())
+}
+
 func (s *Store) checkJournalCapacity(ctx context.Context) error {
 	if s.maxBytes == 0 {
 		return nil
@@ -201,19 +218,21 @@ func (s *Store) SetTracePin(ctx context.Context, id telemetry.TraceID, pinned bo
 		_, err := s.db.ExecContext(ctx, "DELETE FROM trace_pins WHERE trace_id = ?", id[:])
 		return s.changed(writeError(err))
 	}
-	result, err := s.db.ExecContext(ctx, `INSERT INTO trace_pins (trace_id, pinned_ns, pinned_by)
+	return s.changed(s.withinCapacity(ctx, func(tx *sql.Tx) error {
+		result, err := tx.ExecContext(ctx, `INSERT INTO trace_pins (trace_id, pinned_ns, pinned_by)
  SELECT trace_id, ?, ? FROM traces WHERE trace_id = ? ON CONFLICT (trace_id) DO NOTHING`, now.UnixNano(), by, id[:])
-	if err != nil {
-		return writeError(err)
-	}
-	if added, err := result.RowsAffected(); err == nil && added == 0 {
-		var exists bool
-		if err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM traces WHERE trace_id = ?)", id[:]).Scan(&exists); err != nil {
+		if err != nil {
 			return err
 		}
-		if !exists {
-			return investigation.ErrTraceNotFound
+		if added, err := result.RowsAffected(); err == nil && added == 0 {
+			var exists bool
+			if err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM traces WHERE trace_id = ?)", id[:]).Scan(&exists); err != nil {
+				return err
+			}
+			if !exists {
+				return investigation.ErrTraceNotFound
+			}
 		}
-	}
-	return s.changed(nil)
+		return nil
+	}))
 }

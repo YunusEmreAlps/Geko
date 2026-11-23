@@ -118,7 +118,7 @@ Refresh **Failures** and open **POST /checkout**. More examples:
 
 The install scripts verify the archive against the release's `checksums.txt`
 and take `GEKO_VERSION` to pin a release. `geko demo` and `serve --open` are
-in releases after v0.1.0.
+in releases from v0.2.0.
 
 To run Geko for a team, in Docker with a token or on a server behind TLS, see
 [Run Geko for a team](docs/server.md).

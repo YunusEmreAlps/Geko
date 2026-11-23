@@ -141,10 +141,19 @@ func TestInvestigateGroupExplainsTheDemoTimeouts(t *testing.T) {
 	for _, version := range result.Versions {
 		entries = append(entries, version.EntryVersion)
 	}
-	if !slices.Equal(entries, []string{demo.Baseline, demo.Candidate}) || !strings.Contains(strings.Join(result.Next, " "), "compare_versions") {
+	if !slices.Equal(entries, []string{demo.Baseline, demo.Candidate}) || result.VersionCount != 2 || result.VersionsTruncated ||
+		!strings.Contains(strings.Join(result.Next, " "), "compare_versions") || strings.Contains(strings.Join(result.Next, " "), "omitted") {
 		t.Fatalf("versions %+v, next %v", result.Versions, result.Next)
 	}
 	if outcome := callTool(t, session, "investigate_group", map[string]any{"group_id": "not-a-group"}, nil); !outcome.IsError {
 		t.Fatal("an invalid group ID was accepted")
+	}
+}
+
+func TestNextStepsDiscloseTruncatedVersions(t *testing.T) {
+	result := investigateResult{Versions: []investigation.GroupVersion{{EntryVersion: "1"}, {EntryVersion: "30"}}, VersionCount: 30, VersionsTruncated: true}
+	steps := strings.Join(nextSteps(result), " ")
+	if !strings.Contains(steps, "2 of 30 version pairs") || !strings.Contains(steps, "compare_versions") {
+		t.Fatalf("steps = %s", steps)
 	}
 }

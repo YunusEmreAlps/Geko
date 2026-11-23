@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -154,7 +155,7 @@ type investigationReader interface {
 	FailureGroups(context.Context, investigation.FailureFilter, *investigation.GroupCursor) (investigation.FailureGroups, error)
 	CompareTrace(context.Context, telemetry.TraceID) (investigation.TraceSummary, *investigation.TraceSummary, error)
 	VersionComparisons(context.Context, investigation.RegressionFilter) ([]investigation.VersionComparison, error)
-	GroupVersions(context.Context, string) ([]investigation.GroupVersion, error)
+	GroupVersions(context.Context, string) ([]investigation.GroupVersion, int, error)
 	EvidenceDetails(context.Context, telemetry.TraceID, telemetry.SpanID, int) ([]investigation.Span, bool, error)
 }
 
@@ -201,14 +202,16 @@ type investigateArgs struct {
 const maxEvidenceSpans = 10
 
 type investigateResult struct {
-	Group           failureGroupCitation         `json:"group"`
-	Trace           traceResult                  `json:"representative_trace" jsonschema:"The group's latest trace with up to 100 span timings; pass next_cursor to get_trace for more"`
-	EvidenceSpans   []evidenceSpan               `json:"evidence_spans" jsonschema:"Spans of the representative trace with an exception, HTTP 5xx or error status, at most 10"`
-	EvidenceHasMore bool                         `json:"evidence_has_more" jsonschema:"Additional evidence is omitted; open group.evidence_path in the dashboard. The selected primary evidence is always first."`
-	Baseline        *investigation.TraceSummary  `json:"successful_baseline" jsonschema:"Latest successful request to the same entry operation, service, application and environment; null when none is stored"`
-	DeltaNS         *int64                       `json:"duration_difference_ns,omitempty" jsonschema:"Representative minus baseline entry span duration"`
-	Versions        []investigation.GroupVersion `json:"versions" jsonschema:"The group's traces by entry and evidence service.version, oldest first; the first row is where it was first seen"`
-	Next            []string                     `json:"suggested_next_steps"`
+	Group             failureGroupCitation         `json:"group"`
+	Trace             traceResult                  `json:"representative_trace" jsonschema:"The group's latest trace with up to 100 span timings; pass next_cursor to get_trace for more"`
+	EvidenceSpans     []evidenceSpan               `json:"evidence_spans" jsonschema:"Spans of the representative trace with an exception, HTTP 5xx or error status, at most 10"`
+	EvidenceHasMore   bool                         `json:"evidence_has_more" jsonschema:"Additional evidence is omitted; open group.evidence_path in the dashboard. The selected primary evidence is always first."`
+	Baseline          *investigation.TraceSummary  `json:"successful_baseline" jsonschema:"Latest successful request to the same entry operation, service, application and environment; null when none is stored"`
+	DeltaNS           *int64                       `json:"duration_difference_ns,omitempty" jsonschema:"Representative minus baseline entry span duration"`
+	Versions          []investigation.GroupVersion `json:"versions" jsonschema:"The group's traces by entry and evidence service.version, ordered by first receipt; the first row is where it was first seen and the last the newest. With more than 20 pairs only the 10 oldest and 10 newest are listed"`
+	VersionCount      int                          `json:"version_count" jsonschema:"Number of entry and evidence version pairs, including any omitted from versions"`
+	VersionsTruncated bool                         `json:"versions_truncated" jsonschema:"versions omits the pairs between the 10 oldest and the 10 newest"`
+	Next              []string                     `json:"suggested_next_steps"`
 }
 
 // evidenceSpan adds what explains a failure to a span's timing: its status
@@ -482,9 +485,10 @@ func investigateGroup(ctx context.Context, store investigationReader, groupID st
 			result.DeltaNS = &delta
 		}
 	}
-	if result.Versions, err = store.GroupVersions(ctx, key); err != nil {
+	if result.Versions, result.VersionCount, err = store.GroupVersions(ctx, key); err != nil {
 		return result, err
 	}
+	result.VersionsTruncated = result.VersionCount > len(result.Versions)
 	result.Next = nextSteps(result)
 	return result, nil
 }
@@ -501,7 +505,10 @@ func nextSteps(result investigateResult) []string {
 		entries[version.EntryVersion] = true
 	}
 	if len(entries) > 1 {
-		steps = append(steps, "The group spans several entry versions; call compare_versions with the oldest and newest to see whether a release changed its rate.")
+		steps = append(steps, "The group spans several entry versions; call compare_versions with the first and last rows of versions, its oldest and newest, to see whether a release changed its rate.")
+	}
+	if result.VersionsTruncated {
+		steps = append(steps, fmt.Sprintf("versions lists %d of %d version pairs, the oldest and the newest; the ones between them are omitted, so don't treat the list as complete.", len(result.Versions), result.VersionCount))
 	}
 	return steps
 }

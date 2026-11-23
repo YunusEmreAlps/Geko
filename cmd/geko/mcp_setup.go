@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/YunusEmreAlps/geko/internal/config"
 )
 
 // mcpClients maps each supported client to its project configuration file
@@ -136,18 +138,18 @@ func mcpEntry(client, server string) (map[string]any, []any, error) {
 	if client == "vscode" {
 		entry["type"] = "stdio"
 	}
-	environment := map[string]any{}
-	for _, name := range []string{"GEKO_DB_PATH", "GEKO_CONFIG"} {
-		if value := os.Getenv(name); value != "" {
-			if absolute, err := filepath.Abs(value); err == nil {
-				value = absolute
-			}
-			environment[name] = value
-		}
+	// The client may start geko mcp in another directory, where an implicit
+	// geko.yaml or a relative db_path would point elsewhere, so pin the
+	// effective files. Only paths are written, never token values.
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, nil, fmt.Errorf("resolve the database geko mcp should read: %w", err)
 	}
-	if len(environment) > 0 {
-		entry["env"] = environment
+	environment := map[string]any{"GEKO_DB_PATH": cfg.DBPath}
+	if cfg.Source.FilePath != "" {
+		environment["GEKO_CONFIG"] = cfg.Source.FilePath
 	}
+	entry["env"] = environment
 	return entry, nil, nil
 }
 

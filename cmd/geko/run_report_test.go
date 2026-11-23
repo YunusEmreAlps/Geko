@@ -39,6 +39,13 @@ func TestRunReportDistinguishesUnknownFromZero(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "failures"), []byte("0\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
+			stale := filepath.Join(dir, "traces", "cccccccccccccccccccccccccccccccc.json")
+			if err := os.MkdirAll(filepath.Dir(stale), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(stale, []byte(`{}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			err := writeRunReport(t.Context(), server.URL, "", runID, dir)
 			if (err == nil) != tc.available {
 				t.Fatalf("writeRunReport = %v", err)
@@ -51,8 +58,11 @@ func TestRunReportDistinguishesUnknownFromZero(t *testing.T) {
 			if err := json.Unmarshal(data, &status); err != nil {
 				t.Fatal(err)
 			}
-			if status.RunID != runID {
+			if status.RunID != runID || status.Limit != reportLimit {
 				t.Fatalf("status = %+v", status)
+			}
+			if _, err := os.Stat(stale); !os.IsNotExist(err) {
+				t.Fatalf("an earlier run's trace remains: %v", err)
 			}
 			if tc.available {
 				if status.TelemetryStatus != "available" || status.Failures == nil || *status.Failures != 0 {

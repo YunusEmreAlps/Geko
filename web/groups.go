@@ -41,7 +41,7 @@ func (d *dashboard) changeGroupState(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := d.store.SetGroupState(ctx, key, state, version, d.changedBy(r), time.Now()); err != nil {
-		d.unavailable(w, r, ctx)
+		d.writeFailed(w, r, ctx, err)
 		return
 	}
 	detail := map[string]string{"state": string(state)}
@@ -77,7 +77,7 @@ func (d *dashboard) changeGroupNote(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if err := d.store.SetGroupNote(ctx, key, note, issue, d.changedBy(r), time.Now()); err != nil {
-		d.unavailable(w, r, ctx)
+		d.writeFailed(w, r, ctx, err)
 		return
 	}
 	// The note itself stays out of the audit log, since it can quote customer data.

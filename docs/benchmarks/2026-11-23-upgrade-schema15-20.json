@@ -1,0 +1,44 @@
+{
+  "date": "2026-11-23",
+  "command": "GEKO_UPGRADE_FIXTURE=<schema-15 db> go test -run TestUpgradeMeasurement -v ./internal/storage/sqlite",
+  "platform": "Windows 11 workstation, go1.26.11; not a Linux baseline",
+  "fixture": "Written by the schema-15 tree (store.WriteSpans, 512 traces per export): 400,000 two-span traces over six days, half failing with one of 12 exceptions, 8 child services, 20 operations, 4 namespaces, 6 versions",
+  "interpretation": [
+    "Peak main plus WAL reached 1.43x the pre-upgrade file; keep free disk of at least half the database size beyond any backup copy.",
+    "The main file grew 21% and holds 54.6 MB of reusable pages afterwards; geko compact reclaims them.",
+    "Migrations run in one transaction: an upgrade interrupted at 10 s left schema 15 and all data intact, and the retry completed.",
+    "A reader holding a transaction did not block the upgrade; compaction then completed but could not truncate the WAL until the reader closed."
+  ],
+  "results": {
+    "concurrent_reader": {
+      "compact_after_reader_closed_ok": true,
+      "compact_with_reader_error": "database compacted, but a concurrent connection prevented WAL truncation",
+      "compact_with_reader_ok": false,
+      "compacted_from_bytes": 454803456,
+      "compacted_to_bytes": 426225664,
+      "peak_wal_bytes": 97870632,
+      "upgrade_seconds": 18.9024259
+    },
+    "fixture_bytes": 454803456,
+    "from_schema": 15,
+    "interrupted": {
+      "cancelled_after_seconds": 10.1225626,
+      "data_unchanged": true,
+      "retry_schema": 20,
+      "retry_seconds": 19.9514227,
+      "schema_after_cancel": 15
+    },
+    "spans": 800000,
+    "to_schema": 20,
+    "traces": 400000,
+    "upgrade": {
+      "final_free_bytes": 54579200,
+      "final_main_bytes": 552083456,
+      "peak_headroom_ratio": 1.4290878387696333,
+      "peak_main_bytes": 552083456,
+      "peak_total_bytes": 649954088,
+      "peak_wal_bytes": 97870632,
+      "seconds": 20.2367581
+    }
+  }
+}

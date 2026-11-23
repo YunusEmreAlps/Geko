@@ -32,10 +32,19 @@ Next development order from that review:
 2. **Completed 2026-11-22:** Distinguish unavailable telemetry/reporting from zero failures in `geko run`
    reports and the GitHub Action, while preserving the child command's exit code.
 3. Validate the release/install/action path before promoting unreleased commands.
-4. Resolve effective MCP config/database paths during setup; disclose truncated
-   version history; investigate capacity controls on growing triage metadata.
-5. Continue measuring write amplification, diverse partitions and full-database
-   upgrades before considering any weaker ingest acknowledgement policy.
+   v0.2.0 is prepared in the changelog; tag it, then exercise install-from-archive,
+   `demo`, MCP setup and the Action from that release.
+4. **Completed 2026-11-23:** MCP setup pins the effective config/database paths;
+   `investigate_group` keeps the oldest and newest versions and discloses
+   truncation; group notes, states and pins are held to the size limit. Groups
+   without stored traces keep their metadata, so a resolved or muted group stays
+   so when it recurs; retention expires it as before.
+5. Continue measuring write amplification and diverse partitions before
+   considering any weaker ingest acknowledgement policy. A full schema 15→20
+   upgrade of 400,000 traces was measured on 2026-11-23: 1.43× peak disk,
+   atomic rollback when interrupted, and a concurrent reader that blocks only
+   WAL truncation ([record](benchmarks/2026-11-23-upgrade-schema15-20.json)).
+   A Linux run remains to be recorded.
 
 Durable acknowledgement stays the default. Opportunistic group commit already
 exists; an optional early-ack policy is a deferred decision, not a release gate.

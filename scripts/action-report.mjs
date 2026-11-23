@@ -8,8 +8,9 @@ export function readActionReport(directory) {
   try {
     const status = JSON.parse(readFileSync(join(directory, 'report.json'), 'utf8'));
     if (status.telemetry_status !== 'available' || !/^[0-9a-f]{32}$/.test(status.run_id) ||
-        !Number.isInteger(status.failures) || status.failures < 0 || status.failures > 25 ||
-        typeof status.truncated !== 'boolean' || (status.truncated && status.failures !== 25)) {
+        !Number.isInteger(status.limit) || status.limit < 1 ||
+        !Number.isInteger(status.failures) || status.failures < 0 || status.failures > status.limit ||
+        typeof status.truncated !== 'boolean' || (status.truncated && status.failures !== status.limit)) {
       throw new Error('Unavailable or invalid report');
     }
     const summary = readFileSync(join(directory, 'report.md'), 'utf8');

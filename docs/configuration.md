@@ -73,6 +73,12 @@ relative `GEKO_DB_PATH` resolves from the working directory.
   size limit. When only pinned traces remain to evict, exports get HTTP 503
   until you unpin some. After unpinning, a trace older than the retention
   period is removed within a minute.
+- Group notes, issue links, triage states and pins count toward the same limit
+  and are checked like an export, also before the first export after startup.
+  When the file is full and has no reusable pages, setting one fails with the
+  same capacity error; clearing a note or reopening a group always works.
+  Notes and states of groups with no stored trace are kept, so a resolved or
+  muted group stays so when it recurs, and expire with the retention period.
 - The WAL and shared-memory files use space beyond the limit. Stop the server
   and run `geko compact` to shrink the main file. `geko doctor` reports each
   file's size and the reusable pages.
@@ -185,7 +191,21 @@ Geko runs, or stop Geko and copy the file with any remaining `-wal` file beside
 it. The database path is shown in **Settings** and `geko doctor`. Start the new binary with `geko serve` and the same
 configuration. Geko updates the database schema at startup and derives
 trace summaries and service membership from the existing spans. Startup
-can take longer for larger databases, and the file can grow by roughly 15%.
+can take longer for larger databases, and the file can grow by roughly 15–25%.
 If the database then exceeds `max_db_mib`, Geko prints a warning at startup;
 with `on_full: reject`, raise the limit or exports are rejected. To return to an older binary after
 a schema upgrade, restore the pre-upgrade backup before starting it.
+
+Plan disk space for the upgrade itself. Upgrading a 455 MB schema-15 database
+of 400,000 traces to schema 20 took 20 seconds on a Windows workstation and
+needed 1.43 times the original size at its peak: the main file grew 21% and
+the WAL held another 21%. Keep free space of at least half the database size,
+beyond the backup. Afterwards about a tenth of the file is reusable pages;
+stop Geko and run `geko compact` to reclaim them. See the
+[measurement](benchmarks/2026-11-23-upgrade-schema15-20.json).
+
+All migrations run in one transaction. If the upgrade is interrupted, by
+stopping the process or a full disk, the database stays at its previous
+schema with its data intact: free space and start Geko again. Another process
+reading the database does not block the upgrade, but `geko compact` cannot
+truncate the WAL until that reader closes.

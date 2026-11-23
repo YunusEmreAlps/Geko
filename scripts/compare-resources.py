@@ -11,6 +11,7 @@ import sys
 import tempfile
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -82,7 +83,11 @@ def trace_id(number):
     return f"927c583d264b4cc4{number:016x}"
 
 
-def workload(batches):
+def failing(number, failure_every):
+    return number % failure_every == 0
+
+
+def workload(batches, failure_every=1):
     template = Path(__file__).resolve().parents[1] / "examples/otlp-json/trace.json"
     sample = json.loads(template.read_text(encoding="utf-8"))
     scope = sample["resourceSpans"][0]["scopeSpans"][0]
@@ -94,6 +99,9 @@ def workload(batches):
             number = batch * 64 + offset + 1
             root = dict(span, traceId=trace_id(number), spanId=f"{number:016x}",
                         startTimeUnixNano=str(now - 3_000_000), endTimeUnixNano=str(now))
+            if not failing(number, failure_every):
+                root.update(attributes=[{"key": "http.response.status_code", "value": {"intValue": "200"}}],
+                            status={})
             child = dict(copy.deepcopy(root), parentSpanId=root["spanId"],
                          spanId=f"{number + batches * 64:016x}", name="inventory.lookup",
                          kind=1, startTimeUnixNano=str(now - 2_000_000), endTimeUnixNano=str(now - 1_000_000))
@@ -131,7 +139,58 @@ def query_trace(query_url, trace_path, number, headers, wait=False):
     raise RuntimeError(f"trace {trace} with both expected spans was not queryable")
 
 
-def measure(image, options, query_port, health_path, trace_path, batches, headers, command=()):
+def jaeger_search():
+    now = time.time()
+    window = {"query.start_time_min": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - 3600)),
+              "query.start_time_max": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 60))}
+    return "/api/v3/traces?" + urllib.parse.urlencode({
+        "query.service_name": "benchmark", "query.attributes": '{"error":"true"}',
+        "query.search_depth": 20, **window})
+
+
+def otlp_trace_ids(body):
+    return [span["traceId"] for resource in body.get("result", {}).get("resourceSpans", [])
+            for scope in resource["scopeSpans"] for span in scope["spans"]]
+
+
+# Each backend's own query for 20 recent failing traces, and how to read the
+# trace IDs it returned. Geko lists failures; Jaeger and Tempo search spans
+# whose status is error, which the workload sets only on failing traces.
+# Jaeger's v3 API answers 404 when nothing matches.
+SEARCHES = {
+    "geko": (lambda: "/api/v1/failures?service=benchmark&limit=20",
+             lambda body: [item["trace_id"] for item in body["items"]]),
+    "jaeger": (jaeger_search, otlp_trace_ids),
+    "tempo": (lambda: "/api/search?" + urllib.parse.urlencode({"q": "{status=error}", "limit": 20}),
+              lambda body: [trace["traceID"] for trace in body.get("traces", [])]),
+}
+
+
+def search_failures(query_url, search, headers, expected, wait=False):
+    path, read = SEARCHES[search]
+    for _ in range(80 if wait else 1):
+        request = urllib.request.Request(query_url + path(), headers={**headers, "Accept": "application/json"})
+        start = time.perf_counter()
+        try:
+            with urllib.request.urlopen(request, timeout=5) as response:
+                body = json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            if error.code != 404:
+                raise
+            body = {}
+        elapsed = time.perf_counter() - start
+        found = {value.rjust(32, "0") for value in read(body)}
+        if found - expected:
+            raise RuntimeError(f"{search} search returned traces that did not fail: {sorted(found - expected)[:3]}")
+        if len(found) == min(20, len(expected)):
+            return elapsed
+        if wait:
+            time.sleep(0.25)
+    raise RuntimeError(f"{search} search returned {len(found)} failing traces, expected {min(20, len(expected))}")
+
+
+def measure(image, options, query_port, health_path, trace_path, batches, headers, command=(),
+            search="", failure_every=1):
     container = docker("run", "-d", "--rm", "-p", "127.0.0.1::4318",
                        *([] if query_port == 4318 else ["-p", f"127.0.0.1::{query_port}"]),
                        *options, image, *command)
@@ -160,6 +219,9 @@ def measure(image, options, query_port, health_path, trace_path, batches, header
         query_trace(query_url, trace_path, trace_count, headers, wait=True)
         queries = [query_trace(query_url, trace_path, (index * trace_count // 16) + 1, headers)
                    for index in range(16)]
+        expected = {trace_id(number) for number in range(1, trace_count + 1) if failing(number, failure_every)}
+        search_failures(query_url, search, headers, expected, wait=True)
+        searches = [search_failures(query_url, search, headers, expected) for _ in range(16)]
         return {
             "image_id": docker("image", "inspect", "--format", "{{.Id}}", image),
             "idle_memory": before["MemUsage"].split(" / ")[0],
@@ -171,6 +233,8 @@ def measure(image, options, query_port, health_path, trace_path, batches, header
             "p95_export_ms": round(percentile(durations, .95) * 1000, 2),
             "median_trace_lookup_ms": round(statistics.median(queries) * 1000, 2),
             "p95_trace_lookup_ms": round(percentile(queries, .95) * 1000, 2),
+            "median_failure_search_ms": round(statistics.median(searches) * 1000, 2),
+            "p95_failure_search_ms": round(percentile(searches, .95) * 1000, 2),
         }
     except (OSError, RuntimeError):
         print(docker("logs", container), file=sys.stderr)
@@ -188,11 +252,15 @@ def main():
     parser.add_argument("--rounds", type=int, default=1, help="fresh-container repetitions with rotated backend order")
     parser.add_argument("--batches", type=int, default=32)
     parser.add_argument("--geko-only", action="store_true", help="smoke-test Geko without running Jaeger")
+    parser.add_argument("--failure-every", type=int, default=1, metavar="N",
+                        help="make every Nth trace fail; the rest succeed with HTTP 200 (default: all fail)")
     args = parser.parse_args()
     if not 1 <= args.batches <= 1000:
         parser.error("--batches must be between 1 and 1000")
     if not 1 <= args.rounds <= 10 or args.geko_only and (args.tempo or args.jaeger_badger):
         parser.error("choose 1–10 rounds and use --geko-only without competitor options")
+    if not 1 <= args.failure_every <= 64 * args.batches:
+        parser.error("--failure-every must be between 1 and the number of traces")
     token = "local-benchmark-token-only-do-not-reuse"
     geko_options = [
         "-e", "GEKO_LISTEN_ADDR=0.0.0.0:4318", "-e", "GEKO_ALLOW_PLAINTEXT=true",
@@ -200,7 +268,7 @@ def main():
     ]
     result = {
         "traces": 64 * args.batches, "spans": 128 * args.batches,
-        "batches": args.batches,
+        "batches": args.batches, "failure_every": args.failure_every,
     }
     with tempfile.TemporaryDirectory(prefix="geko-benchmark-") as directory:
         def config_mount(name):
@@ -209,25 +277,26 @@ def main():
             return ["--mount", f"type=bind,source={path},target=/benchmark.yaml,readonly"]
 
         backends = {"geko_sqlite": (args.geko, geko_options, 4318, "/healthz", "/api/v1/traces/",
-                                     {"Authorization": f"Bearer {token}"}, ())}
+                                     {"Authorization": f"Bearer {token}"}, (), "geko")}
         if not args.geko_only:
-            backends["jaeger_in_memory"] = (args.jaeger, [], 16686, "/", "/api/traces/", {}, ())
+            backends["jaeger_in_memory"] = (args.jaeger, [], 16686, "/", "/api/traces/", {}, (), "jaeger")
         if args.jaeger_badger:
             backends["jaeger_badger"] = (args.jaeger, config_mount("jaeger_badger"), 16686, "/", "/api/traces/", {},
-                                          ("--config", "/benchmark.yaml"))
+                                          ("--config", "/benchmark.yaml"), "jaeger")
         if args.tempo:
             backends["tempo_local"] = (args.tempo, config_mount("tempo_local"), 3200, "/ready", "/api/traces/", {},
-                                        ("-config.file=/benchmark.yaml", "-target=all"))
+                                        ("-config.file=/benchmark.yaml", "-target=all"), "tempo")
         rounds = []
         names = list(backends)
         for index in range(args.rounds):
-            batches = list(workload(args.batches))
+            batches = list(workload(args.batches, args.failure_every))
             offset = index % len(names)
             values = {}
             for name in names[offset:] + names[:offset]:
                 print(f"Round {index + 1}/{args.rounds}: {name}", file=sys.stderr, flush=True)
-                image, options, port, health, trace, headers, command = backends[name]
-                values[name] = measure(image, options, port, health, trace, batches, headers, command)
+                image, options, port, health, trace, headers, command, search = backends[name]
+                values[name] = measure(image, options, port, health, trace, batches, headers, command,
+                                       search, args.failure_every)
             rounds.append(values)
         if args.rounds == 1:
             result.update(rounds[0])

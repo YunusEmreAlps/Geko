@@ -225,3 +225,51 @@ func TestFailureGroupsLateEvidenceAndAssignment(t *testing.T) {
 		t.Fatalf("late primary evidence=%+v, %v", group, err)
 	}
 }
+
+func TestGroupVersionsKeepTheNewestWhenTruncated(t *testing.T) {
+	ctx := t.Context()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "versions.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	received := time.Unix(1_700_000_000, 0)
+	const releases = 25
+	for i := range releases {
+		span := testSpan(byte(i+1), 1, "api", 500)
+		span.ResourceAttributes = telemetry.Attributes{"service.version": fmt.Sprintf("1.0.%02d", i)}
+		if err := store.WriteSpans(ctx, received.Add(time.Duration(i)*time.Minute), []telemetry.Span{span}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	groups, err := store.FailureGroups(ctx, investigation.FailureFilter{Limit: 10, GroupState: investigation.GroupAll}, nil)
+	if err != nil || len(groups.Items) != 1 {
+		t.Fatalf("groups = %+v, %v", groups, err)
+	}
+	versions, total, err := store.GroupVersions(ctx, groups.Items[0].Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != releases || len(versions) != 2*groupVersionEdge {
+		t.Fatalf("total %d, returned %d", total, len(versions))
+	}
+	if versions[0].EntryVersion != "1.0.00" || versions[groupVersionEdge-1].EntryVersion != "1.0.09" ||
+		versions[groupVersionEdge].EntryVersion != "1.0.15" || versions[len(versions)-1].EntryVersion != "1.0.24" {
+		t.Fatalf("versions are not the oldest and newest: %+v", versions)
+	}
+
+	few := testSpan(byte(releases+1), 1, "other", 500)
+	if err := store.WriteSpans(ctx, received, []telemetry.Span{few}); err != nil {
+		t.Fatal(err)
+	}
+	other, err := store.FailureGroups(ctx, investigation.FailureFilter{Limit: 10, GroupState: investigation.GroupAll, Service: "other"}, nil)
+	if err != nil || len(other.Items) != 1 {
+		t.Fatalf("groups = %+v, %v", other, err)
+	}
+	if versions, total, err := store.GroupVersions(ctx, other.Items[0].Key); err != nil || total != 1 || len(versions) != 1 {
+		t.Fatalf("untruncated versions = %+v, %d, %v", versions, total, err)
+	}
+	if versions, total, err := store.GroupVersions(ctx, `["a","b","c","d","e","f","g","h"]`); err != nil || total != 0 || len(versions) != 0 {
+		t.Fatalf("unknown group versions = %+v, %d, %v", versions, total, err)
+	}
+}

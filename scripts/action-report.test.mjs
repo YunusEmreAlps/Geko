@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { readActionReport } from './action-report.mjs';
 
-const available = { run_id: 'a'.repeat(32), telemetry_status: 'available', failures: 0, truncated: false };
+const available = { run_id: 'a'.repeat(32), telemetry_status: 'available', failures: 0, truncated: false, limit: 25 };
 test('only a complete, valid manifest can report a known count', async t => {
   for (const [name, manifest, summary, expected] of [
     ['missing manifest with stale success', undefined, 'No failures', 'unknown'],
@@ -17,6 +17,9 @@ test('only a complete, valid manifest can report a known count', async t => {
     ['inconsistent truncation', { ...available, truncated: true }, 'No failures', 'unknown'],
     ['zero', available, 'No failures', '0'],
     ['bounded', { ...available, failures: 25, truncated: true }, 'More failures', '25+'],
+    ['missing limit', { ...available, limit: undefined }, 'No failures', 'unknown'],
+    ['count above limit', { ...available, failures: 26 }, 'Failures', 'unknown'],
+    ['another limit', { ...available, failures: 50, truncated: true, limit: 50 }, 'More failures', '50+'],
   ]) await t.test(name, () => {
     const dir = mkdtempSync(join(tmpdir(), 'geko-action-'));
     try {

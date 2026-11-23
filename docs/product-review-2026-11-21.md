@@ -94,6 +94,43 @@ The first two P1 code findings above are resolved in the working tree:
 Release/install verification and the P2 items remain open. Local regression
 tests do not substitute for a hosted GitHub Actions run.
 
+## Follow-up implemented on 2026-11-23
+
+The P2 code findings are resolved in the working tree:
+
+- **MCP setup paths.** Local setup loads the effective configuration as
+  `geko serve` would and pins absolute `GEKO_DB_PATH` and, when a file was
+  read, `GEKO_CONFIG`. A test reads the same database from another directory
+  through an implicit `geko.yaml` with a relative `db_path` and checks that no
+  token value is written.
+- **Version history.** `GroupVersions` returns the 10 oldest and 10 newest
+  pairs with the total; `investigate_group` adds `version_count` and
+  `versions_truncated`, and its suggestions say when rows are omitted. Tested
+  with 25 versions.
+- **Triage metadata capacity.** Reproduced: before the first export, 4,000 note
+  and state writes grew a `reject` database past its limit with no error.
+  Notes, states and pins now pass the export capacity check in their
+  transaction, including after reopening; removals stay unconditional. The
+  dashboard answers HTTP 503 with a capacity explanation. **Policy decision:**
+  groups without stored traces keep their metadata, because a resolved or muted
+  state must survive until the group recurs; retention already expires it.
+- **Upgrade operations.** `TestUpgradeMeasurement` copies an older database
+  and records peak sizes, an interrupted upgrade and a concurrent reader. The
+  400,000-trace schema 15→20 run peaked at 1.43× the file, rolled back
+  completely when cancelled at 10 s, and compacted only after the reader closed
+  its transaction. Headroom and recovery steps are in
+  [configuration](configuration.md#upgrade-an-existing-installation). A low
+  free-disk run was not performed; the single migration transaction is what
+  makes that case roll back.
+
+Also fixed: `geko run --report` removes an earlier run's traces from a reused
+directory, and the Action validates against the `limit` recorded in
+`report.json` rather than a copied constant.
+
+Still open: tagging v0.2.0 and verifying install, `demo`, MCP setup and the
+Action from the release; a hosted CI run; the Linux nightly baseline; a public
+demo; a recorded agent session; and the five-developer study.
+
 ## Performance interpretation
 
 The dense fixture is deliberately favorable to hourly totals: repeated group

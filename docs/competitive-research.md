@@ -112,6 +112,15 @@ trace and of 16 evenly spaced trace IDs. It records export and trace
 lookup latency, Docker's idle and post-ingest memory readings, and the
 change in the writable layer between those snapshots.
 
+It also times 16 searches for 20 failing traces with each backend's own
+query: Geko's `/api/v1/failures`, Jaeger's `/api/v3/traces` with
+`error=true`, and Tempo's TraceQL `{status=error}`. Every returned trace
+must be one the workload made fail, and the search must return 20 of them,
+or the run stops. The responses differ: Geko returns trace summaries,
+Jaeger full traces and Tempo search metadata. By default every trace fails;
+`--failure-every N` makes only every Nth trace fail with HTTP 503 and the
+rest succeed with HTTP 200, so the search has to select.
+
 The profiles use SQLite, Jaeger in-memory storage, [Jaeger Badger
 storage](https://www.jaegertracing.io/docs/2.23/storage/badger/), and
 [Tempo monolithic local storage](https://grafana.com/docs/tempo/latest/set-up-for-tracing/setup-tempo/deploy/locally/linux/).

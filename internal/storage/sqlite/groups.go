@@ -151,10 +151,12 @@ func (s *Store) SetGroupState(ctx context.Context, key string, state investigati
 		_, err := s.db.ExecContext(ctx, "DELETE FROM group_states WHERE group_key = ?", key)
 		return s.changed(writeError(err))
 	case investigation.GroupResolved, investigation.GroupMuted:
-		_, err := s.db.ExecContext(ctx, `INSERT INTO group_states (group_key, state, changed_ns, version, changed_by) VALUES (?, ?, ?, ?, ?)
+		return s.changed(s.withinCapacity(ctx, func(tx *sql.Tx) error {
+			_, err := tx.ExecContext(ctx, `INSERT INTO group_states (group_key, state, changed_ns, version, changed_by) VALUES (?, ?, ?, ?, ?)
  ON CONFLICT (group_key) DO UPDATE SET state = excluded.state, changed_ns = excluded.changed_ns, version = excluded.version,
  changed_by = excluded.changed_by`, key, string(state), now.UnixNano(), version, by)
-		return s.changed(writeError(err))
+			return err
+		}))
 	default:
 		return errors.New("state must be open, resolved or muted")
 	}
@@ -176,10 +178,12 @@ func (s *Store) SetGroupNote(ctx context.Context, key, note, issueURL, by string
 		_, err := s.db.ExecContext(ctx, "DELETE FROM group_notes WHERE group_key = ?", key)
 		return s.changed(writeError(err))
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO group_notes (group_key, note, issue_url, changed_ns, changed_by) VALUES (?, ?, ?, ?, ?)
+	return s.changed(s.withinCapacity(ctx, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `INSERT INTO group_notes (group_key, note, issue_url, changed_ns, changed_by) VALUES (?, ?, ?, ?, ?)
  ON CONFLICT (group_key) DO UPDATE SET note = excluded.note, issue_url = excluded.issue_url, changed_ns = excluded.changed_ns,
  changed_by = excluded.changed_by`, key, note, issueURL, now.UnixNano(), by)
-	return s.changed(writeError(err))
+		return err
+	}))
 }
 
 // MarkGroupNotified records that a reopened group's notification was sent.
@@ -198,28 +202,37 @@ func (s *Store) GroupNotified(ctx context.Context, key string) (time.Time, error
 	return time.Unix(0, notified).UTC(), err
 }
 
+// groupVersionEdge is how many of the oldest and of the newest version pairs
+// GroupVersions returns; the ones between them are counted but omitted.
+const groupVersionEdge = 10
+
 // GroupVersions reports the versions a group's traces came from, oldest first,
-// so a reader can see which release it started in. It examines every failing
-// trace, like a group view without a time range.
-func (s *Store) GroupVersions(ctx context.Context, key string) ([]investigation.GroupVersion, error) {
+// so a reader can see which release it started in and which is the latest.
+// With more than twice groupVersionEdge pairs, it returns the oldest and the
+// newest ones and total counts them all. It examines every failing trace,
+// like a group view without a time range.
+func (s *Store) GroupVersions(ctx context.Context, key string) (versions []investigation.GroupVersion, total int, err error) {
 	base, args := traceListQuery(investigation.FailureFilter{GroupKey: key}, true, true)
-	rows, err := s.read.QueryContext(ctx, `SELECT coalesce(t.entry_version, ''),
- coalesce(json_extract(s.resource_attributes, '$."service.version"'), ''),
- count(*), min(t.first_observed_ns), max(t.last_observed_ns) `+base+`
- GROUP BY 1, 2 ORDER BY 4, 1, 2 LIMIT 20`, args...)
+	rows, err := s.read.QueryContext(ctx, `WITH pairs AS (SELECT coalesce(t.entry_version, '') AS entry,
+ coalesce(json_extract(s.resource_attributes, '$."service.version"'), '') AS evidence,
+ count(*) AS traces, min(t.first_observed_ns) AS first, max(t.last_observed_ns) AS last `+base+`
+ GROUP BY 1, 2),
+ranked AS (SELECT *, row_number() OVER (ORDER BY first, entry, evidence) AS position, count(*) OVER () AS total FROM pairs)
+SELECT entry, evidence, traces, first, last, total FROM ranked
+ WHERE position <= ? OR position > total - ? ORDER BY position`, append(args, groupVersionEdge, groupVersionEdge)...)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
-	versions := []investigation.GroupVersion{}
+	versions = []investigation.GroupVersion{}
 	for rows.Next() {
 		var version investigation.GroupVersion
 		var first, last int64
-		if err := rows.Scan(&version.EntryVersion, &version.EvidenceVersion, &version.Count, &first, &last); err != nil {
-			return nil, err
+		if err := rows.Scan(&version.EntryVersion, &version.EvidenceVersion, &version.Count, &first, &last, &total); err != nil {
+			return nil, 0, err
 		}
 		version.FirstObserved, version.LastObserved = time.Unix(0, first).UTC(), time.Unix(0, last).UTC()
 		versions = append(versions, version)
 	}
-	return versions, rows.Err()
+	return versions, total, rows.Err()
 }

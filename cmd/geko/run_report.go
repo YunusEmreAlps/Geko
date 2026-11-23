@@ -24,6 +24,8 @@ type runReportStatus struct {
 	TelemetryStatus string `json:"telemetry_status"`
 	Failures        *int   `json:"failures"`
 	Truncated       bool   `json:"truncated"`
+	// Limit is the most traces a report lists; a truncated one lists exactly this many.
+	Limit int `json:"limit"`
 }
 
 func saveRunReportStatus(dir string, status runReportStatus) error {
@@ -40,11 +42,15 @@ func writeRunReport(ctx context.Context, base, token, runID, dir string) (report
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	// Invalidate earlier successful counts before any fallible network work.
+	// Invalidate earlier successful counts and traces before any fallible
+	// network work, so a reused directory holds only this run's evidence.
 	if err := os.Remove(filepath.Join(dir, "failures")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	unavailable := runReportStatus{RunID: runID, TelemetryStatus: "unavailable"}
+	if err := os.RemoveAll(filepath.Join(dir, "traces")); err != nil {
+		return err
+	}
+	unavailable := runReportStatus{RunID: runID, TelemetryStatus: "unavailable", Limit: reportLimit}
 	defer func() {
 		if reportErr != nil {
 			reportErr = errors.Join(reportErr, saveRunReportStatus(dir, unavailable))
@@ -100,7 +106,7 @@ func writeRunReport(ctx context.Context, base, token, runID, dir string) (report
 		return err
 	}
 	known := len(page.Items)
-	return saveRunReportStatus(dir, runReportStatus{RunID: runID, TelemetryStatus: "available", Failures: &known, Truncated: page.NextCursor != ""})
+	return saveRunReportStatus(dir, runReportStatus{RunID: runID, TelemetryStatus: "available", Failures: &known, Truncated: page.NextCursor != "", Limit: reportLimit})
 }
 
 // runReport describes the failures as Markdown for a pull request or a job

@@ -371,7 +371,7 @@ func (d *dashboard) changeTracePin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		d.unavailable(w, r, ctx)
+		d.writeFailed(w, r, ctx, err)
 		return
 	}
 	action := "trace.unpin"

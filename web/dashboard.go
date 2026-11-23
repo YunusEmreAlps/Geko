@@ -275,6 +275,16 @@ func (d *dashboard) unavailable(w http.ResponseWriter, r *http.Request, ctx cont
 	d.problem(w, r, http.StatusInternalServerError, "Could not load telemetry", "Check the local database with geko doctor and try again.")
 }
 
+// writeFailed explains a failed triage change, which the size limit can refuse
+// like an export.
+func (d *dashboard) writeFailed(w http.ResponseWriter, r *http.Request, ctx context.Context, err error) {
+	if errors.Is(err, storage.ErrCapacity) {
+		d.problem(w, r, http.StatusServiceUnavailable, "Trace storage capacity reached", "Check storage usage in Settings, free space or raise the limit, and try again.")
+		return
+	}
+	d.unavailable(w, r, ctx)
+}
+
 // caller is who made the request: a token, session or proxy user, or Local
 // without a token.
 func (d *dashboard) caller(r *http.Request) access.Principal {

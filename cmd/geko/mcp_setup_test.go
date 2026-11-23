@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/YunusEmreAlps/geko/internal/config"
 )
 
 func readJSON(t *testing.T, path string) map[string]any {
@@ -85,5 +87,48 @@ func TestMCPSetupMergesIntoEachClient(t *testing.T) {
 		if err := run(t.Context(), args, &out); err == nil {
 			t.Fatalf("%v was accepted", args)
 		}
+	}
+}
+
+// A client that starts geko mcp in another directory reads the same database
+// as setup resolved, from an implicit geko.yaml with a relative db_path.
+func TestMCPSetupPinsTheEffectiveConfiguration(t *testing.T) {
+	project := t.TempDir()
+	t.Chdir(project)
+	t.Setenv("GEKO_DB_PATH", "")
+	t.Setenv("GEKO_CONFIG", "")
+	t.Setenv("GEKO_TOKENS_FILE", "")
+	t.Setenv("GEKO_ACCESS_TOKEN", "secret-token-value-0123456789abcdefghij")
+	if err := os.WriteFile("geko.yaml", []byte("db_path: data/geko.db\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run(t.Context(), []string{"mcp", "setup", "claude-code"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(".mcp.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data)+out.String(), "secret-token-value-0123456789abcdefghij") {
+		t.Fatalf("setup wrote a token value: %s", data)
+	}
+	environment := readJSON(t, ".mcp.json")["mcpServers"].(map[string]any)["geko"].(map[string]any)["env"].(map[string]any)
+	want, err := filepath.Abs(filepath.Join(project, "data", "geko.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	configPath, _ := filepath.Abs(filepath.Join(project, "geko.yaml"))
+	if environment["GEKO_DB_PATH"] != want || environment["GEKO_CONFIG"] != configPath {
+		t.Fatalf("env = %v, want database %s and config %s", environment, want, configPath)
+	}
+
+	t.Chdir(t.TempDir())
+	for name, value := range environment {
+		t.Setenv(name, value.(string))
+	}
+	cfg, err := config.Load()
+	if err != nil || cfg.DBPath != want {
+		t.Fatalf("client in another directory reads %q, want %q (%v)", cfg.DBPath, want, err)
 	}
 }

@@ -21,9 +21,12 @@ geko mcp setup vscode        # writes .vscode/mcp.json
 ```
 
 Each adds a `geko` server to the file and keeps every other server listed
-there. Locally the client starts `geko mcp` by its absolute path, with
-`GEKO_DB_PATH` and `GEKO_CONFIG` copied from your environment when they are
-set. With `--server https://geko.example.com` it connects to that server's
+there. Locally the client starts `geko mcp` by its absolute path. Setup
+resolves the configuration the way `geko serve` would in the current directory,
+including an implicit `geko.yaml` and a relative `db_path`, and writes the
+absolute `GEKO_DB_PATH` and, when a file was read, `GEKO_CONFIG`, so a client
+started in another directory reads the same database. Only paths are written,
+never token values. With `--server https://geko.example.com` it connects to that server's
 `/mcp` instead: Claude Code and Cursor send `GEKO_TOKEN` from the environment
 that starts them, and VS Code asks for the token once. `--print` prints the
 entry without writing anything, for a file with comments that setup refuses to
@@ -47,7 +50,10 @@ timings, up to ten evidence spans with their status
 description, exception events including any stack trace, and `code.*`
 location, the latest successful request to the same operation with the
 duration difference, and the group's traces by entry and evidence
-`service.version`, oldest first, so the release it started in is the first row.
+`service.version`, ordered by first receipt, so the release it started in is
+the first row and the newest the last. With more than 20 version pairs it lists
+the 10 oldest and the 10 newest, sets `versions_truncated` and counts all of
+them in `version_count`.
 It returns no other span attributes, like `get_trace`. Ask for example
 *"Investigate the open error groups in Geko and propose a fix for the largest
 one"*; on the [demo dataset](../README.md#quick-start) the payment timeout group
@@ -142,8 +148,10 @@ export `geko.run.id` from `OTEL_RESOURCE_ATTRIBUTES`. The job keeps the
 command's exit status. Later runs on the same pull request update the comment
 instead of adding one, and pull requests from forks, whose token cannot
 comment, still get the job summary. Outside the action, `geko run --report DIR`
-writes the same `report.md`, a `report.json` status manifest, the failure count
-in `failures`, and the traces under `traces/`. The manifest is published as
+writes the same `report.md`, a `report.json` status manifest with the report's
+`limit` of listed traces, the failure count in `failures`, and the traces under
+`traces/`. Each run first removes the count and the traces of an earlier run in
+the same directory. The manifest is published as
 `telemetry_status: available` only after the run-filtered query and all requested
 trace artifacts have been collected. This confirms report collection, not SDK
 export coverage. A successful query with no recorded failure evidence has
