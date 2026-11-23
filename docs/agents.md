@@ -163,3 +163,90 @@ invalid manifest produces `failures: unknown`, a job-summary warning and no
 failure-count PR comment. It preserves the child command's exit code. The report
 quotes every telemetry value as code, so a planted
 mention, link or image in an exception message stays plain text.
+
+## Compare two runs
+
+**Unreleased source feature:** the commands and `baseline` Action input below
+require a build from this checkout; they are not in v0.2.0. Keep using the
+released Action without `baseline`, or supply a newly built `geko-binary`.
+
+```sh
+geko run --report before -- <your test command>
+# Change the application code, then run the same workload.
+geko run --baseline before/run.json --report after -- <your test command>
+geko compare-runs --baseline before/run.json --candidate after/run.json --json
+```
+
+`run.json` is a bounded comparison snapshot, separate from the failure-count
+manifest `report.json`. It carries trace/span counts, entry service/environment/
+version contexts, and up to 100 error groups and 100 contexts. It includes no
+exception messages, stacks or group notes. Run IDs must be nonzero, lowercase
+32-character hexadecimal values. Snapshot files are limited to 2 MiB and their
+identity/count/schema consistency is validated; this does not authenticate
+the file's author. Treat imported reports as untrusted telemetry.
+
+The baseline is captured **before** the candidate command starts, including
+when reusing the same output directory. Save it in a different directory if
+you want to retain the standalone baseline artifact as well. Query/artifact
+errors never change the child command's exit code. The comparison is printed
+to stderr, saved as `comparison.json` and appended to `report.md` when requested.
+An unavailable snapshot never silently becomes a zero-failure baseline.
+
+For retained runs in a local database or a shared Geko, use explicit run IDs:
+
+```sh
+geko compare-runs --baseline <baseline-id> --candidate <candidate-id> --json
+geko compare-runs --baseline <baseline-id> --candidate <candidate-id> --server https://geko.example.com --json
+```
+
+The dashboard's **Compare runs** page takes the same IDs. The API exposes
+`GET /api/v1/runs/{runID}` and
+`GET /api/v1/runs/compare?baseline=<id>&candidate=<id>`; read tokens suffice.
+MCP offers `compare_runs` with `baseline_run_id` and `candidate_run_id`.
+ID-to-ID comparisons share one read-only SQLite snapshot. Membership follows
+the existing run filter: a trace belongs to a run when any of its spans carries
+that run ID, so cross-service traces remain intact.
+
+Results classify groups as:
+
+- `newly_observed`: present only in the candidate's captured evidence.
+- `recurring`: present in both, with both trace counts.
+- `not_observed`: present in the baseline, absent from the captured candidate.
+
+**The comparison status is deliberately `partial`, even for complete queries.**
+Geko can compare stored observations but cannot prove exporter coverage, that
+the same requests were executed, or that no data was sampled, delayed or
+deleted. Counts describe retained traces at capture, not total requests sent.
+No group is automatically resolved and absence is never labelled a verified
+fix. Entirely missing/removed runs, unavailable artifacts, truncated group/
+context lists and different or unknown entry application/service/environment
+scope yield `unavailable` with no absence classifications. Versions may differ.
+Downstream evidence identities retain their own namespace and environment.
+
+A saved snapshot remains a record of its capture after the original traces
+are deleted; its trace citations may no longer open. An ID queried later reads
+only what remains. Partial deletion cannot be reconstructed from the current
+database and is covered by the retained-only warning, not invented loss counts.
+
+### Explicit CI baseline
+
+Build Geko from the checkout and provide a baseline `run.json` downloaded by
+your workflow, or copied from an earlier step. Geko does not select or download
+another PR's artifacts automatically:
+
+```yaml
+- uses: ./
+  id: evidence
+  with:
+    geko-binary: ./bin/geko
+    run: npm test
+    baseline: ./baseline/run.json
+    comment: "false"
+```
+
+The Action attaches `run.json`, report files and any failing trace exports,
+with an artifact name containing the run ID so multiple calls in one job do
+not collide. Outputs include `run-id` and `comparison-status` (`partial`,
+`unavailable`, or `not_requested`). An unavailable comparison adds a warning;
+it never reports a fix or changes the command's exit status. The job summary
+includes the comparison even when no failures were observed in the candidate.

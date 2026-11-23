@@ -26,6 +26,7 @@
       <a href="/overview"{{if eq .Page "overview"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
       <a href="/failures"{{if or (eq .Page "failures") (eq .Page "traces") (eq .Page "trace") (eq .Page "compare")}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Traces</a>
       <a href="/regressions"{{if eq .Page "regressions"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/></svg>Regressions</a>
+      <a href="/runs/compare"{{if eq .Page "runs"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4v16M20 4v16M7 8h10M14 5l3 3-3 3M17 16H7M10 13l-3 3 3 3"/></svg>Compare runs</a>
     </nav>
     <nav class="nav-secondary" aria-label="Instance">
       <a href="/connect"{{if eq .Page "connect"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7V3M15 7V3"/><path d="M6 7h12v4a6 6 0 0 1-12 0z"/><path d="M12 17v4"/></svg>Connect</a>
@@ -41,6 +42,7 @@
     {{if or (eq .Page "failures") (eq .Page "traces")}}{{template "failures" .Data}}
     {{else if eq .Page "overview"}}{{template "overview" .Data}}
     {{else if eq .Page "regressions"}}{{template "regressions" .Data}}
+    {{else if eq .Page "runs"}}{{template "runs" .Data}}
     {{else if eq .Page "trace"}}{{template "trace" .Data}}
     {{else if eq .Page "compare"}}{{template "compare" .Data}}
     {{else if eq .Page "settings"}}{{template "settings" .Data}}

@@ -47,12 +47,16 @@ func writeRunReport(ctx context.Context, base, token, runID, dir string) (report
 	if err := os.Remove(filepath.Join(dir, "failures")); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
+	if err := os.Remove(filepath.Join(dir, "comparison.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	if err := os.RemoveAll(filepath.Join(dir, "traces")); err != nil {
 		return err
 	}
 	unavailable := runReportStatus{RunID: runID, TelemetryStatus: "unavailable", Limit: reportLimit}
 	defer func() {
 		if reportErr != nil {
+			_ = saveRunSnapshotFile(dir, investigation.UnavailableRun(runID))
 			reportErr = errors.Join(reportErr, saveRunReportStatus(dir, unavailable))
 			if err := os.Remove(filepath.Join(dir, "failures")); err != nil && !errors.Is(err, os.ErrNotExist) {
 				reportErr = errors.Join(reportErr, err)
@@ -60,6 +64,9 @@ func writeRunReport(ctx context.Context, base, token, runID, dir string) (report
 			reportErr = errors.Join(reportErr, os.WriteFile(filepath.Join(dir, "report.md"), []byte("### Geko: telemetry report unavailable\n\nThe run's failure evidence could not be collected completely. The failure count is unknown; this is not a zero-failure result. Check the Geko command's diagnostic output.\n"), 0o644))
 		}
 	}()
+	if err := saveRunSnapshotFile(dir, investigation.UnavailableRun(runID)); err != nil {
+		return err
+	}
 	if err := saveRunReportStatus(dir, unavailable); err != nil {
 		return err
 	}
@@ -106,7 +113,22 @@ func writeRunReport(ctx context.Context, base, token, runID, dir string) (report
 		return err
 	}
 	known := len(page.Items)
+	snapshot, err := loadRunSnapshot(ctx, runID, base, token)
+	if err != nil {
+		snapshot = investigation.UnavailableRun(runID)
+	}
+	if err := saveRunSnapshotFile(dir, snapshot); err != nil {
+		return err
+	}
 	return saveRunReportStatus(dir, runReportStatus{RunID: runID, TelemetryStatus: "available", Failures: &known, Truncated: page.NextCursor != "", Limit: reportLimit})
+}
+
+func saveRunSnapshotFile(dir string, snapshot investigation.RunSnapshot) error {
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dir, "run.json"), append(data, '\n'), 0o644)
 }
 
 // runReport describes the failures as Markdown for a pull request or a job

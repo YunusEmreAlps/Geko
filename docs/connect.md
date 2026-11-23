@@ -5,6 +5,12 @@ Exporter settings, ports and receiver limits. [Back to the README](../README.md)
 Point your OpenTelemetry trace exporter at Geko. Your application keeps its
 own port; Geko listens on 4318.
 
+For runnable applications using official SDKs, see [Go checkout](../examples/go/README.md)
+and [Node.js, Python, Java and .NET examples](../examples/sdk/README.md). They
+record real HTTP requests and flush exports before exit. On **Connect**, start
+a 60-second check before running an example, then use **Check again** to see
+newly accepted telemetry. A printed trace ID alone does not prove delivery.
+
 OTLP/gRPC and a separate dashboard port are optional. For example, add these
 settings to `geko.yaml` and restart Geko:
 

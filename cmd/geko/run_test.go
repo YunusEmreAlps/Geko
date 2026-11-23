@@ -58,7 +58,7 @@ func TestRunKeepsChildStatusWhenReportUnavailable(t *testing.T) {
 			t.Setenv("GEKO_RUN_HELPER", helper)
 			dir := t.TempDir()
 			var stderr bytes.Buffer
-			err := runCommand(t.Context(), []string{"--server", server.URL, "--report", dir, "--", os.Args[0], "-test.run=^TestRunHelperProcess$"}, io.Discard, &stderr)
+			err := runCommand(t.Context(), []string{"--server", server.URL, "--baseline", filepath.Join(dir, "missing-baseline.json"), "--report", dir, "--", os.Args[0], "-test.run=^TestRunHelperProcess$"}, io.Discard, &stderr)
 			var code exitError
 			if helper == "quiet" && err != nil || helper == "exit7" && (!errors.As(err, &code) || code != 7) {
 				t.Fatalf("child status = %v, stderr %s", err, &stderr)

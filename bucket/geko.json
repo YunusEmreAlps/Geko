@@ -1,16 +1,16 @@
 {
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Local-first OpenTelemetry trace debugger: find the failure, follow the trace",
     "homepage": "https://github.com/YunusEmreAlps/geko",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/YunusEmreAlps/geko/releases/download/v0.1.0/geko_0.1.0_windows_amd64.zip",
-            "hash": "cf0119b82128405a143e13bf35eb61f9812bf4f6ca25b6f4ed3203d9af3cd04b"
+            "url": "https://github.com/YunusEmreAlps/geko/releases/download/v0.2.0/geko_0.2.0_windows_amd64.zip",
+            "hash": "46356889cd9b9d39f3e246083fe7d7a8ea21f7d1934952964807964fbbd0e119"
         },
         "arm64": {
-            "url": "https://github.com/YunusEmreAlps/geko/releases/download/v0.1.0/geko_0.1.0_windows_arm64.zip",
-            "hash": "360aa11b1612d50dab437dd0a918bc64718f66cbad115cc1feb7af57c4bf81ef"
+            "url": "https://github.com/YunusEmreAlps/geko/releases/download/v0.2.0/geko_0.2.0_windows_arm64.zip",
+            "hash": "a7732b55021113d7289d2c1bddfae947d701ea931e6820e5b064b84837ac0645"
         }
     },
     "bin": "geko.exe",

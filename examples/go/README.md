@@ -23,6 +23,10 @@ OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces go run ./exam
 ```
 
 The exporter uses HTTP protobuf. Change the endpoint when Geko uses another port.
+The SDK reads `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`, including
+`service.namespace`, environment, version and `geko.run.id`. Without a service
+override it uses `geko-go-checkout`. The Connect page and `geko run` settings
+therefore carry through to exported spans.
 The example listens only on `127.0.0.1:8080`; that port must be available.
 
 Open these URLs in your browser, or run the commands in a third terminal:

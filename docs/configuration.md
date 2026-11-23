@@ -7,6 +7,29 @@ directory, or set `GEKO_CONFIG` to a YAML file. Nonempty environment variables
 override YAML. Restart Geko to apply changes. **Settings** shows each value's
 source: default, YAML, or environment.
 
+## Check an application's connection
+
+On **Connect**, choose the service and optional application namespace, then
+select **Start a 60-second check**. Send a request to the application and use
+**Check again** after the SDK's batch delay. Matching accepted OTLP exports
+show a representative namespace, environment, version, run ID and trace link.
+
+Observations are in memory, reset on restart and retain one representative
+sample per namespace/service/environment for up to five minutes, with at most
+128 identities. A newer export can replace a sample from an earlier window;
+replacement is disclosed. This is not a complete arrival log or proof of a
+particular credential's use. Imports and older stored traces do not establish
+a live connection. A trace link can become unavailable after retention or
+eviction. Run IDs and versions shown belong to the representative sample,
+not every span of the service.
+
+Receiver context is global and cumulative since process startup, not scoped to
+the selected service or window. Authentication failures happen before the
+receiver and must be checked in Geko logs. No sample can mean an idle
+application, batching, sampling, a different namespace or a configuration
+problem; Geko does not infer that the SDK is absent. No exporter endpoints
+are probed and no background observation worker is started.
+
 For the optional listeners, an explicitly empty `GEKO_GRPC_ADDR` disables gRPC,
 and an explicitly empty `GEKO_DASHBOARD_ADDR` restores the shared HTTP listener,
 even if YAML configures a separate address.
@@ -158,6 +181,7 @@ accepted span volume and attribute cardinality.
 | `geko backup <file>` | Write a consistent copy of the database to a new file, while the server runs. |
 | `geko run -- <command>` | Run a command with exporters pointing at Geko, then list the failures received meanwhile. See [Check a test run](agents.md#check-a-test-run). |
 | `geko version` | Print build information. |
+| `geko compare-runs --baseline ID_OR_FILE --candidate ID_OR_FILE` | Compare observed run groups, locally or with `--server`; `--json` returns structured results. Unreleased; see [Compare two runs](agents.md#compare-two-runs). |
 
 The dashboard's data is also available as JSON on the dashboard listener, which
 is the shared HTTP listener unless `dashboard_addr` is set:

@@ -18,6 +18,9 @@ inputs:
   comment:
     description: "Comment on the pull request when a run records failures (true or false). Needs the pull-requests: write permission."
     default: "true"
+  baseline:
+    description: Explicit baseline run.json path, or a run ID in this instance. Requires a binary with compare-runs support.
+    default: ""
   github-token:
     description: Token for the pull request comment.
     default: ${{ github.token }}
@@ -32,6 +35,12 @@ outputs:
   exit-code:
     description: Exit status of the command.
     value: ${{ steps.run.outputs.status }}
+  comparison-status:
+    description: partial for observed evidence only, unavailable when comparison cannot be collected, or not_requested.
+    value: ${{ steps.run.outputs.comparison_status }}
+  run-id:
+    description: Candidate run ID when the report is available.
+    value: ${{ steps.run.outputs.run_id }}
 
 runs:
   using: composite
@@ -57,24 +66,38 @@ runs:
       env:
         COMMAND: ${{ inputs.run }}
         REPORT: ${{ runner.temp }}/geko-report
+        BASELINE: ${{ inputs.baseline }}
       run: |
+        if [ -n "$BASELINE" ] && [ -f "$BASELINE" ] && [ "$(wc -c < "$BASELINE")" -le 2097152 ]; then
+          baseline_copy=$(mktemp "$RUNNER_TEMP/geko-baseline.XXXXXX")
+          cp "$BASELINE" "$baseline_copy"
+          BASELINE="$baseline_copy"
+          trap 'rm -f "$baseline_copy"' EXIT
+        fi
         rm -rf "$REPORT"
+        args=(--report "$REPORT")
+        if [ -n "$BASELINE" ]; then args+=(--baseline "$BASELINE"); fi
         set +e
-        GEKO_CONFIG= GEKO_DB_PATH="$RUNNER_TEMP/geko-run.db" "$GEKO" run --report "$REPORT" -- bash -c "$COMMAND"
+        GEKO_CONFIG= GEKO_DB_PATH="$RUNNER_TEMP/geko-run.db" "$GEKO" run "${args[@]}" -- bash -c "$COMMAND"
         status=$?
         set -e
         echo "status=$status" >> "$GITHUB_OUTPUT"
         node "$GITHUB_ACTION_PATH/scripts/action-report.mjs"
         exit 0
-    - name: Attach failing traces
-      if: steps.run.outputs.telemetry_status == 'available' && steps.run.outputs.failures != '0'
+    - name: Attach run evidence
+      if: steps.run.outputs.telemetry_status == 'available'
       uses: actions/upload-artifact@v4
       with:
-        name: geko-traces-${{ github.job }}-${{ github.run_attempt }}
-        path: ${{ runner.temp }}/geko-report/traces
+        name: geko-run-${{ github.job }}-${{ github.run_attempt }}-${{ steps.run.outputs.run_id }}
+        path: |
+          ${{ runner.temp }}/geko-report/traces
+          ${{ runner.temp }}/geko-report/run.json
+          ${{ runner.temp }}/geko-report/comparison.json
+          ${{ runner.temp }}/geko-report/report.json
+          ${{ runner.temp }}/geko-report/report.md
         if-no-files-found: ignore
     - name: Comment on the pull request
-      if: inputs.comment == 'true' && github.event_name == 'pull_request' && steps.run.outputs.telemetry_status == 'available' && steps.run.outputs.failures != '0'
+      if: inputs.comment == 'true' && github.event_name == 'pull_request' && steps.run.outputs.telemetry_status == 'available' && (steps.run.outputs.failures != '0' || steps.run.outputs.comparison_status == 'partial')
       # Pull requests from forks get a read-only token; the summary still has the report.
       continue-on-error: true
       shell: bash

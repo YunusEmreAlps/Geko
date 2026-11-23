@@ -62,7 +62,7 @@ func TestReadOnlyAgentQueries(t *testing.T) {
 	}
 	defer client.Close()
 	tools, err := client.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 6 {
+	if err != nil || len(tools.Tools) != 7 {
 		t.Fatalf("tools = %v, %v", tools, err)
 	}
 	for _, tool := range tools.Tools {

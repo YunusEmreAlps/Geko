@@ -10,9 +10,7 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
@@ -31,7 +29,13 @@ func TestScenariosThroughGeko(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", "geko-go-checkout"))))
+	t.Setenv("OTEL_SERVICE_NAME", "configured-checkout")
+	t.Setenv("OTEL_RESOURCE_ATTRIBUTES", "service.namespace=Storefront,deployment.environment.name=staging,geko.run.id=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	res, err := exampleResource(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exporter), sdktrace.WithResource(res))
 	handler := newHandler(provider.Tracer("github.com/YunusEmreAlps/geko/examples/go"))
 	ids := make(map[string]string)
 	for _, scenario := range []string{"success", "failure", "retry"} {
@@ -53,7 +57,8 @@ func TestScenariosThroughGeko(t *testing.T) {
 	if err := provider.Shutdown(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	page, err := store.Failures(t.Context(), investigation.FailureFilter{Limit: 10})
+	application := "Storefront"
+	page, err := store.Failures(t.Context(), investigation.FailureFilter{Limit: 10, Application: &application, RunID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +66,9 @@ func TestScenariosThroughGeko(t *testing.T) {
 		t.Fatalf("got %d failures, want 2", len(page.Items))
 	}
 	for _, item := range page.Items {
+		if item.EntrySpan == nil || item.EntrySpan.Service != "configured-checkout" {
+			t.Fatalf("environment resource attributes were not exported: %+v", item)
+		}
 		if item.Evidence == nil || item.Evidence.ExceptionMessage != "demo payment gateway unavailable" {
 			t.Fatalf("missing exception evidence: %+v", item)
 		}

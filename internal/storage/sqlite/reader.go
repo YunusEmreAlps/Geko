@@ -11,6 +11,14 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
 )
 
+func (r *Reader) RunSnapshot(ctx context.Context, id string) (investigation.RunSnapshot, error) {
+	return r.store.RunSnapshot(ctx, id)
+}
+
+func (r *Reader) CompareRuns(ctx context.Context, baseline, candidate string) (investigation.RunComparison, error) {
+	return r.store.CompareRuns(ctx, baseline, candidate)
+}
+
 // Reader opens an existing Geko database without running migrations.
 type Reader struct{ store *Store }
 

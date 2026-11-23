@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { readActionReport } from './action-report.mjs';
+import { readActionReport, readActionComparison } from './action-report.mjs';
 
 const available = { run_id: 'a'.repeat(32), telemetry_status: 'available', failures: 0, truncated: false, limit: 25 };
 test('only a complete, valid manifest can report a known count', async t => {
@@ -43,7 +43,24 @@ test('unavailable report emits a warning and unknown outputs without failing the
     });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /::warning::/);
-    assert.equal(readFileSync(output, 'utf8'), 'telemetry_status=unavailable\nfailures=unknown\n');
+    assert.equal(readFileSync(output, 'utf8'), 'telemetry_status=unavailable\nfailures=unknown\ncomparison_status=not_requested\nrun_id=\n');
     assert.match(readFileSync(summary, 'utf8'), /failure count is unknown/);
   } finally { rmSync(dir, { recursive: true }); }
+});
+
+test('comparison is unavailable for missing/stale evidence and never claims a fix', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'geko-comparison-'));
+  try {
+    const run = 'b'.repeat(32);
+    assert.equal(readActionComparison(dir, false, run), 'not_requested');
+    assert.equal(readActionComparison(dir, true, run), 'unavailable');
+    const value = { status: 'partial', baseline: { run_id: 'a'.repeat(32) }, candidate: { run_id: run }, groups: [] };
+    writeFileSync(join(dir,'comparison.json'), JSON.stringify(value));
+    assert.equal(readActionComparison(dir, true, run), 'partial');
+    assert.equal(readActionComparison(dir, true, undefined), 'unavailable');
+    assert.equal(readActionComparison(dir, true, 'c'.repeat(32)), 'unavailable');
+    value.status = 'fixed';
+    writeFileSync(join(dir,'comparison.json'), JSON.stringify(value));
+    assert.equal(readActionComparison(dir, true, run), 'unavailable');
+  } finally { rmSync(dir, { recursive:true }); }
 });

@@ -36,6 +36,7 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	flags.SetOutput(stderr)
 	server := flags.String("server", "", "Geko server URL; set GEKO_TOKEN for read access")
 	report := flags.String("report", "", "write report.md, the failure count and the failing traces as OTLP JSON to this directory")
+	baseline := flags.String("baseline", "", "compare against an explicit run ID or run.json snapshot")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil
@@ -97,6 +98,17 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) er
 	if errors.Is(countErr, errTokenRequired) {
 		fmt.Fprintf(stderr, "geko: %v; the command's exports will be rejected\n", countErr)
 	}
+	// Capture an explicit baseline before the child can evict its history or
+	// reuse the same report directory for the candidate.
+	var baselineSnapshot *investigation.RunSnapshot
+	var baselineErr error
+	if *baseline != "" {
+		var snapshot investigation.RunSnapshot
+		snapshot, baselineErr = loadRunSnapshot(ctx, *baseline, queryBase, token)
+		if baselineErr == nil {
+			baselineSnapshot = &snapshot
+		}
+	}
 
 	child := exec.Command(args[0], args[1:]...)
 	child.Stdin, child.Stdout, child.Stderr = os.Stdin, stdout, stderr
@@ -125,6 +137,9 @@ func runCommand(ctx context.Context, args []string, stdout, stderr io.Writer) er
 		if err := writeRunReport(ctx, queryBase, token, runID, *report); err != nil {
 			fmt.Fprintf(stderr, "geko: could not write the run report: %v\n", err)
 		}
+	}
+	if *baseline != "" {
+		compareAfterRun(ctx, queryBase, token, runID, baselineSnapshot, baselineErr, *report, stderr)
 	}
 	if exitCode != nil {
 		return exitError(exitCode.ExitCode())

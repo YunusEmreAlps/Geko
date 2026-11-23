@@ -1,0 +1,34 @@
+{{define "runs"}}
+<header class="page-head"><div class="title"><h1>Compare runs</h1></div></header>
+<form class="filters" action="/runs/compare" method="get">
+  <label>Baseline run ID <input name="baseline" value="{{.Baseline}}" maxlength="32" required></label>
+  <label>Candidate run ID <input name="candidate" value="{{.Candidate}}" maxlength="32" required></label>
+  <div class="filter-actions"><button class="button" type="submit">Compare</button></div>
+</form>
+<p class="muted">Run IDs come from <code>geko run</code>. Compare the same application, service and environment; versions may differ.</p>
+{{if .Error}}<p class="notice" role="alert">{{.Error}}</p>{{end}}
+{{with .Result}}
+<section class="section first">
+  <h2>{{if eq .Status "unavailable"}}Comparison unavailable{{else}}Observed differences{{end}}</h2>
+  <p role="status">{{.Reason}}</p>
+  <dl class="properties">
+    <div><dt>Baseline</dt><dd>{{.Baseline.Traces}} retained {{if eq .Baseline.Traces 1}}trace{{else}}traces{{end}}, {{.Baseline.FailingTraces}} with failure evidence; captured {{timestamp .Baseline.CapturedAt}}</dd></div>
+    <div><dt>Candidate</dt><dd>{{.Candidate.Traces}} retained {{if eq .Candidate.Traces 1}}trace{{else}}traces{{end}}, {{.Candidate.FailingTraces}} with failure evidence; captured {{timestamp .Candidate.CapturedAt}}</dd></div>
+  </dl>
+  <details><summary>Captured entry contexts</summary>
+    <h3>Baseline</h3>
+    {{range .Baseline.Contexts}}<p>{{.Application}} / {{.Service}} · environment {{if .Environment}}{{.Environment}}{{else}}not set{{end}} · version {{if .Version}}{{.Version}}{{else}}not set{{end}} · {{.Traces}} traces</p>{{end}}
+    <h3>Candidate</h3>
+    {{range .Candidate.Contexts}}<p>{{.Application}} / {{.Service}} · environment {{if .Environment}}{{.Environment}}{{else}}not set{{end}} · version {{if .Version}}{{.Version}}{{else}}not set{{end}} · {{.Traces}} traces</p>{{end}}
+  </details>
+  {{range .Groups}}
+  <dl class="properties">
+    <div><dt>Observation</dt><dd>{{if eq .State "not_observed"}}Not observed in candidate{{else if eq .State "newly_observed"}}Newly observed{{else}}Recurring{{end}}</dd></div>
+    <div><dt>Evidence</dt><dd><strong>{{.Group.Operation}}</strong> in {{.Group.Service}}{{if .Group.ExceptionType}} · {{.Group.ExceptionType}}{{end}}</dd></div>
+    <div><dt>Trace counts</dt><dd>Baseline {{.BaselineCount}} → Candidate {{.CandidateCount}}</dd></div>
+    <div><dt>Inspect</dt><dd><a href="/traces/{{.Group.TraceID}}?span={{.Group.SpanID}}#span-details">Open recorded evidence</a> (may no longer be retained)</dd></div>
+  </dl>
+  {{end}}
+</section>
+{{end}}
+{{end}}

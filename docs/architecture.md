@@ -255,6 +255,26 @@ deadlines. The feed contains no telemetry. Commits through this Store instance
 external database writers are not monitored. The revision is not a persistent
 counter. Reconnection always requests a fresh snapshot.
 
+## Run comparison snapshots
+
+Run comparison adds no SQLite tables, ingestion triggers or persistent server
+ledger. Indexed run membership feeds the existing primary-evidence group
+identity. A read-only transaction captures counts and at most 100 entry
+contexts/groups; live ID-to-ID comparisons read both runs in the same snapshot.
+Snapshot/report files are user-requested bounded artifacts outside `max_db_mib`,
+not unbounded ingest metadata. Unused snapshot capture adds no ingest work.
+
+The model distinguishes query collection from telemetry coverage. Collection
+can succeed with zero retained rows; such a run cannot establish an absence
+comparison. Usable comparisons are explicitly partial observations, because
+there is no persisted per-run delivery ledger that could prove deleted or
+never-exported spans. Cross-run scope differences and truncated evidence refuse
+absence classification. Portable snapshots freeze prior observations without
+claiming their trace citations are still retained. No acknowledgement or triage
+state semantics change. See [run comparison](agents.md#compare-two-runs).
+
+## Live query refresh
+
 On the first page, the client coalesces invalidations over three seconds and
 replaces only server-rendered results. Filters remain untouched. Focused results
 and text selections defer replacement to an explicit refresh button. Users can

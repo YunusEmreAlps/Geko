@@ -39,6 +39,13 @@ Pushing a `v*` tag runs [`release.yml`](../.github/workflows/release.yml):
    git add bucket/geko.json Formula/geko.rb
    ```
 
+   Check an installed release locally without publishing or modifying client
+   files: `python scripts/release-smoke.py /path/to/geko --version 0.2.0`.
+   It verifies version, seeded demo readiness/failure data and MCP absolute
+   paths. Windows v0.2.0 passed this check on 2026-11-23 after checksum-verified
+   `install.ps1` installation into ignored `bin/`, without changing PATH.
+   Linux/macOS, package-manager installs and the hosted Action remain unverified.
+
 6. Re-record the demo walkthrough with the release binary, and replace the
    screenshots in `docs/media` if the dashboard changed:
 

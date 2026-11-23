@@ -34,9 +34,13 @@ func run(ctx context.Context) (result error) {
 	if err != nil {
 		return fmt.Errorf("create trace exporter: %w", err)
 	}
+	res, err := exampleResource(ctx)
+	if err != nil {
+		return fmt.Errorf("create resource: %w", err)
+	}
 	provider := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(exporter),
-		sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", "geko-go-checkout"))),
+		sdktrace.WithResource(res),
 	)
 	defer func() {
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -65,6 +69,12 @@ func run(ctx context.Context) (result error) {
 		}
 		return nil
 	}
+}
+
+func exampleResource(ctx context.Context) (*resource.Resource, error) {
+	return resource.New(ctx,
+		resource.WithAttributes(attribute.String("service.name", "geko-go-checkout")),
+		resource.WithFromEnv())
 }
 
 func newHandler(tracer trace.Tracer) http.Handler {

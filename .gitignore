@@ -15,3 +15,10 @@ __pycache__/
 
 # Walkthrough videos are re-recorded, not committed.
 docs/media/*.webm
+
+# Generated outputs of the real SDK examples.
+examples/sdk/node/node_modules/
+examples/sdk/python/.venv/
+examples/sdk/java/target/
+examples/sdk/dotnet/bin/
+examples/sdk/dotnet/obj/

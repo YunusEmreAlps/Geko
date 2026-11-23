@@ -1,11 +1,16 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 )
 
 // snippetName keeps generated shell and YAML snippets safe to paste unquoted
@@ -24,6 +29,71 @@ type connectView struct {
 	Endpoint                  string
 	Bash, PowerShell, Compose string
 	TracesURL                 string
+	Check                     connectionCheck
+}
+
+type connectionCheck struct {
+	Available, Started, Expired bool
+	Until                       time.Time
+	StartURL, RefreshURL        string
+	Samples                     []otlp.ServiceObservation
+	Replacements                uint64
+	Diagnostics                 otlp.Diagnostics
+}
+
+func (d *dashboard) connectionCheck(r *http.Request, view connectView, now time.Time) (connectionCheck, error) {
+	query := r.URL.Query()
+	query.Del("observe")
+	query.Del("since")
+	query.Set("service", view.Service)
+	query.Set("protocol", view.Protocol)
+	check := connectionCheck{Available: d.settings.ReceiverConnections != nil}
+	query.Set("observe", "start")
+	check.StartURL = route("/connect", query) + "#connection-check"
+	if !check.Available {
+		return check, nil
+	}
+	var since time.Time
+	if r.URL.Query().Get("observe") == "start" {
+		since = now
+	}
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		millis, err := strconv.ParseInt(raw, 10, 64)
+		if err != nil {
+			return check, fmt.Errorf("invalid observation start")
+		}
+		since = time.UnixMilli(millis)
+		if since.After(now) || now.Sub(since) > 5*time.Minute {
+			return check, fmt.Errorf("observation expired; start a new check")
+		}
+	}
+	if since.IsZero() {
+		return check, nil
+	}
+	check.Started, check.Until = true, since.Add(time.Minute)
+	check.Expired = !now.Before(check.Until)
+	query.Del("observe")
+	query.Set("since", strconv.FormatInt(since.UnixMilli(), 10))
+	check.RefreshURL = route("/connect", query) + "#connection-check"
+	if snapshot := d.settings.ReceiverDiagnostics; snapshot != nil {
+		check.Diagnostics = snapshot()
+	}
+	snapshot := d.settings.ReceiverConnections()
+	check.Replacements = snapshot.Replacements
+	namespace := view.Application
+	if namespace == "" {
+		namespace = view.Bound
+	}
+	for _, sample := range snapshot.Services {
+		if sample.Service != view.Service || namespace != "" && sample.Namespace != namespace {
+			continue
+		}
+		if sample.At.Before(since) || !sample.At.Before(check.Until) {
+			continue
+		}
+		check.Samples = append(check.Samples, sample)
+	}
+	return check, nil
 }
 
 func (d *dashboard) connect(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +156,22 @@ func (d *dashboard) connect(w http.ResponseWriter, r *http.Request) {
 		compose.WriteString("  " + name + ": none\n")
 	}
 	view.Bash, view.PowerShell, view.Compose = bash.String(), powershell.String(), compose.String()
-	view.TracesURL = route("/traces", url.Values{"service": {view.Service}})
+	traceQuery := url.Values{"service": {view.Service}}
+	application := view.Application
+	if application == "" {
+		application = view.Bound
+	}
+	if application != "" {
+		traceQuery.Set("application", "group:"+application)
+	}
+	view.TracesURL = route("/traces", traceQuery)
+	var err error
+	view.Check, err = d.connectionCheck(r, view, time.Now())
+	if err != nil {
+		view.Error = err.Error()
+		d.render(w, r, http.StatusBadRequest, "connect", "Connect an application", view)
+		return
+	}
 	d.render(w, r, http.StatusOK, "connect", "Connect an application", view)
 }
 

@@ -1,7 +1,134 @@
 # Implementation status
 
 This checklist distinguishes implemented functionality from planned work.
-The latest release is [v0.1.0](https://github.com/YunusEmreAlps/geko/releases/tag/v0.1.0).
+The latest release is [v0.2.0](https://github.com/YunusEmreAlps/geko/releases/tag/v0.2.0).
+
+## Next phases after v0.2.0 (planned 2026-11-23)
+
+The new release closes the preceding code review findings. The next objective
+is to make one developer's repeated debugging workflow reliable across several
+projects, then validate it with other developers. These are proposals, not
+implemented capabilities or committed release dates. Phases 12–13 come first;
+start 14–15 only when observed usage supports the need.
+
+### Release follow-through: before the next feature release
+
+- [ ] Verify checksummed v0.2.0 archives, install scripts, `demo`, MCP setup
+      from another directory and the Action using the released binary.
+- [x] Update Scoop and Homebrew from the published v0.2.0 checksums.
+      Windows installation/checksum, seeded demo readiness and MCP absolute
+      paths were verified with the installed release. Package-manager installs,
+      other operating systems and the hosted release Action remain unverified.
+- [ ] Capture the Linux nightly baseline from the actual job and repeat the
+      large-database migration measurement on Linux. Keep Windows records.
+- [ ] Record one genuine agent investigation. A public demo is optional until
+      hosting is available; the existing local demo remains the primary trial.
+
+The local tag and changelog identify v0.2.0. This plan does not certify the
+remote release assets, hosted jobs or package-manager installation paths.
+
+### Phase 12: connect a real project and explain missing data
+
+**Outcome:** a developer can distinguish an exporter configuration problem,
+rejected telemetry, missing run attributes and an observed quiet application.
+
+- [x] Extend Connect with an explicitly started 60-second observation window
+      for a chosen namespace/service. Reuse receiver diagnostics; a bounded
+      recent-commit cache separates live OTLP arrivals from imports and old
+      database traces. No background network discovery or schema is added.
+- [x] Show last observed telemetry, observed namespace/environment/version,
+      matching run ID when present and relevant rejection reasons. Global
+      rejections must remain global when credentials/service cannot be mapped.
+- [x] Add real SDK examples for Go, Node.js, Python, Java and .NET in small
+      batches. Each has a successful request, a failing request and explicit
+      exporter shutdown/flush. Keep the existing synthetic wire examples.
+      The real Go SDK example reads resource environment variables and tests
+      application/run-ID filtering. Node/Python/Java/.NET examples make two
+      loopback HTTP requests and drain exports before exit. All four passed
+      the real-receiver smoke test locally on Windows; CI coverage is configured
+      in `sdk-examples`. See [SDK examples](../examples/sdk/README.md).
+      Real-SDK Connect tests cover wrong endpoint, wrong token, missing run ID,
+      successful export and an idle service without inferring absent SDKs.
+
+**Acceptance:** automated smoke checks for the examples; demonstrate wrong
+endpoint, wrong token, missing `geko.run.id`, successful export and an idle
+service. Lack of observed data must not be labelled proof that the SDK is
+absent. Never expose token values or introduce automatic instrumentation.
+
+### Phase 13: compare two runs and verify the observed fix
+
+**Outcome:** after changing code, a developer or coding agent can compare
+before/after evidence without manually reconstructing the two runs.
+
+- [x] Add explicit baseline/candidate run comparison through the existing
+      CLI, query API, MCP and report model. Reuse group keys and run IDs.
+- [x] Present new, recurring and no-longer-observed groups, with retained
+      trace counts and environment/service/version context for both runs.
+- [x] Report missing run tags, incomplete reports and missing/evicted history
+      as unavailable or partial. Do not automatically resolve groups because
+      they were not observed again; zero failures does not prove a code fix.
+- [x] Let the existing Action render the comparison when a baseline is
+      explicitly supplied. Keep the child exit code; no automatic cross-PR
+      baseline selection, new CI failure policy or separate artifact service.
+
+Implementation uses bounded portable `run.json` snapshots and existing run-ID
+indexes, with no new ingest-time ledger or schema. Results are always retained-
+only, partial observations; Geko cannot reconstruct partial deletion or prove
+SDK/workload coverage. The [comparison guide](agents.md#compare-two-runs) explains
+the distinction. Local regression/browser checks cover the implementation;
+the hosted Action and a recorded real code-change walkthrough remain validation
+work, not completed observations.
+
+**Acceptance:** tests for unchanged, introduced and absent groups, different
+environments, zero exports, omitted run IDs and removed baseline history;
+one recorded failing-run → code-change → comparison walkthrough. Bound any
+new run metadata and account for it under the existing capacity policy.
+
+### Phase 14: retain useful telemetry-budget history
+
+**Outcome:** answer which service's accepted volume changed over time,
+including across a Geko restart.
+
+- [ ] Persist compact hourly service totals in the existing SQLite store,
+      with configurable history retention and bounded service rows.
+- [ ] Show comparable completed/partial windows and changes by service in
+      the existing Budget page and CLI. Keep the current byte definition:
+      normalized protobuf size before masking, not network traffic or billing.
+- [ ] Keep cardinality fingerprints ephemeral. Do not store raw attribute
+      values or claim exact counts after tracking caps. Reports retain the
+      current lower-bound and Other services disclosures.
+- [ ] Define crash semantics before implementation: periodic checkpoints
+      must disclose possible loss of the latest interval; exact transactionally
+      committed totals require measured ingest cost. Budget persistence must
+      not silently change the acknowledgement contract or block trace writes.
+
+**Acceptance:** restart, partial-hour, counter-reset, overflow, retention and
+capacity tests; paired enabled/disabled ingest measurements before choosing
+the persistence approach. Exceeding a reporting budget still does not reject
+telemetry. No general-purpose metrics backend or billing estimate.
+
+### Phase 15: improve repeated investigation using observed feedback
+
+**Outcome:** fewer navigation steps to evidence across several applications.
+
+- [ ] Run the existing five-developer study before selecting UI changes;
+      record time to evidence, navigation steps and incorrect conclusions.
+- [ ] Candidate changes: shareable filter URLs and local saved views for
+      application/environment/owner; consistent selected-span context between
+      service map, waterfall and evidence details. Verify existing behavior
+      before adding controls that duplicate it.
+- [ ] Select only improvements supported by the sessions. Preserve keyboard
+      navigation, both themes, narrow layouts and explicit partial-data states.
+
+**Acceptance:** repeat the same tasks after changes, publish the observations
+without claiming statistical significance from five participants, and run the
+existing browser/accessibility checks. No redesign solely for novelty.
+
+**Scope boundary:** retain single-instance SQLite and durable ingest by default.
+Distributed storage, production HA, logs/metrics storage, account management,
+automatic remediation and unsupported root-cause claims are outside this plan.
+MCP alone is not the differentiation; the target is a shorter, evidence-backed
+path from a failing operation to a checked change.
 
 ## Current implementation status (2026-11-21)
 
@@ -31,9 +158,9 @@ Next development order from that review:
    beyond the first 100 spans or after ten earlier errors; disclose partial data.
 2. **Completed 2026-11-22:** Distinguish unavailable telemetry/reporting from zero failures in `geko run`
    reports and the GitHub Action, while preserving the child command's exit code.
-3. Validate the release/install/action path before promoting unreleased commands.
-   v0.2.0 is prepared in the changelog; tag it, then exercise install-from-archive,
-   `demo`, MCP setup and the Action from that release.
+3. **Release published 2026-11-23:** v0.2.0 is tagged and recorded in the
+   changelog. Verification of install-from-archive, `demo`, MCP setup and the
+   Action from that exact release remains a separate follow-through task.
 4. **Completed 2026-11-23:** MCP setup pins the effective config/database paths;
    `investigate_group` keeps the oldest and newest versions and discloses
    truncation; group notes, states and pins are held to the size limit. Groups
@@ -49,7 +176,7 @@ Next development order from that review:
 Durable acknowledgement stays the default. Opportunistic group commit already
 exists; an optional early-ack policy is a deferred decision, not a release gate.
 The CI baseline must come from the actual nightly Linux job, not Windows data.
-Hosted CI verification, a release/public demo, a real agent session recording
+Hosted CI verification, release-path validation/a public demo, a real agent session recording
 and the five-developer study remain delivery or validation work below.
 
 ## Phase 1
@@ -188,8 +315,9 @@ application, and find a binary without a Go toolchain.
       each platform.
 - [x] A green build on master: the browser job builds with `-buildvcs=false`
       inside the Playwright image, and no test binary is tracked.
-- [ ] A public demo instance at a stable address, linked from the README, and
-      a release that ships `geko demo` so the install scripts reach it.
+- [x] Release v0.2.0 includes `geko demo`.
+- [ ] Verify the release installer path and provide a public demo instance
+      at a stable address linked from the README when hosting is available.
 
 ## Phase 9: evidence behind the numbers
 
@@ -252,7 +380,8 @@ are addressed here, starting with the ones a shared instance hits first.
 
 Geko already serves `/mcp`, `compare_trace` and `compare_versions`. This phase
 treats an agent, not a person, as the first thing that reads a failure, because
-that is the workflow no local trace viewer covers today.
+that is the workflow Geko aims to make easier. Agent access alone is not a
+unique capability; evaluate the end-to-end investigation workflow.
 
 - [x] One command to register Geko with an MCP client: `geko mcp setup
       claude-code|cursor|vscode`, locally over stdio or with `--server` over
@@ -267,8 +396,9 @@ that is the workflow no local trace viewer covers today.
       the versions its traces came from, oldest first.
 - [ ] A recorded session of an agent reading a failing trace and proposing the
       fix, next to the walkthrough from phase 8.
-- [ ] A release that ships the action's `geko run --report`, so
-      `uses: YunusEmreAlps/geko@v0.2.0` works without `geko-binary`.
+- [x] Release v0.2.0 includes the Action and `geko run --report`.
+- [ ] Verify `uses: YunusEmreAlps/geko@v0.2.0` with the release installer,
+      without the source-built `geko-binary` override.
 
 ## Phase 11: a team that keeps using it
 

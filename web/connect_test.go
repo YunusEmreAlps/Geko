@@ -35,7 +35,7 @@ func TestConnectPage(t *testing.T) {
 	for _, fragment := range []string{
 		"export OTEL_SERVICE_NAME=checkout", "export OTEL_RESOURCE_ATTRIBUTES=service.namespace=Storefront",
 		"export OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318\n", "$env:OTEL_LOGS_EXPORTER = 'none'",
-		"  OTEL_METRICS_EXPORTER: none", `href="/traces?service=checkout"`, "OTLP/gRPC (disabled)",
+		"  OTEL_METRICS_EXPORTER: none", `href="/traces?application=group%3AStorefront&service=checkout"`, "OTLP/gRPC (disabled)",
 	} {
 		if !strings.Contains(local, fragment) {
 			t.Errorf("local page missing %q", fragment)

@@ -45,6 +45,21 @@ try {
     body: JSON.stringify(payload),
   });
   assert(response.ok, await response.text());
+  const baselineRun = 'a'.repeat(32), candidateRun = 'b'.repeat(32);
+  for (const [run, traceID, failing] of [[baselineRun, '02' + '00'.repeat(15), true], [candidateRun, '03' + '00'.repeat(15), false]]) {
+    const sample = structuredClone(payload);
+    sample.resourceSpans[0].resource.attributes.push({ key: 'geko.run.id', value: { stringValue: run } });
+    const span = sample.resourceSpans[0].scopeSpans[0].spans[0];
+    span.traceId = traceID;
+    if (!failing) {
+      span.events = [];
+      span.status = { code: 1 };
+      span.attributes = span.attributes.filter(attribute => !['http.response.status_code', 'http.status_code'].includes(attribute.key));
+      span.attributes.push({ key: 'http.response.status_code', value: { intValue: '200' } });
+    }
+    const received = await fetch(base + '/v1/traces', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(sample) });
+    assert(received.ok, await received.text());
+  }
   browser = await chromium.launch({ executablePath: process.env.GEKO_BROWSER_EXECUTABLE });
   await mkdir("dist/browser-checks", { recursive: true });
   for (const theme of ["light", "dark"]) {
@@ -55,6 +70,8 @@ try {
         ["traces", "/traces", "GET /inventory"],
         ["groups", "/failures?view=groups", "inventory"],
         ["trace", "/traces/" + id, "Span waterfall"],
+        ["connect", "/connect?service=inventory", "Connect an application"],
+        ["runs", `/runs/compare?baseline=${baselineRun}&candidate=${candidateRun}`, "Not observed in candidate"],
       ]) {
         assert((await page.goto(base + path)).ok(), path);
         assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
@@ -73,6 +90,18 @@ try {
           const [field, button] = await Promise.all([file.boundingBox(), submit.boundingBox()]);
           assert(field && button, "restore controls are visible");
           assert(width < 400 ? button.y > field.y : button.y === field.y, "restore controls wrap on mobile");
+        }
+        if (name === "connect") {
+          await page.getByRole("link", { name: "Start a 60-second check", exact: true }).click();
+          assert.match(await page.getByRole("status").innerText(), /Waiting for telemetry/);
+          const received = await fetch(base + "/v1/traces", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+          });
+          assert(received.ok, await received.text());
+          await page.getByRole("link", { name: "Check again", exact: true }).click();
+          assert.match(await page.getByRole("status").innerText(), /Telemetry observed/);
+          assert(await page.getByRole("link", { name: "Open trace", exact: true }).count() > 0);
+          await page.getByRole("status").scrollIntoViewIfNeeded();
         }
         assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), `${path} overflows at ${width}px`);
         await page.screenshot({ path: `dist/browser-checks/${name}-${theme}-${width}.png`, animations: "disabled" });

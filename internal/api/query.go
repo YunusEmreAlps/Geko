@@ -31,6 +31,7 @@ type queryAPI struct {
 
 func Register(mux *http.ServeMux, store Reader) {
 	api := &queryAPI{store: store, slots: make(chan struct{}, 4)}
+	api.registerRuns(mux)
 	mux.HandleFunc("GET /api/v1/failures", api.local(api.failures))
 	mux.HandleFunc("GET /api/v1/traces/{traceID}", api.local(api.trace))
 }

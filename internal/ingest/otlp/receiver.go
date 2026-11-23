@@ -47,11 +47,13 @@ type Receiver struct {
 	attributeSearch privacy.AttributeSearch
 	budget          *budget.Tracker
 
-	mu            sync.Mutex
-	accepted      uint64
-	rejectedSpans uint64
-	last          time.Time
-	rejected      [rejectionCount]uint64
+	mu                     sync.Mutex
+	accepted               uint64
+	rejectedSpans          uint64
+	last                   time.Time
+	rejected               [rejectionCount]uint64
+	connections            map[connectionIdentity]ServiceObservation
+	connectionReplacements uint64
 }
 
 const (
@@ -303,6 +305,7 @@ func (h *Receiver) export(ctx context.Context, req *collector.ExportTraceService
 		h.rejectedSpans += uint64(rejected)
 		acceptedAt := time.Now()
 		h.last = acceptedAt
+		h.recordConnections(acceptedAt, spans)
 		h.mu.Unlock()
 		if h.budget != nil {
 			h.budget.Record(acceptedAt, spans, observations)

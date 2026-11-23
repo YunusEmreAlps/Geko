@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased
+
+- Compare explicit test runs in the CLI, dashboard, query API and read-only
+  MCP. Bounded portable `run.json` snapshots preserve observed evidence across
+  CI jobs; groups are newly observed, recurring or not observed. Missing,
+  truncated or mismatched evidence is unavailable; usable comparisons remain
+  partial and never automatically resolve groups or claim a verified fix.
+- `geko run --baseline` captures the baseline before the candidate starts,
+  appends the comparison to reports and preserves child exit codes. The Action
+  accepts an explicit baseline, exposes comparison/run-ID outputs and uploads
+  artifacts with per-run names. No automatic cross-PR baseline selection,
+  storage migration or extra ingest-time metadata is added.
+
+- Real Node.js, Python, Java and .NET SDK examples exercise successful and
+  failing loopback requests, carry resource/run metadata and flush before
+  exit. A token-protected end-to-end smoke test verifies stored trace outcomes,
+  exception stacks and run filtering, with a dedicated CI job.
+- Connect's real-SDK integration tests cover incorrect endpoint/credentials,
+  missing run IDs and idle applications without treating absent samples as
+  evidence that instrumentation is missing.
+
+- Connect offers an explicit 60-second observation window with namespace,
+  environment, version, run ID and a trace link from accepted OTLP exports.
+  Observations are bounded to 128 service identities in memory and expire
+  after five minutes. Receiver rejections remain global context; missing
+  samples are inconclusive, not proof of missing instrumentation.
+- The real Go SDK example reads resource environment variables, so Connect
+  and `geko run` service, namespace and run-ID settings reach Geko.
+- Scoop and Homebrew metadata now target the published v0.2.0 checksums.
+  `scripts/release-smoke.py` checks an installed binary's version, seeded demo
+  readiness and absolute MCP setup paths without publishing anything.
+
 ## v0.2.0 (2026-11-23)
 
 - `investigate_group` lists the 10 oldest and 10 newest version pairs of a

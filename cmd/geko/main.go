@@ -46,6 +46,7 @@ Commands:
   backup <file>     Write a consistent copy of the database while Geko runs
   run [--server URL] -- <command>  Run a command and list failures tagged with its run ID
   failures --json   Query failures in the local database, or a server with --server
+  compare-runs --baseline ID_OR_FILE --candidate ID_OR_FILE [--json]  Compare observed run evidence
   mcp       Serve read-only investigation tools over stdio (servers also serve /mcp)
   mcp setup claude-code|cursor|vscode [--server URL]  Register Geko with an MCP client
   version   Print version and build information
@@ -109,6 +110,9 @@ func run(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if args[0] == "run" {
 		return runCommand(ctx, args[1:], out, os.Stderr)
+	}
+	if args[0] == "compare-runs" {
+		return compareRunsCommand(ctx, args[1:], out)
 	}
 	if args[0] == "mcp" && len(args) > 1 {
 		return mcpSetupCommand(args[1:], out)
@@ -435,6 +439,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		Notifications: notifications,
 		SignIn:        signIn, SignOut: signOut, Tokens: cfg.AccessToken,
 		ReceiverDiagnostics: receiver.Diagnostics,
+		ReceiverConnections: receiver.Connections,
 		RestoreTrace:        restore,
 		AttributeSearch:     cfg.AttributeSearch,
 		CollectorDoctor:     cfg.CollectorDoctor,

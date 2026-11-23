@@ -93,6 +93,7 @@ type Settings struct {
 	DBPath              string
 	Version             string
 	ReceiverDiagnostics func() otlp.Diagnostics
+	ReceiverConnections func() otlp.ConnectionSnapshot
 	RetentionDays       int
 	MaxDBBytes          int64
 	OnFull              storage.FullPolicy
@@ -171,6 +172,7 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	mux.HandleFunc("GET /failures", d.local(d.failures))
 	mux.HandleFunc("GET /overview", d.local(d.overview))
 	mux.HandleFunc("GET /regressions", d.local(d.regressions))
+	mux.HandleFunc("GET /runs/compare", d.local(d.compareRuns))
 	mux.HandleFunc("GET /traces", d.local(func(w http.ResponseWriter, r *http.Request) {
 		d.traceList(w, r, true)
 	}))
