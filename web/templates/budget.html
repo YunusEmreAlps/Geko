@@ -3,9 +3,16 @@
   <div class="title"><a class="crumb" href="/settings">Settings</a><span class="crumb-sep" aria-hidden="true">/</span><h1>Telemetry Budget</h1></div>
   <div class="actions"><a class="button" href="/budget">Current hour</a><a class="button" href="/budget?previous=true">Previous hour</a></div>
 </header>
+{{if .HistoryDays}}<form class="filters" method="get" action="/budget"><label>Hour (UTC)<input type="datetime-local" name="hour" step="3600" value="{{.Start.UTC.Format "2006-01-02T15:04"}}" required></label><button class="button" type="submit">Open hour</button></form><p class="muted">Retaining up to {{.HistoryDays}} days of checkpointed volume within the database size limit. Limits use current settings. Attribute values and fingerprints are not persisted.</p>{{end}}
 {{if .Available}}
+{{if .HistoryDays}}<p class="muted">{{if .CheckpointedAt.IsZero}}This process has not checkpointed yet.{{else}}Last successful checkpoint in this process: {{timestamp .CheckpointedAt}}.{{end}} Newest volume may still be memory-only.</p>{{end}}
 <p class="muted">{{.Start.Format "2006-01-02 15:04"}}–{{.End.Format "15:04"}} UTC · Counting since {{.ObservedSince.Format "15:04:05"}} UTC</p>
 <p>{{.Total.Spans}} spans · {{size .Total.Bytes}} of protobuf span data</p>
+{{if .Partial}}<p class="note">Partial observation window: an unfinished hour or incomplete/ambiguous coverage prevents a like-for-like rate comparison.</p>{{end}}
+{{if .CheckpointFailed}}<p class="notice" role="status">History checkpoint unavailable. Newest counters remain in memory; trace ingestion follows its existing storage policy.</p>{{end}}
+{{if .DiscardedCheckpoints}}<p class="note">{{.DiscardedCheckpoints}} older session checkpoints were discarded to bound history. Missing coverage is not zero traffic.</p>{{end}}
+{{if .ChangesTruncated}}<p class="note">Some services from the previous hour are omitted from the bounded change list.</p>{{end}}
+{{if .SpanDelta}}<p>Change from previous complete hour: {{.SpanDelta}} spans · {{.ByteDelta}} protobuf span bytes.</p>{{end}}
 {{if .Services}}
 <div class="table-wrap" role="region" aria-label="Hourly usage by service" tabindex="0">
   <table>
@@ -13,7 +20,7 @@
     <tbody>{{range .Services}}
       <tr>
         <td><strong>{{.Name}}</strong>{{if .Namespace}}<span class="subtle">{{.Namespace}}</span>{{end}}</td>
-        <td>{{.Spans}} / {{if .Limits.Spans}}{{.Limits.Spans}}{{else}}Unlimited{{end}}{{if .SpanOverage}}<span class="subtle">{{.SpanOverage}} over</span>{{end}}</td>
+        <td>{{.Spans}} / {{if .Limits.Spans}}{{.Limits.Spans}}{{else}}Unlimited{{end}}{{if .SpanOverage}}<span class="subtle">{{.SpanOverage}} over</span>{{end}}{{if .SpanDelta}}<span class="subtle">Change from previous complete hour: {{.SpanDelta}}</span>{{end}}</td>
         <td>{{size .Bytes}} / {{if .Limits.Bytes}}{{size .Limits.Bytes}}{{else}}Unlimited{{end}}{{if .ByteOverage}}<span class="subtle">{{size .ByteOverage}} over</span>{{end}}</td>
         <td>{{range .HighCardinality}}<span class="subtle"><code>{{.Key}}</code> · {{if .AtLeast}}at least {{end}}{{.Distinct}} values</span>{{else}}—{{end}}</td>
       </tr>
@@ -22,12 +29,13 @@
     </tbody>
   </table>
 </div>
+{{if .CardinalitySince.IsZero}}<p class="muted">Cardinality is unavailable for persisted history.</p>{{else}}<p class="muted">Cardinality covers this process only, since {{timestamp .CardinalitySince}}. Volume may include earlier sessions.</p>{{end}}
 <p class="muted">Cardinality is flagged above {{.CardinalityLimit}} distinct values per attribute.</p>
 {{else}}
 <section class="empty"><h2>No spans counted yet</h2><p>Send an OTLP trace to see service usage.</p></section>
 {{end}}
 {{if .Advice}}<section class="section"><h2>Ways to reduce volume</h2><ul>{{range .Advice}}<li>{{.}}</li>{{end}}</ul></section>{{end}}
 {{else}}
-<section class="empty"><h2>No measurements for this hour</h2><p>Budget measurements cover the current server session.</p></section>
+<section class="empty"><h2>No measurements for this hour</h2><p>No retained checkpoint or live observations are available. Missing measurements do not mean zero traffic.</p></section>
 {{end}}
 {{end}}

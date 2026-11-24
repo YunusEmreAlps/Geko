@@ -1,0 +1,84 @@
+{
+  "platform": "windows",
+  "kind": "isolated write-stage stress, not network E2E or Linux baseline",
+  "checkpoint_cadence": "one attempt per 32 exports, deliberately more frequent than the production one-minute worker",
+  "binary_sha256": "8df36f60c923737a2cb65ce1e273d4566a61c960a15c2382f69735c222dafed6",
+  "rounds": [
+    {
+      "order": [
+        "memory-only",
+        "checkpoint-every-32-exports"
+      ],
+      "results": {
+        "memory-only": {
+          "exports": 128,
+          "mean_export_ms": 14.466838,
+          "saved_checkpoints": 0
+        },
+        "checkpoint-every-32-exports": {
+          "exports": 128,
+          "mean_export_ms": 11.423566,
+          "saved_checkpoints": 4
+        }
+      }
+    },
+    {
+      "order": [
+        "checkpoint-every-32-exports",
+        "memory-only"
+      ],
+      "results": {
+        "checkpoint-every-32-exports": {
+          "exports": 128,
+          "mean_export_ms": 37.045316,
+          "saved_checkpoints": 4
+        },
+        "memory-only": {
+          "exports": 128,
+          "mean_export_ms": 12.138227,
+          "saved_checkpoints": 0
+        }
+      }
+    },
+    {
+      "order": [
+        "memory-only",
+        "checkpoint-every-32-exports"
+      ],
+      "results": {
+        "memory-only": {
+          "exports": 128,
+          "mean_export_ms": 25.390549,
+          "saved_checkpoints": 0
+        },
+        "checkpoint-every-32-exports": {
+          "exports": 128,
+          "mean_export_ms": 11.918549,
+          "saved_checkpoints": 4
+        }
+      }
+    }
+  ],
+  "median_mean_export_ms": {
+    "memory-only": 14.466838,
+    "checkpoint-every-32-exports": 11.918549
+  },
+  "complete": true,
+  "source_commit": "e60da6b1401ae5de174ab520a67d019dbac9809e",
+  "source_note": "plus the schema 21 Budget history working tree",
+  "source_sha256": {
+    "internal/budget/budget.go": "d42eb065ccf6e132fadacb8362be42f245e718835d78e36e52709837b375dd07",
+    "internal/budget/history.go": "d7aa2ac7936c8c6e728a53904ddf11c215d6556931712c13000f0c5de1fbc20f",
+    "internal/storage/sqlite/store.go": "ee7154d817620846824536f424b4512bcb35a2d55ebb7995324263101273e571",
+    "internal/storage/sqlite/budget_history.go": "2812d3e33740705e5ba3dcc645a7bfb1269e1fe1fb3b56cab28ddd5af752ae87",
+    "internal/storage/sqlite/budget_history_bench_test.go": "2c44d6fda167face31448d8b7f7c79adfc5f5962616dae7d5c9b7379cb1bdecd",
+    "internal/storage/sqlite/migrations/021_budget_history.sql": "04c979678549fc5c473e13a482725a86eb8112404bd369e791b9301d0a7545f0"
+  },
+  "command_template": [
+    "sqlite-budget.test.exe",
+    "-test.run=^$",
+    "-test.bench=^BenchmarkBudgetHistoryWriteStage/<mode>$",
+    "-test.benchtime=128x",
+    "-test.count=1"
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "date": "2026-11-24",
+  "platform": "Linux/amd64, Docker Desktop WSL2 kernel 5.15.167.4-microsoft-standard-WSL2, 12 logical CPUs, 16698753024 configured memory bytes; Go 1.26.11",
+  "base_commit": "e60da6b1401ae5de174ab520a67d019dbac9809e",
+  "working_tree_modified": true,
+  "container_image": "golang@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab",
+  "test_binary_sha256": "8a44925227c77d3e8014cee84363e6bc46b794d42173af5835a7be30ea81818c",
+  "fixture_sha256": "f6167a4e642b44160b8886e5e9355bc022957b54d46f27f73a61540f87cbdded",
+  "fixture_generator": "upgrade-fixture_test.go.txt",
+  "fixture_generator_sha256": "d9062f5364ad00b37ab8ac0fcaa79f6ac209f3ddd76d1c9d5548a0ecc9a836fc",
+  "fixture": "Reconstructed synthetic fixture written through the schema-15 store: 400000 two-span traces, half with child exceptions, 12 exception types, 8 child services, 20 operations, 4 namespaces, 6 versions. Same scale as the Windows measurement, different exact data and target schema; not a speed comparison.",
+  "storage": "Fixture copied from a Windows bind mount into the container temporary Linux filesystem before timing; migration copies are disposable.",
+  "command": "GEKO_UPGRADE_FIXTURE=/artifacts/upgrade-schema15.db GEKO_UPGRADE_OUT=/artifacts/linux-upgrade-schema15-21.json /artifacts/sqlite-upgrade-linux.test -test.run=^TestUpgradeMeasurement$ -test.v=true -test.timeout=15m",
+  "results": {
+    "concurrent_reader": {
+      "compact_after_reader_closed_ok": true,
+      "compact_with_reader_error": "database compacted, but a concurrent connection prevented WAL truncation",
+      "compact_with_reader_ok": false,
+      "compacted_from_bytes": 437407744,
+      "compacted_to_bytes": 409374720,
+      "peak_wal_bytes": 115520712,
+      "upgrade_seconds": 25.849961357
+    },
+    "fixture_bytes": 437407744,
+    "from_schema": 15,
+    "interrupted": {
+      "cancelled_after_seconds": 16.22884504,
+      "data_unchanged": true,
+      "retry_schema": 21,
+      "retry_seconds": 24.773279344,
+      "schema_after_cancel": 15
+    },
+    "spans": 800000,
+    "to_schema": 21,
+    "traces": 400000,
+    "upgrade": {
+      "final_free_bytes": 68214784,
+      "final_main_bytes": 552235008,
+      "peak_headroom_ratio": 1.5266207083887386,
+      "peak_main_bytes": 552235008,
+      "peak_total_bytes": 667755720,
+      "peak_wal_bytes": 115520712,
+      "seconds": 32.438175347
+    }
+  }
+}

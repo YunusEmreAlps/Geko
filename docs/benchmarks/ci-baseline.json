@@ -1,0 +1,171 @@
+{
+  "date": "2026-11-24",
+  "host": {
+    "platform": "linux",
+    "logical_cpus": 4
+  },
+  "sequential_traces": 8192,
+  "sequential_spans": 16384,
+  "batches": 128,
+  "fixture": "OTLP/HTTP JSON, 64 two-span traces per export, every trace HTTP 503 with an error status",
+  "rounds": [
+    {
+      "label": "round-1",
+      "idle_memory_mib": 26.62,
+      "post_ingest_memory_mib": 37.0,
+      "idle_database_bytes": {
+        "geko.db": 159744,
+        "geko.db-wal": 0,
+        "geko.db-shm": 32768
+      },
+      "post_ingest_database_bytes": {
+        "geko.db": 22786048,
+        "geko.db-wal": 2241312,
+        "geko.db-shm": 32768
+      },
+      "database_growth_bytes": 24867616,
+      "stored_spans": 34816,
+      "group_cache_shape": {
+        "members": 17408,
+        "partitions": 1,
+        "identities": 1,
+        "cached_members": 17408,
+        "partitions_per_cached_member": 5.7e-05
+      },
+      "bytes_per_span": 714.3,
+      "sequential_exports": 128,
+      "sequential_spans_per_second": 7589,
+      "median_export_ms": 16.53,
+      "p95_export_ms": 19.51,
+      "max_export_ms": 20.07,
+      "median_new_connection_export_ms": 16.56,
+      "parallel_connections": 4,
+      "parallel_exports_sent": 128,
+      "parallel_exports_rejected_503": 0,
+      "parallel_spans": 16384,
+      "parallel_spans_per_second": 10565,
+      "mean_failures_api_ms": 1.52,
+      "mean_search_api_ms": 2.21,
+      "mean_trace_api_ms": 0.86,
+      "mean_failures_page_ms": 2.26,
+      "mean_groups_page_ms": 1.66,
+      "mean_overview_page_ms": 49.46,
+      "failures_api_response_bytes": 26831,
+      "trace_api_response_bytes": 1607
+    },
+    {
+      "label": "round-2",
+      "idle_memory_mib": 26.72,
+      "post_ingest_memory_mib": 36.44,
+      "idle_database_bytes": {
+        "geko.db": 159744,
+        "geko.db-wal": 0,
+        "geko.db-shm": 32768
+      },
+      "post_ingest_database_bytes": {
+        "geko.db": 22757376,
+        "geko.db-wal": 2591512,
+        "geko.db-shm": 32768
+      },
+      "database_growth_bytes": 25189144,
+      "stored_spans": 34816,
+      "group_cache_shape": {
+        "members": 17408,
+        "partitions": 1,
+        "identities": 1,
+        "cached_members": 17408,
+        "partitions_per_cached_member": 5.7e-05
+      },
+      "bytes_per_span": 723.5,
+      "sequential_exports": 128,
+      "sequential_spans_per_second": 7692,
+      "median_export_ms": 16.27,
+      "p95_export_ms": 18.95,
+      "max_export_ms": 19.83,
+      "median_new_connection_export_ms": 16.76,
+      "parallel_connections": 4,
+      "parallel_exports_sent": 128,
+      "parallel_exports_rejected_503": 0,
+      "parallel_spans": 16384,
+      "parallel_spans_per_second": 9699,
+      "mean_failures_api_ms": 1.49,
+      "mean_search_api_ms": 2.22,
+      "mean_trace_api_ms": 0.87,
+      "mean_failures_page_ms": 2.14,
+      "mean_groups_page_ms": 1.64,
+      "mean_overview_page_ms": 49.47,
+      "failures_api_response_bytes": 26831,
+      "trace_api_response_bytes": 1607
+    },
+    {
+      "label": "round-3",
+      "idle_memory_mib": 26.13,
+      "post_ingest_memory_mib": 36.33,
+      "idle_database_bytes": {
+        "geko.db": 159744,
+        "geko.db-wal": 0,
+        "geko.db-shm": 32768
+      },
+      "post_ingest_database_bytes": {
+        "geko.db": 22831104,
+        "geko.db-wal": 2200112,
+        "geko.db-shm": 32768
+      },
+      "database_growth_bytes": 24871472,
+      "stored_spans": 34816,
+      "group_cache_shape": {
+        "members": 17408,
+        "partitions": 1,
+        "identities": 1,
+        "cached_members": 17408,
+        "partitions_per_cached_member": 5.7e-05
+      },
+      "bytes_per_span": 714.4,
+      "sequential_exports": 128,
+      "sequential_spans_per_second": 7691,
+      "median_export_ms": 16.32,
+      "p95_export_ms": 19.33,
+      "max_export_ms": 20.37,
+      "median_new_connection_export_ms": 16.39,
+      "parallel_connections": 4,
+      "parallel_exports_sent": 128,
+      "parallel_exports_rejected_503": 0,
+      "parallel_spans": 16384,
+      "parallel_spans_per_second": 10991,
+      "mean_failures_api_ms": 1.41,
+      "mean_search_api_ms": 2.17,
+      "mean_trace_api_ms": 0.85,
+      "mean_failures_page_ms": 2.25,
+      "mean_groups_page_ms": 1.63,
+      "mean_overview_page_ms": 48.53,
+      "failures_api_response_bytes": 26831,
+      "trace_api_response_bytes": 1607
+    }
+  ],
+  "median_of_rounds": {
+    "idle_memory_mib": 26.62,
+    "post_ingest_memory_mib": 36.44,
+    "database_growth_bytes": 24871472,
+    "stored_spans": 34816,
+    "bytes_per_span": 714.4,
+    "sequential_exports": 128,
+    "sequential_spans_per_second": 7691,
+    "median_export_ms": 16.32,
+    "p95_export_ms": 19.33,
+    "max_export_ms": 20.07,
+    "median_new_connection_export_ms": 16.56,
+    "parallel_connections": 4,
+    "parallel_exports_sent": 128,
+    "parallel_exports_rejected_503": 0,
+    "parallel_spans": 16384,
+    "parallel_spans_per_second": 10565,
+    "mean_failures_api_ms": 1.49,
+    "mean_search_api_ms": 2.21,
+    "mean_trace_api_ms": 0.86,
+    "mean_failures_page_ms": 2.25,
+    "mean_groups_page_ms": 1.64,
+    "mean_overview_page_ms": 49.46,
+    "failures_api_response_bytes": 26831,
+    "trace_api_response_bytes": 1607
+  }
+}

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Optional Telemetry Budget volume history retains bounded hourly session
+  checkpoints across restarts (schema 21). UTC-hour selection and complete-hour
+  service comparisons are available in the UI, CLI and API. Cardinality stays
+  process-local. Checkpoint gaps, capacity failures and bounded-history losses
+  are disclosed; trace acknowledgements and eviction semantics are unchanged.
+- The first Linux nightly benchmark baseline is recorded with GitHub artifact
+  SHA-256 provenance. Nightly checks now require that baseline and self-test
+  deliberate regressions, incomplete measurements, platform mismatches and
+  refused exports, including a single refusal hidden by the round median.
+
 - Compare explicit test runs in the CLI, dashboard, query API and read-only
   MCP. Bounded portable `run.json` snapshots preserve observed evidence across
   CI jobs; groups are newly observed, recurring or not observed. Missing,

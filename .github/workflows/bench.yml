@@ -20,6 +20,8 @@ jobs:
           go-version-file: go.mod
       - name: Build
         run: go build -o bin/geko ./cmd/geko
+      - name: Verify regression guard behavior
+        run: python3 scripts/test-bench-compare.py
       - name: Measure one process end to end
         run: python3 scripts/bench-native.py --binary bin/geko --rounds 3 --out bench/native.json
       - name: Measure ingest concurrency
@@ -29,7 +31,7 @@ jobs:
         # committed when a change moves the figures on purpose.
         run: |
           python3 scripts/bench-compare.py --current bench/native.json --ingest bench/ingest.json \
-            --baseline docs/benchmarks/ci-baseline.json --factor 1.5 | tee -a "$GITHUB_STEP_SUMMARY"
+            --baseline docs/benchmarks/ci-baseline.json --require-baseline --factor 1.5 | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

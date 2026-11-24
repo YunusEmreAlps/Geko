@@ -41,11 +41,15 @@ type Config struct {
 	Services         []ServiceLimit `yaml:"services"`
 	Attributes       []string       `yaml:"attributes"`
 	CardinalityLimit int            `yaml:"cardinality_limit"`
+	HistoryDays      int            `yaml:"history_days"`
 }
 
 var attributeKey = regexp.MustCompile(`^[[:alnum:]_.-]{1,128}$`)
 
 func (c Config) Validate() error {
+	if c.HistoryDays < 0 || c.HistoryDays > 30 || c.HistoryDays > 0 && !c.Enabled {
+		return errors.New("telemetry_budget history_days must be 0–30 and requires enabled: true")
+	}
 	if len(c.Services) > maxServices || len(c.Attributes) > 8 || c.CardinalityLimit < 0 || c.CardinalityLimit >= maxDistinct {
 		return errors.New("telemetry_budget supports up to 128 service limits, eight attributes and a cardinality_limit from 0 to 255")
 	}
@@ -96,6 +100,9 @@ type Tracker struct {
 	started           time.Time
 	mu                sync.Mutex
 	current, previous window
+	session           string
+	checkpointAt      time.Time
+	checkpointFailed  bool
 }
 
 func New(cfg Config, now time.Time) *Tracker {
@@ -109,6 +116,7 @@ func New(cfg Config, now time.Time) *Tracker {
 		cfg.Attributes = []string{"http.route", "url.path", "db.query.summary", "service.instance.id"}
 	}
 	t := &Tracker{cfg: cfg, seed: maphash.MakeSeed(), started: now.UTC(), limits: make(map[identity]Limits), keys: make(map[string]bool)}
+	t.session = newSessionID()
 	for _, rule := range cfg.Services {
 		t.limits[identity{rule.Namespace, rule.Service}] = rule.Limits
 	}
@@ -280,18 +288,30 @@ type Service struct {
 	SpanOverage     int64         `json:"span_overage"`
 	ByteOverage     int64         `json:"byte_overage"`
 	HighCardinality []Cardinality `json:"high_cardinality,omitempty"`
+	SpanDelta       *int64        `json:"span_delta,omitempty"`
+	ByteDelta       *int64        `json:"byte_delta,omitempty"`
 }
 
 type Report struct {
-	Start            time.Time `json:"window_start"`
-	End              time.Time `json:"window_end"`
-	ObservedSince    time.Time `json:"observed_since"`
-	Available        bool      `json:"available"`
-	Total            totals    `json:"total"`
-	Other            totals    `json:"unattributed_services"`
-	Services         []Service `json:"services"`
-	CardinalityLimit int       `json:"cardinality_limit"`
-	Advice           []string  `json:"recommendations"`
+	Start                time.Time `json:"window_start"`
+	End                  time.Time `json:"window_end"`
+	ObservedSince        time.Time `json:"observed_since"`
+	Available            bool      `json:"available"`
+	Total                totals    `json:"total"`
+	Other                totals    `json:"unattributed_services"`
+	Services             []Service `json:"services"`
+	CardinalityLimit     int       `json:"cardinality_limit"`
+	Advice               []string  `json:"recommendations"`
+	ObservedUntil        time.Time `json:"observed_until"`
+	Partial              bool      `json:"partial"`
+	CardinalitySince     time.Time `json:"cardinality_since"`
+	HistoryDays          int       `json:"history_days"`
+	CheckpointedAt       time.Time `json:"checkpointed_at"`
+	CheckpointFailed     bool      `json:"checkpoint_failed"`
+	DiscardedCheckpoints int64     `json:"discarded_checkpoints"`
+	ChangesTruncated     bool      `json:"changes_truncated"`
+	SpanDelta            *int64    `json:"span_delta,omitempty"`
+	ByteDelta            *int64    `json:"byte_delta,omitempty"`
 }
 
 func (t *Tracker) Snapshot(now time.Time, previous bool) Report {
@@ -302,6 +322,12 @@ func (t *Tracker) Snapshot(now time.Time, previous bool) Report {
 	if previous {
 		active = t.previous
 	}
+	return t.report(active, now)
+}
+
+// report is called with the tracker locked; the history path supplies a
+// separate aggregated window and replaces observation/cardinality metadata.
+func (t *Tracker) report(active window, now time.Time) Report {
 	report := Report{Available: !active.start.IsZero(), Start: active.start, Total: active.total,
 		Other: active.other, CardinalityLimit: t.cfg.CardinalityLimit, Services: []Service{}, Advice: []string{}}
 	if !report.Available {
@@ -312,6 +338,12 @@ func (t *Tracker) Snapshot(now time.Time, previous bool) Report {
 	if t.started.After(report.ObservedSince) {
 		report.ObservedSince = t.started
 	}
+	report.ObservedUntil = minTime(now, report.End)
+	report.Partial = report.ObservedSince.After(report.Start) || report.ObservedUntil.Before(report.End)
+	report.CardinalitySince = report.ObservedSince
+	report.HistoryDays = t.cfg.HistoryDays
+	report.CheckpointedAt = t.checkpointAt
+	report.CheckpointFailed = t.checkpointFailed
 	var volume, cardinality bool
 	for key, entry := range active.services {
 		limits, configured := t.limits[key]

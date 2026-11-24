@@ -39,6 +39,7 @@ on_full: evict_oldest
 # Report accepted span volume and attribute cardinality by UTC hour.
 # telemetry_budget:
 #   enabled: true
+#   history_days: 7 # optional volume checkpoints; 0 disables, maximum 30 days
 #   default:
 #     spans_per_hour: 10000
 #     bytes_per_hour: 10485760

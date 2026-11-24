@@ -1,0 +1,49 @@
+package sqlite
+
+import (
+	"encoding/binary"
+	"fmt"
+	"github.com/YunusEmreAlps/geko/internal/telemetry"
+	"os"
+	"testing"
+	"time"
+)
+
+// Opt-in synthetic fixture, written through the schema-15 store.
+func TestLocalUpgradeFixture(t *testing.T) {
+	path := os.Getenv("GEKO_CREATE_UPGRADE_FIXTURE")
+	if path == "" {
+		t.Skip("opt-in fixture generation")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("fixture must not already exist")
+	}
+	db, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	for first := 0; first < 400000; first += 512 {
+		batch := make([]telemetry.Span, 0, 1024)
+		for i := first; i < first+512 && i < 400000; i++ {
+			var trace telemetry.TraceID
+			binary.BigEndian.PutUint64(trace[8:], uint64(i+1))
+			start := now.Add(-time.Duration(i%6)*24*time.Hour - time.Duration(i%86400)*time.Second)
+			resource := telemetry.Attributes{"service.namespace": fmt.Sprintf("project-%d", i%4), "service.version": fmt.Sprintf("v%d", i%6)}
+			root := telemetry.Span{TraceID: trace, ID: telemetry.SpanID{1}, ServiceName: "gateway", Name: fmt.Sprintf("POST /operation-%d", i%20), Kind: telemetry.KindServer, StartTime: start, EndTime: start.Add(180 * time.Millisecond), ResourceAttributes: resource, Attributes: telemetry.Attributes{"http.response.status_code": 200}}
+			child := telemetry.Span{TraceID: trace, ID: telemetry.SpanID{2}, ParentID: root.ID, ServiceName: fmt.Sprintf("worker-%d", i%8), Name: fmt.Sprintf("operation-%d", i%20), Kind: telemetry.KindClient, StartTime: start.Add(10 * time.Millisecond), EndTime: start.Add(150 * time.Millisecond), ResourceAttributes: resource}
+			if i%2 == 0 {
+				child.StatusCode = telemetry.StatusError
+				child.Events = []telemetry.Event{{Name: "exception", Time: child.EndTime, Attributes: telemetry.Attributes{"exception.type": fmt.Sprintf("Timeout%d", (i/2)%12), "exception.message": "synthetic upstream timeout"}}}
+			}
+			batch = append(batch, root, child)
+		}
+		if err := db.WriteSpans(t.Context(), now, batch); err != nil {
+			t.Fatal(err)
+		}
+		if first%51200 == 0 {
+			t.Logf("written %d traces", first+len(batch)/2)
+		}
+	}
+}

@@ -1,0 +1,14 @@
+{
+  "commit": "e60da6b1401ae5de174ab520a67d019dbac9809e",
+  "run_url": "https://github.com/YunusEmreAlps/Geko/actions/runs/45319277882",
+  "artifact_id": 14886892615,
+  "artifact_name": "benchmarks",
+  "artifact_sha256": "fbc5dd64ace93367db1beb9fc633f13b32248783815a59b23098c2775a4a8afb",
+  "checksum_source": "https://api.github.com/repos/YunusEmreAlps/Geko/actions/artifacts/14886892615",
+  "retrieval": "Public artifact proxy; archive SHA-256 verified against the GitHub API digest before extraction.",
+  "baseline": "ci-baseline.json",
+  "concurrency": "2026-11-24-ci-ingest.json",
+  "runner": "ubuntu-latest",
+  "platform": "linux",
+  "logical_cpus": 4
+}

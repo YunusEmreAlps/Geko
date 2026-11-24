@@ -45,6 +45,10 @@ func TestBudgetWindowsLimitsAndPrivateCardinality(t *testing.T) {
 	if err != nil || strings.Contains(string(data), "private-value") {
 		t.Fatalf("budget JSON = %s, %v", data, err)
 	}
+	persisted, err := json.Marshal(tracker.Checkpoints(now))
+	if err != nil || strings.Contains(string(persisted), "private-value") || strings.Contains(string(persisted), "customer.id") {
+		t.Fatalf("checkpoint persisted cardinality evidence: %s, %v", persisted, err)
+	}
 	next := now.Add(time.Hour)
 	if current := tracker.Snapshot(next, false); current.Total.Spans != 0 {
 		t.Fatalf("next window = %+v", current)

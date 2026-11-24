@@ -345,6 +345,9 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 
 	mux := http.NewServeMux()
 	tracker := budget.New(cfg.TelemetryBudget, time.Now())
+	if tracker != nil && tracker.HistoryDays() > 0 && !cfg.ReadOnly {
+		defer startBudgetHistory(ctx, db, tracker)()
+	}
 	receiver := otlp.NewHandlerWithRedaction(db, cfg.Redaction == "strict").
 		WithAttributeSearch(cfg.AttributeSearch).WithBudget(tracker)
 	if cfg.IngestSlots > 0 {

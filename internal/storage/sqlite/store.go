@@ -81,12 +81,15 @@ var evictionCounterBudgetSchema string
 //go:embed migrations/020_group_refresh_batch.sql
 var groupRefreshBatchSchema string
 
+//go:embed migrations/021_budget_history.sql
+var budgetHistorySchema string
+
 var migrations = []string{
 	initialSchema, evidenceSchema, applicationSchema, maintenanceSchema,
 	exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema,
 	groupStateSchema, groupStateActorSchema, groupNoteSchema, tracePinSchema, runIDSchema,
 	evidenceWithoutEventsSchema, entryOperationsSchema, failureGroupMembersSchema,
-	sharedGroupTotalsSchema, applicationEvictionsSchema, evictionCounterBudgetSchema, groupRefreshBatchSchema,
+	sharedGroupTotalsSchema, applicationEvictionsSchema, evictionCounterBudgetSchema, groupRefreshBatchSchema, budgetHistorySchema,
 }
 
 type Store struct {

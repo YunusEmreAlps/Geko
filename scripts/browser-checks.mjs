@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
@@ -16,6 +16,7 @@ const port = socket.address().port;
 await new Promise((done) => socket.close(done));
 const base = `http://127.0.0.1:${port}`;
 const directory = await mkdtemp(join(tmpdir(), "geko-browser-"));
+await writeFile(join(directory,"geko.yaml"),"telemetry_budget:\n  enabled: true\n  history_days: 7\n  attributes: []\n");
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GEKO_")));
 const server = spawn(resolve(binary), ["serve"], {
   cwd: directory,
@@ -72,6 +73,7 @@ try {
         ["trace", "/traces/" + id, "Span waterfall"],
         ["connect", "/connect?service=inventory", "Connect an application"],
         ["runs", `/runs/compare?baseline=${baselineRun}&candidate=${candidateRun}`, "Not observed in candidate"],
+        ["budget", "/budget", "Retaining up to 7 days"],
       ]) {
         assert((await page.goto(base + path)).ok(), path);
         assert.equal(await page.locator("html").getAttribute("data-theme"), theme);

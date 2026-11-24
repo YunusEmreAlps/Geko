@@ -20,6 +20,7 @@ func budgetCommand(ctx context.Context, args []string, out io.Writer) error {
 	flags.SetOutput(out)
 	server := flags.String("server", "", "Geko server URL; set GEKO_TOKEN for read access")
 	previous := flags.Bool("previous", false, "report the previous UTC hour")
+	hour := flags.String("hour", "", "report a whole UTC hour from configured history (RFC3339)")
 	asJSON := flags.Bool("json", false, "output the report as JSON")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -29,6 +30,17 @@ func budgetCommand(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if flags.NArg() != 0 {
 		return errors.New("usage: geko budget [--server URL] [--previous] [--json]")
+	}
+	var selectedHour time.Time
+	if *hour != "" {
+		var err error
+		selectedHour, err = budget.ParseHour(*hour)
+		if err != nil {
+			return err
+		}
+		if *previous {
+			return errors.New("choose --hour or --previous")
+		}
 	}
 	token := os.Getenv("GEKO_TOKEN")
 	if *server == "" {
@@ -53,6 +65,9 @@ func budgetCommand(ctx context.Context, args []string, out io.Writer) error {
 	if *previous {
 		endpoint += "?previous=true"
 	}
+	if *hour != "" {
+		endpoint += "?hour=" + selectedHour.Format(time.RFC3339)
+	}
 	body, err := gekoGet(ctx, endpoint, token)
 	if errors.Is(err, errTokenRequired) {
 		return errors.New("set GEKO_TOKEN to a read token or the access token")
@@ -64,6 +79,9 @@ func budgetCommand(ctx context.Context, args []string, out io.Writer) error {
 	if err := json.Unmarshal(body, &report); err != nil {
 		return fmt.Errorf("decode telemetry budget: %w", err)
 	}
+	if *hour != "" && !report.Start.Equal(selectedHour) {
+		return errors.New("server did not return the requested budget hour")
+	}
 	if *asJSON {
 		return json.NewEncoder(out).Encode(report)
 	}
@@ -72,6 +90,24 @@ func budgetCommand(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	var text strings.Builder
+	if report.HistoryDays > 0 {
+		fmt.Fprintf(&text, "History: %d days; volume is checkpointed, cardinality is process-local.\n", report.HistoryDays)
+	}
+	if report.Partial {
+		text.WriteString("Partial observation window; incomplete/ambiguous coverage or an unfinished hour prevents a like-for-like rate comparison.\n")
+	}
+	if report.CheckpointFailed {
+		text.WriteString("History checkpoint unavailable; newest counters remain memory-only.\n")
+	}
+	if report.DiscardedCheckpoints > 0 {
+		fmt.Fprintf(&text, "History limit discarded %d older checkpoints; missing coverage is not zero traffic.\n", report.DiscardedCheckpoints)
+	}
+	if report.ChangesTruncated {
+		text.WriteString("Some previous-hour services are omitted from the bounded change list.\n")
+	}
+	if report.SpanDelta != nil && report.ByteDelta != nil {
+		fmt.Fprintf(&text, "Change from previous complete hour: %+d spans, %+d bytes.\n", *report.SpanDelta, *report.ByteDelta)
+	}
 	fmt.Fprintf(&text, "Telemetry budget %s to %s\nObserved since %s: %d spans, %d protobuf span bytes\n",
 		report.Start.Format(time.RFC3339), report.End.Format(time.RFC3339),
 		report.ObservedSince.Format(time.RFC3339), report.Total.Spans, report.Total.Bytes)
@@ -81,6 +117,9 @@ func budgetCommand(ctx context.Context, args []string, out io.Writer) error {
 			name = service.Namespace + "/" + name
 		}
 		fmt.Fprintf(&text, "  %s: %d spans, %d bytes", name, service.Spans, service.Bytes)
+		if service.SpanDelta != nil && service.ByteDelta != nil {
+			fmt.Fprintf(&text, " (previous complete hour: %+d spans, %+d bytes)", *service.SpanDelta, *service.ByteDelta)
+		}
 		if service.SpanOverage > 0 || service.ByteOverage > 0 {
 			fmt.Fprintf(&text, " (over budget by %d spans and %d bytes)", service.SpanOverage, service.ByteOverage)
 		}

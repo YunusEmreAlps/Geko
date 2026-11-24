@@ -14,6 +14,7 @@ goes to standard output, for a job summary.
 
 import argparse
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -70,19 +71,38 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--current", required=True)
     parser.add_argument("--baseline")
+    parser.add_argument("--require-baseline", action="store_true", help="fail if a baseline is missing instead of reporting only")
     parser.add_argument("--ingest")
     parser.add_argument("--factor", type=float, default=1.5)
     arguments = parser.parse_args()
-    if arguments.factor <= 1:
+    if not math.isfinite(arguments.factor) or arguments.factor <= 1:
         parser.error("--factor must be above 1")
+    if arguments.require_baseline and (not arguments.baseline or not Path(arguments.baseline).is_file()):
+        parser.error("the required baseline is missing")
     try:
-        current = medians(load(arguments.current))
+        current_record = load(arguments.current)
+        current = medians(current_record)
         baseline = None
         if arguments.baseline and Path(arguments.baseline).exists():
-            baseline = medians(load(arguments.baseline))
+            baseline_record = load(arguments.baseline)
+            baseline = medians(baseline_record)
+            if arguments.require_baseline:
+                current_platform = current_record.get("host", {}).get("platform")
+                baseline_platform = baseline_record.get("host", {}).get("platform")
+                if current_platform and baseline_platform and current_platform != baseline_platform:
+                    raise ValueError("current and baseline platforms do not match")
+                for label, values in [("current", current), ("baseline", baseline)]:
+                    for name, _, _ in METRICS:
+                        value = values.get(name)
+                        if type(value) not in (int, float) or not math.isfinite(value) or value <= 0:
+                            raise ValueError(f"{label} measurement is missing a valid positive {name}")
     except ValueError as error:
         parser.error(str(error))
     rows, failures = compare(current, baseline, arguments.factor)
+    for index, round_ in enumerate(current_record.get("rounds", []), 1):
+        refused = round_.get("parallel_exports_rejected_503", 0)
+        if refused:
+            failures.append(f"round {index}: {refused:g} exports refused with HTTP 503 (a median cannot hide a refusal)")
     print("### Geko benchmarks\n")
     if baseline is None:
         print("No baseline yet: these figures are informational. Commit them as the baseline to start comparing.\n")

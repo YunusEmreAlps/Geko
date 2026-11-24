@@ -17,10 +17,19 @@ start 14–15 only when observed usage supports the need.
       from another directory and the Action using the released binary.
 - [x] Update Scoop and Homebrew from the published v0.2.0 checksums.
       Windows installation/checksum, seeded demo readiness and MCP absolute
-      paths were verified with the installed release. Package-manager installs,
-      other operating systems and the hosted release Action remain unverified.
-- [ ] Capture the Linux nightly baseline from the actual job and repeat the
-      large-database migration measurement on Linux. Keep Windows records.
+      paths were verified with the installed release. Linux/amd64 archive
+      installation, MCP setup paths and seeded demo also passed in Docker on
+      2026-11-24 ([record](benchmarks/2026-11-24-docker-validation.md)).
+      Package-manager installs, native macOS and the hosted release Action
+      remain unverified.
+- [x] Capture the Linux nightly baseline from the actual job (2026-11-24),
+      with the artifact digest/provenance and regression-guard self-tests.
+- [x] Repeat the large-database migration measurement on Linux. Schema 15→21
+      passed with 400,000 traces / 800,000 spans: 32.44 s and 1.53× peak
+      main-plus-WAL size, including interruption/retry and concurrent-reader
+      checks ([record](benchmarks/2026-11-24-linux-upgrade-schema15-21.json)).
+      Docker Desktop/WSL2, reconstructed fixture; retain the Windows record
+      and do not treat different data/schema/hosts as a speed comparison.
 - [ ] Record one genuine agent investigation. A public demo is optional until
       hosting is available; the existing local demo remains the primary trial.
 
@@ -76,8 +85,10 @@ indexes, with no new ingest-time ledger or schema. Results are always retained-
 only, partial observations; Geko cannot reconstruct partial deletion or prove
 SDK/workload coverage. The [comparison guide](agents.md#compare-two-runs) explains
 the distinction. Local regression/browser checks cover the implementation;
-the hosted Action and a recorded real code-change walkthrough remain validation
-work, not completed observations.
+the hosted SDK and explicit-baseline Action checks for commit `e60da6b` passed
+on 2026-11-24 ([CI run](https://github.com/YunusEmreAlps/Geko/actions/runs/45254844980)).
+A recorded real code-change walkthrough remains validation work, not a
+completed observation. New changes after that commit need their own hosted run.
 
 **Acceptance:** tests for unchanged, introduced and absent groups, different
 environments, zero exports, omitted run IDs and removed baseline history;
@@ -89,18 +100,26 @@ new run metadata and account for it under the existing capacity policy.
 **Outcome:** answer which service's accepted volume changed over time,
 including across a Geko restart.
 
-- [ ] Persist compact hourly service totals in the existing SQLite store,
+- [x] Persist compact hourly service totals in the existing SQLite store,
       with configurable history retention and bounded service rows.
-- [ ] Show comparable completed/partial windows and changes by service in
+- [x] Show comparable completed/partial windows and changes by service in
       the existing Budget page and CLI. Keep the current byte definition:
       normalized protobuf size before masking, not network traffic or billing.
-- [ ] Keep cardinality fingerprints ephemeral. Do not store raw attribute
+- [x] Keep cardinality fingerprints ephemeral. Do not store raw attribute
       values or claim exact counts after tracking caps. Reports retain the
       current lower-bound and Other services disclosures.
-- [ ] Define crash semantics before implementation: periodic checkpoints
+- [x] Define crash semantics before implementation: periodic checkpoints
       must disclose possible loss of the latest interval; exact transactionally
       committed totals require measured ingest cost. Budget persistence must
       not silently change the acknowledgement contract or block trace writes.
+
+Implemented as opt-in `history_days: 1–30` (default off), one-minute cumulative
+session/hour checkpoints in schema 21. Restart aggregation excludes the live
+session's saved copy. Gaps and partial hours suppress like-for-like deltas.
+History yields to busy ingestion and skips near capacity; it may briefly
+contend for the serialized writer but never changes trace acknowledgements or
+evicts trace data. Its 1,024-record bound and discarded-record counter keep
+coverage loss explicit. See [history semantics](telemetry-budget.md#optional-volume-history).
 
 **Acceptance:** restart, partial-hour, counter-reset, overflow, retention and
 capacity tests; paired enabled/disabled ingest measurements before choosing
@@ -123,6 +142,50 @@ telemetry. No general-purpose metrics backend or billing estimate.
 **Acceptance:** repeat the same tasks after changes, publish the observations
 without claiming statistical significance from five participants, and run the
 existing browser/accessibility checks. No redesign solely for novelty.
+
+**Readiness check (2026-11-24):** the [study harness](../scripts/usability-study.py)
+and [facilitator instructions](competitive-research.md#facilitated-study) are
+available. The [results sheet](usability-results.csv) still contains only the
+assigned attempt order, with no participant observations. Automated tests and
+agent reviews do not replace these sessions. Collect the sessions before
+choosing changes or marking this phase complete. Both study fixtures passed
+against the current Docker image and
+Jaeger on 2026-11-24 ([record](benchmarks/2026-11-24-docker-validation.md));
+this validates their data, not participant usability outcomes.
+
+### Phase 16: dynamic settings (after the preceding phases)
+
+Requested on 2026-11-24. Complete the remaining phase validation and the
+feedback-led phase 15 work first; do not start runtime configuration work
+ahead of them.
+
+**Outcome:** administrators can change supported settings without restarting,
+with clear application status and durable configuration.
+
+- [ ] Add a central runtime settings manager with validation, immutable
+      snapshots, configuration revision checks and last-known-good behavior.
+- [ ] Persist supported UI edits atomically to the resolved YAML file,
+      preserving comments. Retain `env > YAML > default`; environment-managed
+      fields are locked with their source shown. Handle read-only mounts.
+- [ ] Start with trace links, owner mappings and Budget limits. Preserve
+      counters and consistently update the dashboard, CLI/MCP and notifications.
+- [ ] Add controlled reconfiguration for retention, size/full policies,
+      checkpoint workers and notification schedules. Preview destructive
+      retention effects; applying a smaller file limit does not compact it.
+- [ ] Redesign admission concurrency before making it live: replacing the
+      existing channel while requests are active is unsafe. Apply privacy
+      policy changes at export boundaries and disclose historical-data effects.
+- [ ] Keep listener addresses, database paths and access-surface changes
+      restart-required initially. Existing token-file reload stays supported.
+- [ ] Require admin access, CSRF protection, safe audit records and explicit
+      saved/applied/restart-required/error states. Secret values never appear
+      in configuration responses or audit diffs.
+
+**Acceptance:** concurrent ingest plus configuration updates under `-race`,
+invalid-update rollback, restart persistence, stale-edit conflicts, env locks,
+read-only filesystem failures, admin/viewer isolation and worker lifecycle
+tests. Do not claim atomic multi-component rollback until it is implemented
+and tested; expose partial failures if any operation cannot be reversed.
 
 **Scope boundary:** retain single-instance SQLite and durable ingest by default.
 Distributed storage, production HA, logs/metrics storage, account management,
@@ -171,7 +234,11 @@ Next development order from that review:
    upgrade of 400,000 traces was measured on 2026-11-23: 1.43× peak disk,
    atomic rollback when interrupted, and a concurrent reader that blocks only
    WAL truncation ([record](benchmarks/2026-11-23-upgrade-schema15-20.json)).
-   A Linux run remains to be recorded.
+   A Linux schema 15→21 run passed on 2026-11-24: 32.44 s, 1.53× peak
+   main-plus-WAL size, successful atomic rollback/retry and the same reader
+   behavior ([record](benchmarks/2026-11-24-linux-upgrade-schema15-21.json)).
+   The fixture was reconstructed at the same scale, not byte-identical;
+   platform and target-schema differences prevent a speed comparison.
 
 Durable acknowledgement stays the default. Opportunistic group commit already
 exists; an optional early-ack policy is a deferred decision, not a release gate.
@@ -367,8 +434,10 @@ are addressed here, starting with the ones a shared instance hits first.
       and [`scripts/bench-ingest-concurrency.py`](../scripts/bench-ingest-concurrency.py)
       in CI that publishes their JSON and fails on a regression beyond a
       configured factor, or any export refused with HTTP 503.
-- [ ] Commit the first nightly result as `docs/benchmarks/ci-baseline.json`,
-      so the nightly run compares instead of only reporting.
+- [x] Record the first real Linux nightly result as
+      `docs/benchmarks/ci-baseline.json`, with artifact checksum provenance.
+      The workflow now requires this file and tests its regression/refusal
+      guards; Windows measurements are not used as the CI baseline.
 - [x] A soak run of one million spans at a 64 MiB limit, with a restart
       halfway. Schema 16 was retested: the file held at the limit, no export
       was refused, sampled memory peaked at 36.26 MiB, and restart took
