@@ -1,6 +1,6 @@
 {{define "connect"}}
 <header class="page-head"><div class="title"><h1>Connect an application</h1></div></header>
-<form class="filters" action="/connect" method="get">
+<form class="filters connect-form" action="/connect" method="get">
   <label>Service name <input name="service" value="{{.Service}}" maxlength="64" required></label>
   <label>Application <input name="application" value="{{.Application}}" maxlength="64" placeholder="Optional"></label>
   <label>Protocol
@@ -14,11 +14,11 @@
   </label>{{end}}
   <div class="filter-actions"><button class="button" type="submit">Update</button></div>
 </form>
-{{if .Error}}<p class="notice" role="alert">{{.Error}}</p>
+{{if .Error}}<p class="notice notice--error" role="alert">{{.Error}}</p>
 {{else}}
 <section class="section first">
-  <h2>Environment</h2>
-  <p class="muted">The OpenTelemetry SDKs and zero-code agents read these variables. The application groups this service's spans{{if .Application}} under <strong>{{.Application}}</strong>{{else if .Bound}} under <strong>{{.Bound}}</strong>, the application the <code>{{.Token}}</code> token is bound to{{else}} by service name{{end}}.</p>
+  <h2>1. Configure your exporter</h2>
+  <p class="muted">Set these variables before starting your application. Geko groups this service's spans{{if .Application}} under <strong>{{.Application}}</strong>{{else if .Bound}} under <strong>{{.Bound}}</strong>, the application the <code>{{.Token}}</code> token is bound to{{else}} by service name{{end}}.</p>
   {{if .AccessToken}}<p class="note">Set <code>GEKO_INGEST_TOKEN</code> in the application's environment to {{if .Token}}the <code>{{.Token}}</code> token from <code>GEKO_INGEST_TOKENS</code>{{else}}an ingest token. None is configured: add one to <code>GEKO_INGEST_TOKENS</code> and restart Geko rather than sharing the access token{{end}}. Geko only stores a hash, so it can't show the value.</p>{{end}}
   <div class="expanders">
     <details open><summary>Bash</summary><pre class="snippet"><code>{{.Bash}}</code></pre></details>
@@ -26,27 +26,13 @@
     <details><summary>Docker Compose</summary><pre class="snippet"><code>{{.Compose}}</code></pre></details>
   </div>
 </section>
-<section class="section">
-  <h2>Instrument the application</h2>
-  <dl class="properties">
-    <div><dt>Go</dt><dd>Add the SDK and an OTLP exporter in code. See <code>examples/go</code> in the Geko repository.</dd></div>
-    <div><dt>Node.js</dt><dd><pre class="snippet"><code>npm install @opentelemetry/api @opentelemetry/auto-instrumentations-node
-node --require @opentelemetry/auto-instrumentations-node/register app.js</code></pre></dd></div>
-    <div><dt>Python</dt><dd><pre class="snippet"><code>pip install opentelemetry-distro opentelemetry-exporter-otlp
-opentelemetry-bootstrap -a install
-opentelemetry-instrument python app.py</code></pre></dd></div>
-    <div><dt>Java</dt><dd><pre class="snippet"><code>java -javaagent:opentelemetry-javaagent.jar -jar app.jar</code></pre></dd></div>
-    <div><dt>.NET</dt><dd>Install OpenTelemetry .NET Automatic Instrumentation, or add the SDK with the OTLP exporter.</dd></div>
-  </dl>
-  <p class="note">More languages: <a href="https://opentelemetry.io/docs/zero-code/">OpenTelemetry zero-code instrumentation</a>.</p>
-</section>
 <section class="section" id="connection-check">
-  <h2>Check</h2>
-  <p class="muted">Send a request to the application, then look for its traces. Spans arrive after the exporter's batch delay, usually a few seconds.</p>
+  <h2>2. Verify telemetry</h2>
+  <p class="muted">Send a request to the application, then start a check. Allow a few seconds for the exporter's batch delay.</p>
   {{if .Check.Available}}
   {{if .Check.Started}}
-  <p role="status">{{if .Check.Samples}}Telemetry observed for <strong>{{.Service}}</strong>.{{else if .Check.Expired}}The check has ended. No matching recent sample is available.{{else}}Waiting for telemetry from <strong>{{.Service}}</strong>.{{end}}</p>
-  <p class="muted">Observation ends at {{timestamp .Check.Until}}. Use Check again after sending a request. No data does not prove that instrumentation is missing.</p>
+  <p class="notice {{if .Check.Samples}}notice--success{{else}}notice--info{{end}}" role="status">{{if .Check.Samples}}Telemetry observed for <strong>{{.Service}}</strong>.{{else if .Check.Expired}}The check has ended. No matching recent sample is available.{{else}}Waiting for telemetry from <strong>{{.Service}}</strong>.{{end}}</p>
+  <p class="muted">Observation ends at {{timestamp .Check.Until}}. Use Check again after sending a request.</p>
   {{range .Check.Samples}}
   <dl class="properties">
     <div><dt>Namespace</dt><dd>{{if .Namespace}}{{.Namespace}}{{else}}Not set{{end}}</dd></div>
@@ -58,16 +44,35 @@ opentelemetry-instrument python app.py</code></pre></dd></div>
   </dl>
   {{end}}
   {{if .Check.Replacements}}<p class="note">Recent service history is limited to 128 identities; older entries have been replaced. Absence from this check is inconclusive.</p>{{end}}
-  <details><summary>Receiver context — all applications</summary>
+  <details class="reference-details"><summary>Receiver context — all applications</summary>
     <p class="muted">Counters are since Geko started, not just this check, and cannot be attributed to this service. Authentication failures happen before the receiver; check Geko logs for 401/403 responses.</p>
     <dl class="properties"><div><dt>Accepted exports</dt><dd>{{.Check.Diagnostics.AcceptedExports}}</dd></div>{{range .Check.Diagnostics.Rejections}}{{if .Count}}<div><dt>{{.Reason}}</dt><dd>{{.Count}}</dd></div>{{end}}{{end}}</dl>
     <p>Check the endpoint and protocol above, ingest credentials, and the SDK's shutdown/flush. An idle application or a sampled-out request may export nothing.</p>
   </details>
   <p>{{if not .Check.Expired}}<a class="button" href="{{.Check.RefreshURL}}">Check again</a> {{end}}<a class="button ghost" href="{{.Check.StartURL}}">Start a new 60-second check</a></p>
   {{else}}<p><a class="button" href="{{.Check.StartURL}}">Start a 60-second check</a></p>{{end}}
-  <p class="muted">Checks use one sample from the latest committed OTLP export per namespace, service and environment, kept in memory for up to five minutes. Imports and old stored traces are excluded. A newer sample can replace an earlier one; versions and run IDs are representative, not exhaustive. Token selection configures the snippets, not proof of which credential exported a sample.</p>
+  <p class="note">No observed telemetry does not prove that instrumentation is missing.</p>
+  <details class="reference-details"><summary>What this check observes</summary>
+    <p>Checks use one sample from the latest committed OTLP export per namespace, service and environment, kept in memory for up to five minutes. Imports and old stored traces are excluded. A newer sample can replace an earlier one; versions and run IDs are representative, not exhaustive. Token selection configures the snippets, not proof of which credential exported a sample.</p>
+  </details>
   {{end}}
   <p><a class="button" href="{{.TracesURL}}">Traces from {{.Service}}</a> <a class="button ghost" href="/settings#receiver">Receiver diagnostics</a></p>
+</section>
+<section class="section">
+  <details class="reference-details">
+    <summary>Need to instrument your application?</summary>
+    <dl class="properties">
+      <div><dt>Go</dt><dd>Add the SDK and an OTLP exporter in code. See <code>examples/go</code> in the Geko repository.</dd></div>
+      <div><dt>Node.js</dt><dd><pre class="snippet"><code>npm install @opentelemetry/api @opentelemetry/auto-instrumentations-node
+node --require @opentelemetry/auto-instrumentations-node/register app.js</code></pre></dd></div>
+      <div><dt>Python</dt><dd><pre class="snippet"><code>pip install opentelemetry-distro opentelemetry-exporter-otlp
+opentelemetry-bootstrap -a install
+opentelemetry-instrument python app.py</code></pre></dd></div>
+      <div><dt>Java</dt><dd><pre class="snippet"><code>java -javaagent:opentelemetry-javaagent.jar -jar app.jar</code></pre></dd></div>
+      <div><dt>.NET</dt><dd>Install OpenTelemetry .NET Automatic Instrumentation, or add the SDK with the OTLP exporter.</dd></div>
+    </dl>
+    <p class="note">More languages: <a href="https://opentelemetry.io/docs/zero-code/">OpenTelemetry zero-code instrumentation</a>.</p>
+  </details>
 </section>
 {{end}}
 {{end}}

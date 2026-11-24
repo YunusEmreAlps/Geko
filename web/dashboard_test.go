@@ -137,11 +137,47 @@ func TestDashboardInvestigation(t *testing.T) {
 	get("/failures?status=500", http.StatusOK, "No matching traces")
 	get("/overview", http.StatusOK, "Most frequent operations", "checkout span", "Recent failures")
 	anchor := hex.EncodeToString(spans[9].ID[:])
-	get(tracePath, http.StatusOK, "Next spans", "checkout span", "reserve stock", path+"#span-details", "evidence_after="+anchor, "Partial map")
-	get(tracePath+"?evidence_after="+anchor, http.StatusOK, "First evidence", "status evidence")
-	get(path, http.StatusOK, "Span waterfall", "Span details", "aria-current=\"true\"", "payments.go:12", "Unavailable", "First spans", "Open source in VS Code", "vscode://file/app/payments.go:12")
+	traceBody := get(tracePath, http.StatusOK, "Next spans", "checkout span", "reserve stock", path+"#span-details", "evidence_after="+anchor, "Partial map")
+	// The primary exception must stay outside the collapsed secondary list.
+	featured, _, ok := strings.Cut(traceBody, `<details class="other-evidence"`)
+	if !ok || !strings.Contains(featured, tracePath+"?span="+hex.EncodeToString(early.ID[:])+"#span-details") {
+		t.Fatal("primary evidence was hidden inside the paged disclosure")
+	}
+	paged := get(tracePath+"?evidence_after="+anchor, http.StatusOK, "First evidence", "status evidence")
+	if !strings.Contains(paged, `<details class="other-evidence" open>`) {
+		t.Fatal("explicit evidence pagination should expose the requested page")
+	}
+	// Status evidence is ranked after exceptions; this span is beyond the
+	// first evidence page, but its explicit selection must still be visible.
+	selectedPath := tracePath + "?span=" + hex.EncodeToString(spans[11].ID[:])
+	selectedBody := get(selectedPath, http.StatusOK, "status evidence")
+	featured, _, _ = strings.Cut(selectedBody, `<details class="other-evidence"`)
+	if !strings.Contains(featured, selectedPath+`#span-details" class="operation" aria-current="true"`) {
+		t.Fatal("selected secondary evidence was not featured")
+	}
+	selectedBody = get(path, http.StatusOK, "Span waterfall", "Span details", "aria-current=\"true\"", "payments.go:12", "Unavailable", "First spans", "Open source in VS Code", "vscode://file/app/payments.go:12")
+	featured, _, _ = strings.Cut(selectedBody, `<details class="other-evidence"`)
+	if !strings.Contains(featured, path+`#span-details" class="operation" aria-current="true"`) {
+		t.Fatal("selected evidence beyond the map limit was not featured")
+	}
 	get(tracePath+"?span=0909090909090909", http.StatusOK, "Span unavailable")
 	get("/traces/"+strings.Repeat("a", 32), http.StatusNotFound, "Trace not found")
+	// An implicitly selected HTTP-error root must not displace a child's
+	// higher-ranked exception. Explicit selection remains a separate choice.
+	errorRoot := spans[0]
+	errorRoot.TraceID = telemetry.TraceID{3}
+	errorRoot.Attributes = telemetry.Attributes{"http.response.status_code": 502}
+	errorChild := spans[1]
+	errorChild.TraceID = errorRoot.TraceID
+	if err := store.WriteSpans(t.Context(), time.Now(), []telemetry.Span{errorRoot, errorChild}); err != nil {
+		t.Fatal(err)
+	}
+	errorPath := "/traces/" + hex.EncodeToString(errorRoot.TraceID[:])
+	traceBody = get(errorPath, http.StatusOK, "HTTP 502")
+	featured, _, _ = strings.Cut(traceBody, `<details class="other-evidence"`)
+	if !strings.Contains(featured, errorPath+"?span="+hex.EncodeToString(errorChild.ID[:])+"#span-details") {
+		t.Fatal("implicit root selection displaced the primary exception")
+	}
 }
 
 func TestTraceEndpointForWildcardListeners(t *testing.T) {

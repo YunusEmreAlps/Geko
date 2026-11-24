@@ -1,6 +1,16 @@
 {{define "settings"}}
-<header class="page-head"><div class="title"><h1>Settings</h1></div></header>
-<section class="section">
+<header class="page-head">
+  <div class="title"><h1>Settings</h1></div>
+  {{if or .CollectorDoctor.Enabled .TelemetryBudget}}<div class="actions tool-links">
+    {{if .CollectorDoctor.Enabled}}<a class="button" href="/collector-doctor">Collector Doctor</a>{{end}}
+    {{if .TelemetryBudget}}<a class="button" href="/budget">Telemetry Budget</a>{{end}}
+  </div>{{end}}
+</header>
+<nav class="section-nav" aria-label="Settings sections">
+  <a href="#appearance">Appearance</a><a href="#receiver">Receiver</a><a href="#notifications">Notifications</a><a href="#ownership">Ownership</a><a href="#storage">Storage</a><a href="#configuration">Configuration</a>
+</nav>
+<p class="settings-scope muted">Theme is saved in this browser. Server configuration below is read-only; edit YAML or environment variables and restart Geko to change it.</p>
+<section class="section first" id="appearance">
   <h2>Appearance</h2>
   <div class="properties">
     <div class="theme-preference">
@@ -17,8 +27,6 @@
 </section>
 <section class="section" id="receiver">
   <h2>Receiver</h2>
-  {{if .CollectorDoctor.Enabled}}<p><a href="/collector-doctor">Open Collector Doctor</a></p>{{end}}
-  {{if .TelemetryBudget}}<p><a href="/budget">Open Telemetry Budget</a></p>{{end}}
   {{if .Receiver}}<p class="muted">Counts cover the current server session.</p>{{end}}
   <dl class="properties">
     <div><dt>Listener</dt><dd><code>{{.ListenAddr}}</code>{{template "settings-source" .ConfigSource.ListenAddr}}</dd></div>
@@ -44,7 +52,7 @@
 </section>
 <section class="section" id="notifications">
   <h2>Notifications</h2>
-  {{if eq .Notification "sent"}}<p class="notice" role="status">Test notification sent.</p>{{else if eq .Notification "failed"}}<p class="notice" role="alert">The test notification failed. The server log has the reason.</p>{{end}}
+  {{if eq .Notification "sent"}}<p class="notice notice--success" role="status">Test notification sent.</p>{{else if eq .Notification "failed"}}<p class="notice notice--error" role="alert">The test notification failed. The server log has the reason.</p>{{end}}
   <dl class="properties">
     {{with .Notifications}}
     <div><dt>Webhook</dt><dd>{{if .Host}}<code>{{.Format}}</code> to <code>{{.Host}}</code> <span class="subtle">Set by <code>GEKO_WEBHOOK_URL</code>{{if .Applications}}; groups of other applications{{end}}</span>{{else}}None for other applications <span class="subtle">Set <code>GEKO_WEBHOOK_URL</code> to notify about them</span>{{end}}</dd></div>
@@ -57,14 +65,14 @@
   </dl>
   {{if and .Notifications (not .ReadOnly)}}<form action="/settings/notifications/test" method="post" data-loading><button class="button" type="submit">Send test notification</button></form>{{end}}
 </section>
-<section class="section">
+<section class="section" id="ownership">
   <h2>Ownership</h2>
   <dl class="properties">
     {{range .Owners.Rules}}<div><dt>{{if eq .Kind "service"}}Service{{else}}Application{{end}} {{.Name}}</dt><dd>{{.Team}}</dd></div>
     {{else}}<div><dt>Owners</dt><dd>None <span class="subtle">Set <code>owners</code> in YAML or <code>GEKO_OWNERS</code> to name the team owning each group in notifications and here</span></dd></div>{{end}}
   </dl>
 </section>
-<section class="section">
+<section class="section" id="storage">
   <h2>Storage</h2>
   <dl class="properties">
     <div><dt>Database</dt><dd><code>{{.DBPath}}</code>{{template "settings-source" .ConfigSource.DBPath}}</dd></div>
@@ -81,7 +89,7 @@
     <div><dt>Database status</dt><dd><span class="status-ok">Reachable</span></dd></div>
   </dl>
 </section>
-<section class="section">
+<section class="section" id="configuration">
   <h2>Configuration</h2>
   <dl class="properties">
     <div><dt>Build</dt><dd><code>{{.Version}}</code></dd></div>
@@ -92,4 +100,4 @@
 </section>
 {{end}}
 
-{{define "settings-source"}}{{if .Kind}} <span class="subtle">{{.Kind}}{{with .Variable}} · Set by <code>{{.}}</code>{{end}}</span>{{end}}{{end}}
+{{define "settings-source"}}{{if .Kind}} <span class="subtle config-source">{{.Kind}}{{with .Variable}} · Set by <code>{{.}}</code>{{end}}</span>{{end}}{{end}}

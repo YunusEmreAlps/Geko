@@ -14,6 +14,12 @@ func previousBudget(r *http.Request) bool { return r.URL.Query().Get("previous")
 
 var errBudgetHour = errors.New("invalid or conflicting UTC hour")
 
+type budgetPageView struct {
+	budget.Report
+	CurrentHour  bool
+	PreviousHour bool
+}
+
 func (d *dashboard) budgetPage(w http.ResponseWriter, r *http.Request) {
 	d.withQuery(w, r, func(ctx context.Context) {
 		report, err := d.budgetReport(ctx, r)
@@ -25,7 +31,11 @@ func (d *dashboard) budgetPage(w http.ResponseWriter, r *http.Request) {
 			d.problem(w, r, http.StatusServiceUnavailable, "Budget history unavailable", "Check the requested UTC hour and database; no missing measurements are assumed to be zero.")
 			return
 		}
-		d.render(w, r, http.StatusOK, "budget", "Telemetry Budget", report)
+		current := time.Now().UTC().Truncate(time.Hour)
+		d.render(w, r, http.StatusOK, "budget", "Telemetry Budget", budgetPageView{
+			Report: report, CurrentHour: report.Start.Equal(current),
+			PreviousHour: report.Start.Equal(current.Add(-time.Hour)),
+		})
 	})
 }
 

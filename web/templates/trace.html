@@ -9,9 +9,11 @@
   <div class="actions">
     {{if and .Trace.Evidence .Trace.EntrySpan}}<a class="button" href="/traces/{{.Trace.TraceID}}/compare"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Compare with success</a>{{end}}
     {{if .BugEvidence}}<button type="button" class="button" data-copy="bug-evidence" data-copy-status="bug-evidence-status" hidden><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>Copy as bug evidence</button><span role="status" class="sr-only" id="bug-evidence-status"></span>{{end}}
+    <details class="trace-tools"><summary class="button ghost">More actions</summary><div class="trace-tools-content">
     {{if .TraceLink}}<a class="button" href="{{.TraceLink}}" target="_blank" rel="noopener noreferrer"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in {{.TraceLinkName}}</a>{{end}}
     {{if .CanTriage}}<form action="/traces/{{.Trace.TraceID}}/pin" method="post"><input type="hidden" name="pinned" value="{{if .Trace.Pin}}false{{else}}true{{end}}"><button class="button" type="submit" title="{{if .Trace.Pin}}Let retention and eviction remove this trace again{{else}}Keep this trace past retention and capacity eviction{{end}}"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 17v5"/><path d="M9 3h6l-1 6 4 4v2H6v-2l4-4z"/></svg>{{if .Trace.Pin}}Unpin{{else}}Pin trace{{end}}</button></form>{{end}}
     <a class="button" href="/traces/{{.Trace.TraceID}}/otlp.json" download><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/></svg>Download OTLP JSON</a>
+    </div></details>
   </div>
 </header>
 {{with .BugEvidence}}<pre id="bug-evidence" hidden>{{.}}</pre>{{end}}
@@ -28,18 +30,13 @@
 {{if .Trace.Evidence}}
 <section class="section" id="evidence" aria-labelledby="evidence-title">
   <h2 id="evidence-title">Evidence</h2>
-  {{if .Evidence}}
+  {{if .FeaturedEvidence}}
   <ul class="evidence-list">
-    {{range .Evidence}}
-    <li>
-      <a href="{{.URL}}" class="operation"{{if .Selected}} aria-current="true"{{end}}>{{.Operation}}</a>
-      <span class="subtle">{{serviceLabel .Application .Service}} · <span class="evidence-label">{{classification .Classification}}</span></span>
-      {{with .ExceptionMessage}}<p class="subtle">{{.}}</p>{{end}}
-      {{with .ExceptionType}}<p class="subtle">{{.}}</p>{{end}}
-      {{with .ExceptionHash}}<p class="subtle">SHA-256 <code>{{.}}</code></p>{{end}}
-    </li>
-    {{end}}
+    {{with .FeaturedEvidence}}{{template "trace-evidence-row" .}}{{end}}
   </ul>
+  {{if .OtherEvidence}}<details class="other-evidence"{{if .ExpandEvidence}} open{{end}}><summary>Other evidence on this page ({{len .OtherEvidence}})</summary>
+    <ul class="evidence-list">{{range .OtherEvidence}}{{template "trace-evidence-row" .}}{{end}}</ul>
+  </details>{{end}}
   {{else}}<p class="muted">No evidence on this page.</p>{{end}}
   {{if or .EvidenceFirst .EvidenceNext}}
   <nav class="pagination" aria-label="Evidence pages">
@@ -47,12 +44,13 @@
     {{if .EvidenceNext}}<a class="button" href="{{.EvidenceNext}}" rel="next">Next evidence <span aria-hidden="true">→</span></a>{{end}}
   </nav>
   {{end}}
+  <nav class="trace-jumps" aria-label="Trace sections"><a href="#waterfall">Jump to waterfall</a><a href="#span-details">Jump to span details</a></nav>
 </section>
 {{end}}
 <div class="trace-workspace">
 <section class="section timeline">
   {{template "service-map" .ServiceMap}}
-  <details class="waterfall-disclosure" open>
+  <details class="waterfall-disclosure" id="waterfall" open>
   <summary>Span waterfall</summary>
   <h2 class="sr-only">Span waterfall</h2>
   {{if .Rows}}
@@ -109,6 +107,16 @@
   {{end}}
 </section>
 </div>
+{{end}}
+
+{{define "trace-evidence-row"}}
+<li>
+  <a href="{{.URL}}" class="operation"{{if .Selected}} aria-current="true"{{end}}>{{.Operation}}</a>
+  <span class="subtle">{{serviceLabel .Application .Service}} · <span class="evidence-label">{{classification .Classification}}</span></span>
+  {{with .ExceptionMessage}}<p class="evidence-message">{{.}}</p>{{end}}
+  {{with .ExceptionType}}<p class="evidence-type"><code>{{.}}</code></p>{{end}}
+  {{with .ExceptionHash}}<p class="subtle">SHA-256 <code>{{.}}</code></p>{{end}}
+</li>
 {{end}}
 
 {{define "attributes"}}

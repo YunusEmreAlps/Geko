@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Refine the investigation UI: keep selected evidence visible above a compact
+  trace workspace, disclose secondary evidence and utility actions, bring
+  Connect verification forward, and prioritize Budget volume over reference
+  text. Settings gains section navigation; mobile retains trace-ID lookup.
+  Improve placeholder/graph contrast and distinguish status message states.
+
 - Optional Telemetry Budget volume history retains bounded hourly session
   checkpoints across restarts (schema 21). UTC-hour selection and complete-hour
   service comparisons are available in the UI, CLI and API. Cardinality stays
@@ -83,8 +89,8 @@
 - Startup explains `reject` blocking on an oversized physical file even when
   pages are reusable, with compact/limit/policy recovery choices. No automatic
   VACUUM or deletion is added to startup.
-- Product, security and performance agent reviews and the next acceptance
-  criteria are recorded in `docs/product-review-2026-11-21.md`.
+- Product, security and performance agent reviews informed the follow-up
+  acceptance criteria tracked in `docs/roadmap.md`.
 - `scripts/bench-paired.py` runs alternating baseline/candidate measurements,
   saves binary and workload hashes, and marks incomplete runs. The comparator
   reads paired candidate medians and rejects unfinished measurements. Native,

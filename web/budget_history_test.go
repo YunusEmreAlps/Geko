@@ -42,6 +42,18 @@ func TestBudgetHistoryAPIAndPage(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "Cardinality is unavailable for persisted history") || !strings.Contains(w.Body.String(), "5 spans") {
 		t.Fatalf("history page %d %s", w.Code, w.Body)
 	}
+	if !strings.Contains(w.Body.String(), `href="/budget?previous=true" aria-current="page"`) {
+		t.Fatal("explicit previous-hour query did not identify its selected period")
+	}
+	for _, query := range []string{"", "?hour=" + url.QueryEscape(hour.Add(-time.Hour).Format(time.RFC3339))} {
+		w = httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1/budget"+query, nil))
+		current := strings.Contains(w.Body.String(), `href="/budget" aria-current="page"`)
+		previous := strings.Contains(w.Body.String(), `href="/budget?previous=true" aria-current="page"`)
+		if w.Code != 200 || current != (query == "") || previous {
+			t.Fatalf("wrong selected period for %q: current=%v previous=%v", query, current, previous)
+		}
+	}
 	w = httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1/api/v1/budget?hour=invalid", nil))
 	if w.Code != http.StatusBadRequest {

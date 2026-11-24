@@ -728,7 +728,7 @@ Reproduce with the scripts from the preceding section and add:
 go test ./internal/storage/sqlite -run '^$' -bench '^BenchmarkGroupingProfiles$' -benchtime=10x -count=1
 ```
 
-The [agent review and next plan](product-review-2026-11-21.md) distinguishes
+The [roadmap](roadmap.md) distinguishes
 completed code from unresolved product findings, operational validation and
 release work.
 

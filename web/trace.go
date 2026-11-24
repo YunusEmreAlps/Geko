@@ -27,6 +27,9 @@ type traceView struct {
 	MissingSpan         bool
 	ServiceMap          serviceMapView
 	Evidence            []evidenceRow
+	FeaturedEvidence    *evidenceRow
+	OtherEvidence       []evidenceRow
+	ExpandEvidence      bool
 	EvidenceFirst       string
 	EvidenceNext        string
 	BugEvidence         string
@@ -122,6 +125,30 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 					Selected: view.Selected != nil && view.Selected.SpanID == item.SpanID,
 				})
 			}
+			featured := *summary.Evidence
+			if filter.Selected != nil && view.Selected != nil && signal(*view.Selected) != "" && view.Selected.SpanID != featured.SpanID {
+				// The selected evidence can be outside the current evidence page.
+				// Use the same snapshot's span; do not add another database query.
+				featured = investigation.Evidence{SpanSummary: view.Selected.SpanSummary, Classification: signal(*view.Selected)}
+				for _, event := range view.Selected.Events {
+					if event.Name == "exception" {
+						featured.ExceptionMessage, _ = event.Attributes["exception.message"].(string)
+						featured.ExceptionType, _ = event.Attributes["exception.type"].(string)
+						featured.ExceptionHash, _ = event.Attributes["exception.message_hash"].(string)
+						break
+					}
+				}
+			}
+			link := maps.Clone(links)
+			link.Del("cursor")
+			link.Set("span", featured.SpanID)
+			view.FeaturedEvidence = &evidenceRow{Evidence: featured, URL: route(path, link) + "#span-details", Selected: view.Selected != nil && view.Selected.SpanID == featured.SpanID}
+			for _, item := range view.Evidence {
+				if item.SpanID != featured.SpanID {
+					view.OtherEvidence = append(view.OtherEvidence, item)
+				}
+			}
+			view.ExpandEvidence = evidenceAfter != nil
 			if evidenceAfter != nil {
 				links.Del("evidence_after")
 				view.EvidenceFirst = route(path, links) + "#evidence"

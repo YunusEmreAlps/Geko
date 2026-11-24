@@ -176,6 +176,12 @@ OTLP/gRPC, a separate dashboard port and receiver limits are in
 
 ## Development
 
+The dashboard's HTML, CSS and JavaScript are embedded in the Go binary. After
+editing them, stop the running Geko process and rebuild/restart it (for example,
+`go run ./cmd/geko serve --open`). A browser refresh alone cannot load UI changes
+from an older running binary. For Docker, rebuild the image and recreate the
+container.
+
 ```sh
 go test ./...
 go vet ./...

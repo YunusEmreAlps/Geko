@@ -2,8 +2,8 @@
 <header class="page-head">
   <div class="title"><h1>Applications</h1></div>
 </header>
-{{if .Saved}}<p class="notice" role="status">Service mapping updated.</p>{{end}}
-{{with .Changed}}<p class="notice" role="status">{{.}} trace assignments changed.</p>{{end}}
+{{if .Saved}}<p class="notice notice--success" role="status">Service mapping updated.</p>{{end}}
+{{with .Changed}}<p class="notice notice--success" role="status">{{.}} trace assignments changed.</p>{{end}}
 <section class="section first">
   <h2>Service mappings</h2>
   <p class="muted">Map an exact service name to an application for past and future spans without a namespace.</p>

@@ -130,6 +130,12 @@ telemetry. No general-purpose metrics backend or billing estimate.
 
 **Outcome:** fewer navigation steps to evidence across several applications.
 
+The user separately requested expert-led design improvements on 2026-11-24.
+The [design review and implementation record](design-review-2026-11-24.md)
+covers that authorized work: evidence density, mobile search, status semantics,
+Budget, Connect and Settings hierarchy. Automated and visual checks passed;
+these changes do not complete the participant study or its outcome measures.
+
 - [ ] Run the existing five-developer study before selecting UI changes;
       record time to evidence, navigation steps and incorrect conclusions.
 - [ ] Candidate changes: shareable filter URLs and local saved views for
@@ -210,10 +216,10 @@ code milestones are implemented:
       once for each application it touched. The breakdown tracks at most 512
       labels of up to 512 UTF-8 bytes; excess memberships go to a visible overflow
       counter. Earlier global losses are not assigned invented application names.
-- [x] Product, security and performance agent source reviews. Their scope,
-      evidence, resolved findings and next acceptance criteria are in the
-      [product review](product-review-2026-11-21.md). These are not human usability
-      sessions or a formal security audit.
+- [x] Product, security and performance agent source reviews. Resolved findings
+      and outstanding validation are tracked below and in the release
+      follow-through checklist. These are not human usability sessions or a
+      formal security audit.
 
 Next development order from that review:
 
