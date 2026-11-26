@@ -28,6 +28,7 @@ func (d *dashboard) regressions(w http.ResponseWriter, r *http.Request) {
 		Rows                                []regressionRow
 		Compared, Truncated, Sampled        bool
 		SampleLimit                         int
+		Suggestions                         comparisonSuggestions
 	}{
 		Baseline: strings.TrimSpace(params.Get("baseline")), Candidate: strings.TrimSpace(params.Get("candidate")),
 		Service: strings.TrimSpace(params.Get("service")), Range: params.Get("range"),
@@ -41,15 +42,17 @@ func (d *dashboard) regressions(w http.ResponseWriter, r *http.Request) {
 		d.problem(w, r, http.StatusBadRequest, "Invalid filters", "Use versions and service names up to 256 bytes and an available time range.")
 		return
 	}
-	if view.Baseline == "" && view.Candidate == "" {
-		d.render(w, r, http.StatusOK, "regressions", "Version regressions", view)
-		return
-	}
-	if view.Baseline == "" || view.Candidate == "" || view.Baseline == view.Candidate {
+	if (view.Baseline != "" || view.Candidate != "") && (view.Baseline == "" || view.Candidate == "" || view.Baseline == view.Candidate) {
 		d.problem(w, r, http.StatusBadRequest, "Invalid versions", "Enter two different service versions.")
 		return
 	}
 	d.withQuery(w, r, func(ctx context.Context) {
+		view.Suggestions = d.comparisonSuggestions(ctx, time.Now().Add(-window), view.Service)
+		if view.Baseline == "" && view.Candidate == "" {
+			d.render(w, r, http.StatusOK, "regressions", "Version regressions", view)
+			return
+		}
+
 		rows, err := d.store.VersionComparisons(ctx, investigation.RegressionFilter{
 			Baseline: view.Baseline, Candidate: view.Candidate, Service: view.Service, Since: time.Now().Add(-window),
 		})

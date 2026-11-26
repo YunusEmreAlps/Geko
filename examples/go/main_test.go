@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
@@ -12,7 +13,36 @@ import (
 
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
+
+func TestLandingPageLinksToScenarios(t *testing.T) {
+	spans := tracetest.NewSpanRecorder()
+	provider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spans))
+	handler := newHandler(provider.Tracer("checkout-test"))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("landing page: got HTTP %d, want 200", response.Code)
+	}
+	if got := response.Header().Get("Content-Type"); !strings.HasPrefix(got, "text/html") {
+		t.Errorf("landing page: got content type %q, want HTML", got)
+	}
+	for _, path := range []string{"/success", "/failure", "/retry"} {
+		if !strings.Contains(response.Body.String(), `href="`+path+`"`) {
+			t.Errorf("landing page missing link to %s", path)
+		}
+	}
+	missing := httptest.NewRecorder()
+	handler.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/missing", nil))
+	if missing.Code != http.StatusNotFound {
+		t.Errorf("unknown path: got HTTP %d, want 404", missing.Code)
+	}
+	if got := len(spans.Started()); got != 0 {
+		t.Errorf("landing and unknown paths started %d spans, want 0", got)
+	}
+}
 
 // Exercise the real SDK, OTLP HTTP receiver, persistence and evidence queries.
 func TestScenariosThroughGeko(t *testing.T) {

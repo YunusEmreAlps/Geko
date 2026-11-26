@@ -20,23 +20,23 @@
 {{if .ChangesTruncated}}<p class="notice notice--warning">Some services from the previous hour are omitted from the bounded change list.</p>{{end}}
 {{if .Available}}
 {{if .SpanDelta}}<p class="note">Change from previous complete hour: {{.SpanDelta}} spans · {{.ByteDelta}} protobuf span bytes.</p>{{end}}
-{{if .Services}}
-<div class="table-wrap" role="region" aria-label="Hourly usage by service" tabindex="0">
-  <table>
-    <thead><tr><th scope="col">Service</th><th scope="col">Spans / limit</th><th scope="col">Bytes / limit</th><th scope="col">High cardinality</th></tr></thead>
-    <tbody>{{range .Services}}
-      <tr>
-        <td><strong>{{.Name}}</strong>{{if .Namespace}}<span class="subtle">{{.Namespace}}</span>{{end}}</td>
-        <td>{{.Spans}} / {{if .Limits.Spans}}{{.Limits.Spans}}{{else}}Unlimited{{end}}{{if .SpanOverage}}<span class="subtle">{{.SpanOverage}} over</span>{{end}}{{if .SpanDelta}}<span class="subtle">Change from previous complete hour: {{.SpanDelta}}</span>{{end}}</td>
-        <td>{{size .Bytes}} / {{if .Limits.Bytes}}{{size .Limits.Bytes}}{{else}}Unlimited{{end}}{{if .ByteOverage}}<span class="subtle">{{size .ByteOverage}} over</span>{{end}}</td>
-        <td>{{range .HighCardinality}}<span class="subtle"><code>{{.Key}}</code> · {{if .AtLeast}}at least {{end}}{{.Distinct}} values</span>{{else}}—{{end}}</td>
+{{if or .Services .Other.Spans}}
+<div class="budget-usage"><div class="table-wrap" role="region" aria-label="Hourly usage by service" tabindex="0">
+  <table class="budget-table" role="table">
+    <thead role="rowgroup"><tr role="row"><th scope="col">Service</th><th scope="col">Spans / limit</th><th scope="col">Bytes / limit</th><th scope="col">High cardinality</th></tr></thead>
+    <tbody role="rowgroup">{{range .Services}}
+      <tr role="row">
+        <th scope="row" role="rowheader"><strong>{{.Name}}</strong>{{if .Namespace}}<span class="subtle">{{.Namespace}}</span>{{end}}</th>
+        <td role="cell"><span class="usage-label" aria-hidden="true">Spans / limit</span>{{.Spans}} / {{if .Limits.Spans}}{{.Limits.Spans}}{{else}}Unlimited{{end}}{{if .SpanOverage}}<span class="subtle">{{.SpanOverage}} over</span>{{end}}{{if .SpanDelta}}<span class="subtle">Change from previous complete hour: {{.SpanDelta}}</span>{{end}}</td>
+        <td role="cell"><span class="usage-label" aria-hidden="true">Bytes / limit</span>{{size .Bytes}} / {{if .Limits.Bytes}}{{size .Limits.Bytes}}{{else}}Unlimited{{end}}{{if .ByteOverage}}<span class="subtle">{{size .ByteOverage}} over</span>{{end}}</td>
+        <td role="cell"><span class="usage-label" aria-hidden="true">High cardinality</span>{{range .HighCardinality}}<span class="subtle"><code>{{.Key}}</code> · {{if .AtLeast}}at least {{end}}{{.Distinct}} values</span>{{else}}—{{end}}</td>
       </tr>
     {{end}}
-    {{if .Other.Spans}}<tr><td>Other services</td><td>{{.Other.Spans}}</td><td>{{size .Other.Bytes}}</td><td>—</td></tr>{{end}}
+    {{if .Other.Spans}}<tr role="row"><th scope="row" role="rowheader">Other services</th><td role="cell"><span class="usage-label" aria-hidden="true">Spans</span>{{.Other.Spans}}</td><td role="cell"><span class="usage-label" aria-hidden="true">Bytes</span>{{size .Other.Bytes}}</td><td role="cell"><span class="usage-label" aria-hidden="true">High cardinality</span>Unavailable</td></tr>{{end}}
     </tbody>
   </table>
-</div>
-{{if .CardinalitySince.IsZero}}<p class="note">Cardinality is unavailable for persisted history.</p>{{end}}
+</div></div>
+{{if .CardinalitySince.IsZero}}<p class="note">Cardinality is unavailable for persisted history.</p>{{else}}<p class="note">Cardinality covers this process only, since {{timestamp .CardinalitySince}}. Volume may include earlier sessions.</p>{{end}}
 {{else}}
 <section class="empty"><h2>No spans counted yet</h2><p>Send an OTLP trace to see service usage.</p></section>
 {{end}}
@@ -52,7 +52,6 @@
   <p class="muted">{{if .CheckpointedAt.IsZero}}This process has not checkpointed yet.{{else}}Last successful checkpoint in this process: {{timestamp .CheckpointedAt}}.{{end}} Newest volume may still be memory-only.</p>
   {{end}}
   {{if .Available}}
-  {{if not .CardinalitySince.IsZero}}<p class="muted">Cardinality covers this process only, since {{timestamp .CardinalitySince}}. Volume may include earlier sessions.</p>{{end}}
   <p class="muted">Cardinality is flagged above {{.CardinalityLimit}} distinct values per attribute.</p>
   {{end}}
 </details>{{end}}

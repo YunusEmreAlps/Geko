@@ -42,14 +42,62 @@ document.querySelectorAll("[data-copy]").forEach((button) => {
   });
 });
 
-const traceSearch = document.querySelector("[data-trace-search]");
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey || !traceSearch) return;
-  if (event.target.closest("input, select, textarea, [contenteditable]")) return;
-  if (getComputedStyle(traceSearch).visibility === "hidden" || !traceSearch.offsetParent) return;
-  event.preventDefault();
-  traceSearch.focus();
-});
+const sidebar = document.querySelector(".sidebar");
+const navPanel = sidebar?.querySelector("#site-nav");
+const navToggle = sidebar?.querySelector("[data-nav-toggle]");
+const searchToggle = sidebar?.querySelector("[data-search-toggle]");
+const searchPanel = sidebar?.querySelector("#site-search");
+const searchSubmit = searchPanel?.querySelector("[type=submit]");
+const traceSearch = sidebar?.querySelector("[data-trace-search]");
+if (navPanel && navToggle && searchToggle && searchPanel && searchSubmit && traceSearch) {
+  const mobile = window.matchMedia("(max-width: 760px)");
+  const setPanel = (panel) => {
+    sidebar.dataset.panel = panel;
+    navToggle.setAttribute("aria-expanded", String(panel === "menu"));
+    searchToggle.setAttribute("aria-expanded", String(panel === "search"));
+  };
+  navToggle.addEventListener("click", () => {
+    setPanel(sidebar.dataset.panel === "menu" ? "" : "menu");
+  });
+  searchToggle.addEventListener("click", () => {
+    const opening = sidebar.dataset.panel !== "search";
+    setPanel(opening ? "search" : "");
+    if (opening) traceSearch.focus();
+  });
+  document.addEventListener("keydown", (event) => {
+    const panel = sidebar.dataset.panel;
+    if (event.key === "Escape" && mobile.matches && panel) {
+      const toggle = panel === "menu" ? navToggle : searchToggle;
+      const contents = panel === "menu" ? navPanel : searchPanel;
+      const focused = document.activeElement;
+      setPanel("");
+      if (focused === toggle || contents.contains(focused)) {
+        event.preventDefault();
+        toggle.focus();
+      }
+      return;
+    }
+    if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+    if (event.target.closest("input, select, textarea, [contenteditable]")) return;
+    event.preventDefault();
+    if (mobile.matches) setPanel("search");
+    traceSearch.focus();
+  });
+  mobile.addEventListener("change", ({ matches }) => {
+    const focused = document.activeElement;
+    if (matches && searchPanel.contains(focused)) {
+      setPanel("search");
+    } else if (matches && navPanel.contains(focused)) {
+      setPanel("menu");
+    } else {
+      if (focused === searchToggle || focused === searchSubmit) traceSearch.focus();
+      if (focused === navToggle) navPanel.querySelector("a").focus();
+      setPanel("");
+    }
+  });
+  // Keep search and navigation visible if the dashboard script cannot run.
+  sidebar.setAttribute("data-disclosures-ready", "");
+}
 
 const loading = document.querySelector(".loading");
 function showLoading() {
@@ -134,7 +182,7 @@ if (spanDetails) {
     sessionStorage.removeItem(key);
   } catch {}
   const keepPlace = () => {
-    if (location.hash !== "#span-details" || !wide.matches) return;
+    if (location.hash !== "#span-details" || !wide.matches || document.querySelector(".reading-wide")) return;
     if (document.activeElement === spanDetails) spanDetails.blur();
     window.scrollTo(0, saved === null ? 0 : Number(saved));
   };
@@ -191,4 +239,63 @@ if (waterfall) {
   waterfall.addEventListener("toggle", () => {
     try { sessionStorage.setItem(key, waterfall.open ? "open" : "closed"); } catch {}
   });
+}
+
+// Enhance existing anchor navigation rather than duplicating settings panels.
+// Without this script the complete document and its links remain available.
+const settingsNav = document.querySelector('nav[aria-label="Settings sections"]');
+if (settingsNav) {
+  const links = [...settingsNav.querySelectorAll('a[href^="#"]')];
+  const sections = links.map((link) => document.getElementById(link.hash.slice(1)));
+  if (sections.length && sections.every(Boolean)) {
+    const mobile = matchMedia("(max-width: 760px)");
+    const picker = document.createElement("div");
+    picker.className = "settings-picker";
+    picker.hidden = true;
+    const label = document.createElement("label");
+    label.textContent = "Settings section";
+    const select = document.createElement("select");
+    select.id = "settings-section";
+    label.htmlFor = select.id;
+    for (const [index, section] of sections.entries()) {
+      select.add(new Option(links[index].textContent, section.id));
+    }
+    picker.append(label, select);
+    settingsNav.before(picker);
+    let selected = sections[0];
+    const sectionForHash = () => {
+      if (location.hash === "#main") return selected;
+      let id;
+      try { id = decodeURIComponent(location.hash.slice(1)); } catch { return sections[0]; }
+      const target = document.getElementById(id);
+      return sections.find((section) => section === target || section.contains(target)) || sections[0];
+    };
+    const activate = (focus = false) => {
+      selected = sectionForHash();
+      select.value = selected.id;
+      const active = document.activeElement;
+      for (const [index, section] of sections.entries()) {
+        section.hidden = mobile.matches && section !== selected;
+        if (section === selected) links[index].setAttribute("aria-current", "location");
+        else links[index].removeAttribute("aria-current");
+      }
+      if (!mobile.matches && picker.contains(active)) {
+        links[sections.indexOf(selected)].focus({ preventScroll: true });
+      }
+      picker.hidden = !mobile.matches;
+      settingsNav.hidden = mobile.matches;
+      if (mobile.matches && (focus || sections.some((section) => section.hidden && section.contains(active)))) {
+        const heading = selected.querySelector("h2");
+        heading.tabIndex = -1;
+        heading.focus({ preventScroll: true });
+      }
+    };
+    select.addEventListener("change", () => {
+      location.hash = select.value;
+      activate(true);
+    });
+    window.addEventListener("hashchange", () => activate());
+    mobile.addEventListener("change", () => activate());
+    activate();
+  }
 }

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"crypto/rand"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -35,7 +36,8 @@ type connectView struct {
 type connectionCheck struct {
 	Available, Started, Expired bool
 	Until                       time.Time
-	StartURL, RefreshURL        string
+	StartURL                    string
+	RefreshFields               []envVar
 	Samples                     []otlp.ServiceObservation
 	Replacements                uint64
 	Diagnostics                 otlp.Diagnostics
@@ -45,11 +47,14 @@ func (d *dashboard) connectionCheck(r *http.Request, view connectView, now time.
 	query := r.URL.Query()
 	query.Del("observe")
 	query.Del("since")
+	query.Del("check")
 	query.Set("service", view.Service)
 	query.Set("protocol", view.Protocol)
 	check := connectionCheck{Available: d.settings.ReceiverConnections != nil}
 	query.Set("observe", "start")
+	query.Set("check", rand.Text())
 	check.StartURL = route("/connect", query) + "#connection-check"
+	query.Del("check")
 	if !check.Available {
 		return check, nil
 	}
@@ -74,7 +79,14 @@ func (d *dashboard) connectionCheck(r *http.Request, view connectView, now time.
 	check.Expired = !now.Before(check.Until)
 	query.Del("observe")
 	query.Set("since", strconv.FormatInt(since.UnixMilli(), 10))
-	check.RefreshURL = route("/connect", query) + "#connection-check"
+	for _, name := range []string{"service", "application", "protocol", "token", "since"} {
+		if value := query.Get(name); value != "" {
+			check.RefreshFields = append(check.RefreshFields, envVar{name, value})
+		}
+	}
+	// Browsers can treat even a GET form targeting the same URL+fragment as
+	// an in-page navigation. A fresh value forces a read without resetting since.
+	check.RefreshFields = append(check.RefreshFields, envVar{"check", rand.Text()})
 	if snapshot := d.settings.ReceiverDiagnostics; snapshot != nil {
 		check.Diagnostics = snapshot()
 	}
@@ -97,6 +109,7 @@ func (d *dashboard) connectionCheck(r *http.Request, view connectView, now time.
 }
 
 func (d *dashboard) connect(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	query := r.URL.Query()
 	settings := d.currentSettings()
 	view := connectView{

@@ -1,0 +1,6 @@
+{{define "comparison-suggestions"}}
+<datalist id="version-options">{{range .Versions}}<option value="{{.Value}}">{{.Service}} · {{.Namespace}} · {{or .Environment "environment not set"}} · {{timestamp .ObservedAt}}</option>{{end}}</datalist>
+<datalist id="run-options">{{range .Runs}}<option value="{{.Value}}">Sample: {{.Service}} · {{.Namespace}} · {{or .Environment "environment not set"}} · {{timestamp .ObservedAt}}</option>{{end}}</datalist>
+<datalist id="service-options">{{range .Services}}<option value="{{.}}"></option>{{end}}</datalist>
+<p class="note" id="suggestion-scope">{{if .Unavailable}}Suggestions are unavailable. Paste or type values to compare.{{else}}Suggestions sample up to {{.TraceLimit}} recent retained traces and {{.SpanLimit}} spans, with up to {{.ChoiceLimit}} values per list. Older or unsampled values may be missing; paste or type them.{{if .Truncated}} This suggestion sample is incomplete.{{end}}{{end}}</p>
+{{end}}

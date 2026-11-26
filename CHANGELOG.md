@@ -2,6 +2,44 @@
 
 ## Unreleased
 
+- Improve daily investigation workflows: repeated Connect checks fetch fresh
+  data without resetting their observation window; trace links preserve the
+  filtered results destination. A full-width span reader retains navigation
+  state, and missing traces offer receiver, connection and retention checks.
+- Compare bounded per-operation span counts, evidence and inclusive durations
+  from a single SQLite snapshot. Version, service and run-ID fields suggest
+  bounded recent retained values while keeping manual entry available. Limits
+  and incomplete comparisons are disclosed; no schema migration is needed.
+
+- Simplify the span inspector into one surface: compact properties adapt to
+  panel width, counted attribute groups open independently, and empty groups
+  show zero without an extra click. Remove repeated heading fields and the
+  inspector's separate scrollbar; exceptions and source links remain accessible.
+
+- Fix the Go checkout example's default exporter transport: use local HTTP
+  when no OTEL endpoint or TLS setting is supplied, while preserving explicit
+  transport configuration. Add real export-destination regression tests.
+- Put selected span exceptions before the waterfall and service map on small
+  screens. Keep durations and all Budget usage columns readable without
+  sideways scrolling. Mobile Settings gains a labelled section selector with
+  deep-link/history support and a complete no-script fallback. Budget hours
+  containing only unattributed volume now display their usage.
+
+- Fix responsive action/popover overflow with long service and viewer names;
+  mobile Menu/Search retain keyboard and no-script access. Go checkout now
+  provides a scenario landing page and explicit first-request instructions.
+
+- Administrators can save external trace-link URLs/names from Settings or the
+  runtime settings API and apply them without restarting. Revision checks,
+  env locks, comment-preserving YAML replacement and value-free audit records
+  protect updates. Other server settings remain restart-required in this slice.
+
+- Rework the narrow-screen layout: navigation folds behind a Menu button
+  (expanded without JavaScript), trace and error-group tables become stacked
+  rows, and filters share rows. Settings uses quiet section tabs and shows
+  live settings as a property card with a save bar. First-run guidance on
+  Traces reads as numbered steps.
+
 - Refine the investigation UI: keep selected evidence visible above a compact
   trace workspace, disclose secondary evidence and utility actions, bring
   Connect verification forward, and prioritize Budget volume over reference

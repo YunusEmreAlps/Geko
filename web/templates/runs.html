@@ -1,10 +1,11 @@
 {{define "runs"}}
 <header class="page-head"><div class="title"><h1>Compare runs</h1></div></header>
 <form class="filters run-compare-form" action="/runs/compare" method="get">
-  <label>Baseline run ID <input name="baseline" value="{{.Baseline}}" maxlength="32" required></label>
-  <label>Candidate run ID <input name="candidate" value="{{.Candidate}}" maxlength="32" required></label>
+  <label>Baseline run ID <input list="run-options" aria-describedby="suggestion-scope" name="baseline" value="{{.Baseline}}" maxlength="32" required></label>
+  <label>Candidate run ID <input list="run-options" aria-describedby="suggestion-scope" name="candidate" value="{{.Candidate}}" maxlength="32" required></label>
   <div class="filter-actions"><button class="button" type="submit">Compare</button></div>
 </form>
+{{template "comparison-suggestions" .Suggestions}}
 <p class="muted">Run IDs come from <code>geko run</code>. Compare the same application, service and environment; versions may differ.</p>
 {{if .Error}}<p class="notice notice--error" role="alert">{{.Error}}</p>{{end}}
 {{with .Result}}

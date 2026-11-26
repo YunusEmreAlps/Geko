@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -127,11 +128,11 @@ func TestDashboardInvestigation(t *testing.T) {
 	evidenceID := hex.EncodeToString(evidence.ID[:])
 	path := tracePath + "?span=" + evidenceID
 	body := get("/failures?service=checkout&status=200&range=1h&q=alert", http.StatusOK,
-		"HTTP 200", "Exception", path+"#span-details", "&lt;script&gt;")
+		"HTTP 200", "Exception", html.EscapeString(withReturn(path+"#span-details", "/failures?service=checkout&status=200&range=1h&q=alert")), "&lt;script&gt;")
 	if strings.Contains(body, "<script>alert") {
 		t.Fatal("telemetry was rendered as executable HTML")
 	}
-	get("/failures?evidence_service=payments", http.StatusOK, path+"#span-details")
+	get("/failures?evidence_service=payments", http.StatusOK, html.EscapeString(withReturn(path+"#span-details", "/failures?evidence_service=payments")))
 	get("/failures?evidence_service=inventory&q=alert", http.StatusOK, "No matching traces")
 	get("/failures?service=payments", http.StatusOK, "No matching traces")
 	get("/failures?status=500", http.StatusOK, "No matching traces")
@@ -156,12 +157,31 @@ func TestDashboardInvestigation(t *testing.T) {
 		t.Fatal("selected secondary evidence was not featured")
 	}
 	selectedBody = get(path, http.StatusOK, "Span waterfall", "Span details", "aria-current=\"true\"", "payments.go:12", "Unavailable", "First spans", "Open source in VS Code", "vscode://file/app/payments.go:12")
+	inspectorAt := strings.Index(selectedBody, `id="span-details"`)
+	waterfallAt := strings.Index(selectedBody, `id="waterfall"`)
+	mapAt := strings.Index(selectedBody, `id="service-map"`)
+	if inspectorAt < 0 {
+		t.Fatal("selected span inspector is missing")
+	}
+	if waterfallAt < inspectorAt || mapAt < waterfallAt {
+		t.Error("reading order should put selected span evidence before waterfall and service map")
+	}
+	inspector := selectedBody[inspectorAt:]
+	if !strings.Contains(inspector, "Span attributes (0)") || !strings.Contains(inspector, "Scope attributes (0)") {
+		t.Error("empty attribute groups must report zero without requiring a disclosure")
+	}
+	if strings.Contains(inspector, `<summary>Span attributes (0)`) || strings.Contains(inspector, `<summary>Scope attributes (0)`) {
+		t.Error("empty attribute groups must not be interactive")
+	}
+	if strings.Index(inspector, "payments.go:12") > strings.Index(inspector, "Span properties") {
+		t.Error("exception stack should precede secondary span properties")
+	}
 	featured, _, _ = strings.Cut(selectedBody, `<details class="other-evidence"`)
 	if !strings.Contains(featured, path+`#span-details" class="operation" aria-current="true"`) {
 		t.Fatal("selected evidence beyond the map limit was not featured")
 	}
 	get(tracePath+"?span=0909090909090909", http.StatusOK, "Span unavailable")
-	get("/traces/"+strings.Repeat("a", 32), http.StatusNotFound, "Trace not found")
+	get("/traces/"+strings.Repeat("a", 32), http.StatusNotFound, "Trace not found", "Receiver diagnostics", "Connect an application", "retention")
 	// An implicitly selected HTTP-error root must not displace a child's
 	// higher-ranked exception. Explicit selection remains a separate choice.
 	errorRoot := spans[0]

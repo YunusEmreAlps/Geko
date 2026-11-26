@@ -17,7 +17,7 @@
 </section>
 <section class="section">
   <div class="section-head"><h2>Recent failures</h2>{{if .Items}}<a class="text-link" href="/failures?range=24h">View all</a>{{end}}</div>
-  {{if .Items}}{{template "failure-table" .Items}}
+  {{if .Items}}{{template "failure-table" (failureTable .Items "/overview")}}
   {{else}}<div class="empty compact"><p>No failures observed in the last 24 hours.</p></div>{{end}}
 </section>
 {{end}}

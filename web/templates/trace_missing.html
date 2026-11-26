@@ -1,0 +1,13 @@
+{{define "trace-missing"}}
+<header class="page-head"><div class="title"><h1>Trace not found</h1></div></header>
+<section class="section first">
+  <p>This trace is unavailable in the local database: <code>{{.ID}}</code></p>
+  <p class="muted">The database cannot tell whether it was never received or was removed. Try these checks:</p>
+  <ol class="steps">
+    <li><a href="/settings#receiver">Receiver diagnostics</a>: check the last accepted export and rejection counters. Confirm the exporter points to this Geko instance, then send a new request and allow for its batch delay.</li>
+    <li><a href="/connect">Connect an application</a>: verify the service name, namespace, endpoint, protocol and credentials. An idle or sampled-out request may produce no stored trace.</li>
+    <li><a href="/settings#storage">Storage and retention</a>: check retention and capacity eviction counters. These counters do not establish what happened to this particular trace.</li>
+  </ol>
+  <div class="actions"><a class="button" href="{{.Retry}}">Retry lookup</a><a class="button ghost" href="{{.BackURL}}">Back to results</a></div>
+</section>
+{{end}}

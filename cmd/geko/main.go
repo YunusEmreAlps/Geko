@@ -432,6 +432,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		restore = nil
 	}
 	if err := web.Register(dashboardMux, db, web.Settings{
+		Runtime:       config.NewRuntime(cfg),
 		Shutdown:      ctx.Done(),
 		DashboardAddr: dashboardAddr, GRPCAddr: grpcAddr,
 		ListenAddr: listener.Addr().String(), DBPath: cfg.DBPath, Version: version,

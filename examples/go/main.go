@@ -30,7 +30,8 @@ func main() {
 }
 
 func run(ctx context.Context) (result error) {
-	exporter, err := otlptracehttp.New(ctx)
+	options := exampleExporterOptions()
+	exporter, err := otlptracehttp.New(ctx, options...)
 	if err != nil {
 		return fmt.Errorf("create trace exporter: %w", err)
 	}
@@ -54,7 +55,13 @@ func run(ctx context.Context) (result error) {
 	server := &http.Server{Handler: newHandler(provider.Tracer("github.com/YunusEmreAlps/geko/examples/go")), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(listener) }()
-	log.Print("Go example listening at http://127.0.0.1:8080 — /success, /failure, /retry")
+	log.Printf("Go example listening at http://%s/", listener.Addr())
+	if len(options) != 0 {
+		log.Print("Trace exporter defaults to http://127.0.0.1:4318/v1/traces; set OTEL_EXPORTER_OTLP_TRACES_ENDPOINT for another receiver.")
+	} else {
+		log.Print("Trace exporter uses your explicit OTEL endpoint/TLS settings.")
+	}
+	log.Print("Open the page and select a checkout scenario to generate a trace. Export can take about five seconds.")
 	select {
 	case err := <-done:
 		if errors.Is(err, http.ErrServerClosed) {
@@ -71,6 +78,24 @@ func run(ctx context.Context) (result error) {
 	}
 }
 
+// The generic SDK default is HTTPS, while a default local Geko serves HTTP.
+// Apply an example-only loopback default; never override explicit transport
+// configuration, including TLS settings with the SDK's default endpoint.
+func exampleExporterOptions() []otlptracehttp.Option {
+	for _, variable := range []string{
+		"OTEL_EXPORTER_OTLP_ENDPOINT", "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+		"OTEL_EXPORTER_OTLP_INSECURE", "OTEL_EXPORTER_OTLP_TRACES_INSECURE",
+		"OTEL_EXPORTER_OTLP_CERTIFICATE", "OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE",
+		"OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE", "OTEL_EXPORTER_OTLP_CLIENT_KEY",
+		"OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE", "OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY",
+	} {
+		if os.Getenv(variable) != "" {
+			return nil
+		}
+	}
+	return []otlptracehttp.Option{otlptracehttp.WithEndpointURL("http://127.0.0.1:4318/v1/traces")}
+}
+
 func exampleResource(ctx context.Context) (*resource.Resource, error) {
 	return resource.New(ctx,
 		resource.WithAttributes(attribute.String("service.name", "geko-go-checkout")),
@@ -79,6 +104,10 @@ func exampleResource(ctx context.Context) (*resource.Resource, error) {
 
 func newHandler(tracer trace.Tracer) http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		fmt.Fprint(w, checkoutPage)
+	})
 	for _, scenario := range []string{"success", "failure", "retry"} {
 		mux.HandleFunc("GET /"+scenario, func(w http.ResponseWriter, r *http.Request) {
 			ctx, request := tracer.Start(r.Context(), "GET /"+scenario,
@@ -110,3 +139,21 @@ func newHandler(tracer trace.Tracer) http.Handler {
 	}
 	return mux
 }
+
+const checkoutPage = `<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Go checkout example</title>
+<main>
+  <h1>Go checkout example</h1>
+  <p>Choose a scenario to generate a trace.</p>
+  <ul>
+    <li><a href="/success">Successful checkout (HTTP 200)</a></li>
+    <li><a href="/failure">Failed checkout (HTTP 500)</a></li>
+    <li><a href="/retry">Successful retry (HTTP 200)</a></li>
+  </ul>
+  <p>Copy the trace ID from the response. After about five seconds, paste it into <strong>Go to trace ID</strong> in Geko.</p>
+</main>
+</html>
+`

@@ -62,6 +62,7 @@ type Reader interface {
 }
 
 type Settings struct {
+	Runtime                 *config.Runtime
 	TelemetryBudget         *budget.Tracker
 	CollectorDoctor         collectordoctor.Sources
 	AttributeSearch         privacy.AttributeSearch
@@ -145,6 +146,7 @@ type screen struct {
 
 func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	t, err := template.New("dashboard").Funcs(template.FuncMap{
+		"withReturn": withReturn, "failureTable": failureTable, "groupTable": groupTable,
 		"sourceLinks": sourceLinks,
 		"duration":    formatDuration, "timestamp": formatTimestamp, "age": func(t time.Time) string { return formatAge(t, time.Now()) }, "classification": classification,
 		"size": formatSize, "evidenceLink": evidenceLink, "signal": signal,
@@ -194,6 +196,11 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	mux.HandleFunc("GET /connect", d.local(d.connect))
 	mux.HandleFunc("GET /metrics", d.local(d.metrics))
 	protect := http.NewCrossOriginProtection()
+	if settings.Runtime != nil {
+		mux.Handle("POST /settings/runtime", protect.Handler(d.local(d.updateRuntimeSettings)))
+		mux.HandleFunc("GET /api/v1/settings/runtime", d.local(d.runtimeSettingsAPI))
+		mux.Handle("POST /api/v1/settings/runtime", protect.Handler(d.local(d.updateRuntimeSettings)))
+	}
 	mux.Handle("POST /traces/attribute-search", protect.Handler(d.local(d.searchAttribute)))
 	if settings.RestoreTrace != nil {
 		mux.Handle("POST /traces/import", protect.Handler(d.local(d.restoreTrace)))
@@ -315,6 +322,7 @@ func (d *dashboard) changedBy(r *http.Request) string {
 }
 
 type failureView struct {
+	ReturnURL                         string
 	CanRestore, CanTriage             bool
 	AllTraces                         bool
 	Path, AllTracesURL, Reset         string
@@ -362,6 +370,7 @@ func (d *dashboard) traceList(w http.ResponseWriter, r *http.Request, allTraces 
 		}
 	}
 	view := failureView{
+		ReturnURL:  localReturnURL(r.URL.RequestURI()),
 		CanRestore: allTraces && d.settings.RestoreTrace != nil && !d.readOnly(r),
 		CanTriage:  d.caller(r).Role >= access.RoleTriager,
 		AllTraces:  allTraces, Path: path, Reset: path,
@@ -573,7 +582,8 @@ func (d *dashboard) status(w http.ResponseWriter, r *http.Request) {
 			TraceEndpoint string
 			Notification  string
 			ReadOnly      bool
-		}{d.currentSettings(), status, receiver, d.traceEndpoint(r.Host), r.URL.Query().Get("notification"), d.readOnly(r)})
+			RuntimeState  *config.RuntimeState
+		}{d.currentSettings(), status, receiver, d.traceEndpoint(r.Host), r.URL.Query().Get("notification"), d.readOnly(r), d.runtimeSettingsState(r)})
 	})
 }
 
@@ -613,6 +623,10 @@ func (d *dashboard) storageUsage(w http.ResponseWriter, r *http.Request) {
 // currentSettings refreshes token names, which a token file reload can change.
 func (d *dashboard) currentSettings() Settings {
 	settings := d.settings
+	if settings.Runtime != nil {
+		snapshot := settings.Runtime.Snapshot()
+		settings.TraceLinkURL, settings.TraceLinkName = snapshot.URL, snapshot.Name
+	}
 	if settings.Tokens.Enabled() {
 		settings.IngestTokens = settings.Tokens.Names(access.ScopeIngest)
 		settings.IngestApplications = settings.Tokens.IngestApplications()

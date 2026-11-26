@@ -1,13 +1,13 @@
 {{define "trace"}}
 <header class="page-head">
   <div class="title">
-    <a class="crumb" href="/failures">Failures</a><span class="crumb-sep" aria-hidden="true">/</span>
+    <a class="crumb" href="{{.BackURL}}">Back to results</a><span class="crumb-sep" aria-hidden="true">/</span>
     <h1>{{if .Trace.EntrySpan}}{{.Trace.EntrySpan.Operation}}{{else if .Trace.Evidence}}{{.Trace.Evidence.Operation}}{{else}}Trace details{{end}}</h1>
     <span class="pill {{outcomeClass .Trace}}">{{outcome .Trace}}</span>
     {{with .Trace.Pin}}<span class="pill neutral" title="Pinned {{timestamp .PinnedAt}}{{with .PinnedBy}} by {{.}}{{end}}">Pinned</span>{{end}}
   </div>
   <div class="actions">
-    {{if and .Trace.Evidence .Trace.EntrySpan}}<a class="button" href="/traces/{{.Trace.TraceID}}/compare"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Compare with success</a>{{end}}
+    {{if and .Trace.Evidence .Trace.EntrySpan}}<a class="button" href="{{.CompareURL}}"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>Compare with success</a>{{end}}
     {{if .BugEvidence}}<button type="button" class="button" data-copy="bug-evidence" data-copy-status="bug-evidence-status" hidden><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>Copy as bug evidence</button><span role="status" class="sr-only" id="bug-evidence-status"></span>{{end}}
     <details class="trace-tools"><summary class="button ghost">More actions</summary><div class="trace-tools-content">
     {{if .TraceLink}}<a class="button" href="{{.TraceLink}}" target="_blank" rel="noopener noreferrer"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></svg>Open in {{.TraceLinkName}}</a>{{end}}
@@ -44,12 +44,45 @@
     {{if .EvidenceNext}}<a class="button" href="{{.EvidenceNext}}" rel="next">Next evidence <span aria-hidden="true">→</span></a>{{end}}
   </nav>
   {{end}}
-  <nav class="trace-jumps" aria-label="Trace sections"><a href="#waterfall">Jump to waterfall</a><a href="#span-details">Jump to span details</a></nav>
+  <nav class="trace-jumps" aria-label="Trace sections"><a href="#waterfall">Jump to waterfall</a><a href="#span-details">Jump to span details</a><a href="#service-map">Jump to service map</a></nav>
 </section>
 {{end}}
-<div class="trace-workspace">
+<div class="trace-workspace{{if .Wide}} reading-wide{{end}}">
+<section class="section span-details" id="span-details">
+  {{if .MissingSpan}}<h2>Span unavailable</h2><p class="muted">The selected span is unavailable. Its parent or child may have arrived separately.</p>
+  {{else if .Selected}}
+  <div class="section-head"><h2>Span details</h2><a class="button small" href="{{.ReaderURL}}">{{if .Wide}}Use split view{{else}}Expand span details{{end}}</a></div>
+  <p class="muted">{{.Selected.Operation}} · {{.Selected.Service}}</p>
+  <div class="inspector-surface expanders">
+  {{if .Selected.Events}}<div class="span-events">
+    {{range .Selected.Events}}
+    <details{{if eq .Name "exception"}} open{{end}}><summary>{{.Name}} <small>{{timestamp .Time}}</small></summary>
+      {{if .Attributes}}<dl class="attributes">{{range $key,$value := .Attributes}}<div><dt><code>{{$key}}</code></dt><dd class="prewrap">{{$value}}</dd></div>{{end}}</dl>
+      {{if eq .Name "exception"}}{{with sourceLinks (index .Attributes "exception.stacktrace")}}
+      <details><summary>Open source in VS Code</summary><ul>{{range .}}<li><a href="{{.URL}}"><code>{{.Location}}</code></a></li>{{end}}</ul></details>
+      {{end}}{{end}}
+      {{else}}<p class="muted">No captured attributes.</p>{{end}}
+    </details>
+    {{end}}
+  </div>{{end}}
+  <details class="span-properties"{{if not .Selected.Events}} open{{end}}><summary>Span properties</summary>
+  <dl class="properties">
+    <div><dt>Application</dt><dd>{{if .Selected.Application}}{{.Selected.Application}}{{else}}Ungrouped{{end}}</dd></div>
+    <div><dt>Span ID</dt><dd><code>{{.Selected.SpanID}}</code></dd></div>
+    {{if .Parent}}<div><dt>Parent span</dt><dd><a href="{{.Parent}}"><code>{{.Selected.ParentID}}</code></a></dd></div>{{end}}
+    <div><dt>Evidence</dt><dd>{{classification (signal .Selected)}}</dd></div>
+    {{with .Selected.HTTPStatus}}<div><dt>HTTP status</dt><dd>{{.}}</dd></div>{{end}}
+    {{with .Selected.StatusDescription}}<div><dt>Status description</dt><dd class="prewrap">{{.}}</dd></div>{{end}}
+  </dl>
+  </details>
+    {{template "attributes" (attributes "Span attributes" .Selected.Attributes)}}
+    {{template "attributes" (attributes "Resource attributes" .Selected.ResourceAttributes)}}
+    {{with .ServiceMap.SelectedInstances}}<details><summary>Observed service instances ({{len .}})</summary><ul>{{range .}}<li><code>{{.}}</code></li>{{end}}</ul></details>{{end}}
+    {{template "attributes" (attributes "Scope attributes" .Selected.Scope.Attributes)}}
+  </div>
+  {{end}}
+</section>
 <section class="section timeline">
-  {{template "service-map" .ServiceMap}}
   <details class="waterfall-disclosure" id="waterfall" open>
   <summary>Span waterfall</summary>
   <h2 class="sr-only">Span waterfall</h2>
@@ -74,37 +107,7 @@
     {{if .Next}}<a class="button" href="{{.Next}}" rel="next" data-loading>Next spans <span aria-hidden="true">→</span></a>{{end}}
   </nav>{{end}}
   </details>
-</section>
-<section class="section span-details" id="span-details">
-  {{if .MissingSpan}}<h2>Span unavailable</h2><p class="muted">The selected span is unavailable. Its parent or child may have arrived separately.</p>
-  {{else if .Selected}}
-  <h2>Span details</h2>
-  <dl class="properties">
-    <div><dt>Operation</dt><dd>{{.Selected.Operation}}</dd></div>
-    <div><dt>Service</dt><dd>{{.Selected.Service}}</dd></div>
-    <div><dt>Application</dt><dd>{{if .Selected.Application}}{{.Selected.Application}}{{else}}Ungrouped{{end}}</dd></div>
-    <div><dt>Span ID</dt><dd><code>{{.Selected.SpanID}}</code></dd></div>
-    {{if .Parent}}<div><dt>Parent span</dt><dd><a href="{{.Parent}}"><code>{{.Selected.ParentID}}</code></a></dd></div>{{end}}
-    <div><dt>Evidence</dt><dd>{{classification (signal .Selected)}}</dd></div>
-    {{with .Selected.HTTPStatus}}<div><dt>HTTP status</dt><dd>{{.}}</dd></div>{{end}}
-    {{with .Selected.StatusDescription}}<div><dt>Status description</dt><dd class="prewrap">{{.}}</dd></div>{{end}}
-  </dl>
-  <div class="expanders">
-    {{template "attributes" (attributes "Span attributes" .Selected.Attributes)}}
-    {{template "attributes" (attributes "Resource attributes" .Selected.ResourceAttributes)}}
-    {{with .ServiceMap.SelectedInstances}}<details><summary>Observed service instances ({{len .}})</summary><ul>{{range .}}<li><code>{{.}}</code></li>{{end}}</ul></details>{{end}}
-    {{template "attributes" (attributes "Scope attributes" .Selected.Scope.Attributes)}}
-    {{range .Selected.Events}}
-    <details{{if eq .Name "exception"}} open{{end}}><summary>{{.Name}} <small>{{timestamp .Time}}</small></summary>
-      {{if .Attributes}}<dl class="attributes">{{range $key,$value := .Attributes}}<div><dt><code>{{$key}}</code></dt><dd class="prewrap">{{$value}}</dd></div>{{end}}</dl>
-      {{if eq .Name "exception"}}{{with sourceLinks (index .Attributes "exception.stacktrace")}}
-      <details><summary>Open source in VS Code</summary><ul>{{range .}}<li><a href="{{.URL}}"><code>{{.Location}}</code></a></li>{{end}}</ul></details>
-      {{end}}{{end}}
-      {{else}}<p class="muted">No captured attributes.</p>{{end}}
-    </details>
-    {{end}}
-  </div>
-  {{end}}
+  {{template "service-map" .ServiceMap}}
 </section>
 </div>
 {{end}}
@@ -120,8 +123,7 @@
 {{end}}
 
 {{define "attributes"}}
-<details><summary>{{.Label}}</summary>
-  {{if .Values}}<dl class="attributes">{{range $key,$value := .Values}}<div><dt><code>{{$key}}</code></dt><dd class="prewrap">{{$value}}</dd></div>{{end}}</dl>
-  {{else}}<p class="muted">No captured attributes.</p>{{end}}
-</details>
+{{if .Values}}<details><summary>{{.Label}} ({{len .Values}})</summary>
+  <dl class="attributes">{{range $key,$value := .Values}}<div><dt><code>{{$key}}</code></dt><dd class="prewrap">{{$value}}</dd></div>{{end}}</dl>
+</details>{{else}}<p class="empty-attributes">{{.Label}} (0)<span class="subtle">None captured.</span></p>{{end}}
 {{end}}

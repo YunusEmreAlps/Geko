@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -75,6 +76,8 @@ type Config struct {
 
 // Source records where each effective setting came from.
 type Source struct {
+	TraceLinkURL, TraceLinkName                                    SettingSource
+	FileRevision                                                   string
 	DashboardAddr, GRPCAddr, PublicURL                             SettingSource
 	FilePath                                                       string
 	ListenAddr, DBPath, RetentionDays, MaxDBMiB, OnFull, Redaction SettingSource
@@ -82,8 +85,8 @@ type Source struct {
 }
 
 type SettingSource struct {
-	Kind     string
-	Variable string // Environment variable name, when Kind is env.
+	Kind     string `json:"kind"`
+	Variable string `json:"variable,omitempty"` // Environment variable name, when Kind is env.
 }
 
 func Load() (Config, error) {
@@ -233,10 +236,10 @@ func Load() (Config, error) {
 			return Config{}, err
 		}
 	}
-	if value := os.Getenv("GEKO_TRACE_LINK_URL"); value != "" {
+	if value := envOverride("GEKO_TRACE_LINK_URL", &cfg.Source.TraceLinkURL); value != "" {
 		cfg.TraceLinkURL = value
 	}
-	if value := os.Getenv("GEKO_TRACE_LINK_NAME"); value != "" {
+	if value := envOverride("GEKO_TRACE_LINK_NAME", &cfg.Source.TraceLinkName); value != "" {
 		cfg.TraceLinkName = value
 	}
 	if cfg.TraceLinkURL, cfg.TraceLinkName, err = traceLink(cfg.TraceLinkURL, cfg.TraceLinkName); err != nil {
@@ -384,6 +387,9 @@ func applicationWebhooks(spec string) (map[string]notify.Webhook, error) {
 // traceLink validates a trace link template and defaults its name to Tempo.
 func traceLink(template, name string) (string, string, error) {
 	template, name = strings.TrimSpace(template), strings.TrimSpace(name)
+	if len(template) > 4096 {
+		return "", "", errors.New("trace_link_url is limited to 4096 bytes")
+	}
 	if template == "" {
 		if name != "" {
 			return "", "", errors.New("trace_link_name (GEKO_TRACE_LINK_NAME) requires trace_link_url")
@@ -429,6 +435,7 @@ func loadFile(path string, optional bool) (Config, error) {
 		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, IngestSlots: DefaultIngestConcurrency,
 		OnFull: storage.EvictOldest, Redaction: DefaultRedaction,
 		Source: Source{
+			TraceLinkURL: defaultSource, TraceLinkName: defaultSource,
 			IngestSlots:   defaultSource,
 			DashboardAddr: defaultSource, GRPCAddr: defaultSource, PublicURL: defaultSource,
 			ListenAddr: defaultSource, DBPath: defaultSource, RetentionDays: defaultSource,
@@ -450,7 +457,8 @@ func loadFile(path string, optional bool) (Config, error) {
 	}
 	cfg.Source.FilePath = absolutePath
 
-	decoder := yaml.NewDecoder(file)
+	digest := sha256.New()
+	decoder := yaml.NewDecoder(io.TeeReader(file, digest))
 	decoder.KnownFields(true)
 	var values struct {
 		CollectorDoctor collectordoctor.Sources `yaml:"collector_doctor"`
@@ -476,6 +484,7 @@ func loadFile(path string, optional bool) (Config, error) {
 	}
 	err = decoder.Decode(&values)
 	if errors.Is(err, io.EOF) {
+		cfg.Source.FileRevision = fmt.Sprintf("%x", digest.Sum(nil))
 		return cfg, nil
 	}
 	if err != nil {
@@ -489,6 +498,7 @@ func loadFile(path string, optional bool) (Config, error) {
 	if !errors.Is(err, io.EOF) {
 		return Config{}, fmt.Errorf("decode config %q: %w", path, err)
 	}
+	cfg.Source.FileRevision = fmt.Sprintf("%x", digest.Sum(nil))
 	// Empty listener and path values retain their historical default behavior.
 	if values.ListenAddr != nil && *values.ListenAddr != "" {
 		yamlSetting(values.ListenAddr, &cfg.ListenAddr, &cfg.Source.ListenAddr)
@@ -506,9 +516,11 @@ func loadFile(path string, optional bool) (Config, error) {
 	yamlSetting(values.Redaction, &cfg.Redaction, &cfg.Source.Redaction)
 	if values.TraceLinkURL != nil {
 		cfg.TraceLinkURL = *values.TraceLinkURL
+		cfg.Source.TraceLinkURL = SettingSource{Kind: "yaml"}
 	}
 	if values.TraceLinkName != nil {
 		cfg.TraceLinkName = *values.TraceLinkName
+		cfg.Source.TraceLinkName = SettingSource{Kind: "yaml"}
 	}
 	if values.ReadOnly != nil {
 		cfg.ReadOnly = *values.ReadOnly

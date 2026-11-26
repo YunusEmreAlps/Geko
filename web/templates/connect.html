@@ -49,14 +49,14 @@
     <dl class="properties"><div><dt>Accepted exports</dt><dd>{{.Check.Diagnostics.AcceptedExports}}</dd></div>{{range .Check.Diagnostics.Rejections}}{{if .Count}}<div><dt>{{.Reason}}</dt><dd>{{.Count}}</dd></div>{{end}}{{end}}</dl>
     <p>Check the endpoint and protocol above, ingest credentials, and the SDK's shutdown/flush. An idle application or a sampled-out request may export nothing.</p>
   </details>
-  <p>{{if not .Check.Expired}}<a class="button" href="{{.Check.RefreshURL}}">Check again</a> {{end}}<a class="button ghost" href="{{.Check.StartURL}}">Start a new 60-second check</a></p>
+  <div class="actions">{{if not .Check.Expired}}<form method="get" action="/connect#connection-check">{{range .Check.RefreshFields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}<button class="button" type="submit">Check again</button></form>{{end}}<a class="button ghost" href="{{.Check.StartURL}}">Start a new 60-second check</a></div>
   {{else}}<p><a class="button" href="{{.Check.StartURL}}">Start a 60-second check</a></p>{{end}}
   <p class="note">No observed telemetry does not prove that instrumentation is missing.</p>
   <details class="reference-details"><summary>What this check observes</summary>
     <p>Checks use one sample from the latest committed OTLP export per namespace, service and environment, kept in memory for up to five minutes. Imports and old stored traces are excluded. A newer sample can replace an earlier one; versions and run IDs are representative, not exhaustive. Token selection configures the snippets, not proof of which credential exported a sample.</p>
   </details>
   {{end}}
-  <p><a class="button" href="{{.TracesURL}}">Traces from {{.Service}}</a> <a class="button ghost" href="/settings#receiver">Receiver diagnostics</a></p>
+  <p><a class="button" href="{{.TracesURL}}">View service traces</a> <a class="button ghost" href="/settings#receiver">Receiver diagnostics</a></p>
 </section>
 <section class="section">
   <details class="reference-details">

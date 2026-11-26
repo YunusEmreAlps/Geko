@@ -22,23 +22,34 @@ For bash or zsh:
 OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces go run ./examples/go
 ```
 
-The exporter uses HTTP protobuf. Change the endpoint when Geko uses another port.
+The exporter uses HTTP protobuf. With no OTEL transport configuration, this
+example defaults to `http://127.0.0.1:4318/v1/traces`, matching local Geko.
+Explicit endpoint or TLS variables retain the SDK's behavior and precedence.
+Change the endpoint when Geko uses another port.
+
+If the terminal says `server gave HTTP response to HTTPS client`, the exporter
+is trying HTTPS against a plain HTTP receiver. Stop the example, set the full
+`http://.../v1/traces` endpoint above and restart it; existing process settings
+do not change when environment variables are changed in another terminal.
+Generate a new request afterwards. Trace IDs from rejected exports are not
+proof that a trace reached Geko.
 The SDK reads `OTEL_SERVICE_NAME` and `OTEL_RESOURCE_ATTRIBUTES`, including
 `service.namespace`, environment, version and `geko.run.id`. Without a service
 override it uses `geko-go-checkout`. The Connect page and `geko run` settings
 therefore carry through to exported spans.
 The example listens only on `127.0.0.1:8080`; that port must be available.
 
-Open these URLs in your browser, or run the commands in a third terminal:
+Wait for the example to print its listening URL. Open the
+[checkout example](http://127.0.0.1:8080/) and select a scenario to generate a
+trace. You can also send the requests from a third terminal.
 
-```sh
-curl -i http://127.0.0.1:8080/success
-curl -i http://127.0.0.1:8080/failure
-curl -i http://127.0.0.1:8080/retry
+```powershell
+curl.exe -i http://127.0.0.1:8080/success
+curl.exe -i http://127.0.0.1:8080/failure
+curl.exe -i http://127.0.0.1:8080/retry
 ```
 
-Use `curl.exe` on Windows if PowerShell aliases `curl` to `Invoke-WebRequest`.
-The HTTP 500 response from `/failure` is intentional.
+Use `curl` in bash or zsh. The HTTP 500 response from `/failure` is intentional.
 
 | Route | Response | Expected Geko behavior |
 | --- | --- | --- |

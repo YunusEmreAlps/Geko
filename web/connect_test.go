@@ -44,6 +44,13 @@ func TestConnectPage(t *testing.T) {
 	if strings.Contains(local, "OTEL_EXPORTER_OTLP_HEADERS") {
 		t.Error("local page without a token sets an authorization header")
 	}
+	service := strings.Repeat("W", 64)
+	longService := page(Settings{ListenAddr: "127.0.0.1:4318"}, "?service="+service, http.StatusOK)
+	for _, fragment := range []string{`value="` + service + `"`, `href="/traces?service=` + service + `"`, `>View service traces</a>`} {
+		if !strings.Contains(longService, fragment) {
+			t.Errorf("long service page missing %q", fragment)
+		}
+	}
 
 	remote := Settings{ListenAddr: "0.0.0.0:4318", PublicURL: "https://geko.example.com", AccessToken: true, IngestTokens: []string{"storefront", "reporting"}}
 	body := page(remote, "?service=checkout&protocol=grpc&token=reporting", http.StatusOK)

@@ -3,9 +3,9 @@
   <div class="title"><h1>Version regressions</h1></div>
 </header>
 <form class="filters regression-form" method="get" action="/regressions" data-loading>
-  <label>Baseline version <input name="baseline" required maxlength="256" value="{{.Baseline}}" placeholder="e.g. 1.4.0"></label>
-  <label>Candidate version <input name="candidate" required maxlength="256" value="{{.Candidate}}" placeholder="e.g. 1.5.0"></label>
-  <label>Request service <input name="service" maxlength="256" value="{{.Service}}" placeholder="Any service"></label>
+  <label>Baseline version <input list="version-options" aria-describedby="suggestion-scope" name="baseline" required maxlength="256" value="{{.Baseline}}" placeholder="e.g. 1.4.0"></label>
+  <label>Candidate version <input list="version-options" aria-describedby="suggestion-scope" name="candidate" required maxlength="256" value="{{.Candidate}}" placeholder="e.g. 1.5.0"></label>
+  <label>Request service <input list="service-options" name="service" maxlength="256" value="{{.Service}}" placeholder="Any service"></label>
   <label>Time range
     <select name="range">
       <option value="1h"{{if eq .Range "1h"}} selected{{end}}>Last hour</option>
@@ -15,6 +15,7 @@
   </label>
   <button class="button primary" type="submit">Compare</button>
 </form>
+{{template "comparison-suggestions" .Suggestions}}
 {{if .Compared}}
 {{if .Rows}}
 <div class="table-wrap" tabindex="0" role="region" aria-label="Version comparison results">

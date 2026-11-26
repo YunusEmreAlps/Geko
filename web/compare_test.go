@@ -67,6 +67,9 @@ func TestCompareTraceUsesMatchingCleanSuccess(t *testing.T) {
 		write(8, "shop", "prod", "GET /orders", 404, false, 50*time.Millisecond),
 	}
 	body := get(path + "/compare")
+	if !strings.Contains(body, "Span operation differences") || !strings.Contains(body, "Repeated calls") {
+		t.Error("comparison must show observed per-operation span differences and explain aggregation")
+	}
 	if !strings.Contains(body, want) || !strings.Contains(body, "200ms slower") {
 		t.Fatalf("comparison missing baseline or duration difference: %s", body)
 	}

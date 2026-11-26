@@ -15,6 +15,15 @@ Find a failure, follow its trace, and triage recurring errors. [Back to the READ
    durations. **Span details** shows the stored attributes, events, and stack
    traces.
 
+**Back to results** retains the application, time range, filters, group and
+page you opened the trace from. **Expand span details** gives long stack traces
+the full workspace width; **Use split view** restores the waterfall/map beside
+the inspector. Parent, span and pagination links keep the reader mode.
+
+If a trace ID is not found, use the page's receiver, Connect and retention
+checks. The missing ID alone cannot establish whether a trace never arrived,
+was sampled out, belongs to another instance or was removed by storage policy.
+
 In the store example, `POST /checkout` returns HTTP 503. The map shows calls to
 inventory and payments; open `payment.authorize` to see the gateway timeout.
 
@@ -69,12 +78,27 @@ entry span and no failure evidence for the same application, namespace,
 service, operation and environment. The comparison shows both request
 durations, the difference, span counts and a link to each trace.
 
+**Span operation differences** also compares call counts, evidence counts and
+total observed span durations by application, namespace, service, environment,
+operation and span kind. Repeated calls are grouped, not paired one-to-one;
+inclusive durations may overlap and do not identify a cause. Both sides come
+from one database snapshot. Work is bounded to the first 500 spans per trace
+and the first 100 operation groups, with evidence groups first. Any omitted
+spans or groups are disclosed; "not observed" is not proof of absence.
+
 Open **Regressions** in the sidebar to compare two recorded `service.version`
 values in a time range. Geko matches entry spans by application, namespace,
 service, operation and environment. The table flags increases of at least
 5 percentage points in failure evidence rate or 20% in mean request duration,
 with at least 10 relevant samples in each version. These thresholds highlight
 changes in the observed traces.
+
+The version/service fields and dashboard **Compare runs** fields offer native
+suggestions from recent retained telemetry. The sample is bounded to 1,000
+traces, 10,000 spans and 100 values per list; it can omit older or unsampled
+values. Type or paste any known version or run ID when it is not suggested.
+Run labels describe a representative retained service context, not every
+service in that run. No extra version/run index or history store is created.
 
 When a selected span has a recorded exception stack trace, expand **Open
 source in VS Code** to open a recognized file and line. Links use absolute

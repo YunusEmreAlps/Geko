@@ -19,6 +19,9 @@ import (
 )
 
 type traceView struct {
+	BackURL, CompareURL string
+	Wide                bool
+	ReaderURL           string
 	Trace               investigation.TraceSummary
 	Rows                []waterfallRow
 	Selected            *investigation.Span
@@ -101,7 +104,7 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 		}
 		details, err := d.store.TraceDetails(ctx, id, filter)
 		if errors.Is(err, investigation.ErrTraceNotFound) {
-			d.problem(w, r, http.StatusNotFound, "Trace not found", "This trace is unavailable in the local database.")
+			d.traceMissing(w, r, hex.EncodeToString(id[:]))
 			return
 		}
 		if err != nil {
@@ -185,7 +188,25 @@ func (d *dashboard) trace(w http.ResponseWriter, r *http.Request) {
 		}
 		view.BugEvidence = traceBugEvidence(d.baseURL(r), summary)
 		view.CanTriage = d.caller(r).Role >= access.RoleTriager
-		view.TraceLink, view.TraceLinkName = traceLink(d.settings.TraceLinkURL, summary.TraceID), d.settings.TraceLinkName
+		settings := d.currentSettings()
+		view.TraceLink, view.TraceLinkName = traceLink(settings.TraceLinkURL, summary.TraceID), settings.TraceLinkName
+		view.CompareURL = path + "/compare"
+		view.preserveReturn(params.Get("return"))
+		view.Wide = params.Get("reading") == "wide"
+		if view.Wide {
+			view.preserveReading()
+		}
+		reader := maps.Clone(params)
+		reader.Del("limit")
+		if view.Selected != nil {
+			reader.Set("span", view.Selected.SpanID)
+		}
+		if view.Wide {
+			reader.Del("reading")
+		} else {
+			reader.Set("reading", "wide")
+		}
+		view.ReaderURL = route(path, reader) + "#span-details"
 		d.render(w, r, http.StatusOK, "trace", "Trace details", view)
 	})
 }

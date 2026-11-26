@@ -55,6 +55,7 @@ func TestLoadOverrides(t *testing.T) {
 		RetentionDays: 14, MaxDBMiB: 512, IngestSlots: DefaultIngestConcurrency, ListenAddr: "[::1]:4320", DBPath: path,
 		OnFull: storage.Reject, Redaction: "strict",
 		Source: Source{
+			TraceLinkURL: SettingSource{Kind: "default"}, TraceLinkName: SettingSource{Kind: "default"},
 			DashboardAddr: SettingSource{Kind: "default"}, GRPCAddr: SettingSource{Kind: "default"}, PublicURL: SettingSource{Kind: "default"}, IngestSlots: SettingSource{Kind: "default"},
 			ListenAddr: envSource("GEKO_LISTEN_ADDR"), DBPath: envSource("GEKO_DB_PATH"),
 			RetentionDays: envSource("GEKO_RETENTION_DAYS"), MaxDBMiB: envSource("GEKO_MAX_DB_MIB"),
@@ -88,6 +89,7 @@ func TestLoadYAMLAndEnvironmentPrecedence(t *testing.T) {
 	got, err := Load()
 	origin := defaultTestSource()
 	origin.FilePath = filepath.Join(workingDir, defaultConfigPath)
+	origin.FileRevision = revision([]byte("listen_addr: '127.0.0.1:4320'\ndb_path: data/default.db\non_full: reject\nredaction: strict\n"))
 	yamlSource := SettingSource{Kind: "yaml"}
 	origin.ListenAddr, origin.DBPath, origin.OnFull, origin.Redaction = yamlSource, yamlSource, yamlSource, yamlSource
 	if want := (Config{
@@ -105,6 +107,7 @@ func TestLoadYAMLAndEnvironmentPrecedence(t *testing.T) {
 	got, err = Load()
 	origin = defaultTestSource()
 	origin.FilePath, origin.ListenAddr, origin.DBPath = configPath, yamlSource, yamlSource
+	origin.FileRevision = revision([]byte("listen_addr: '[::1]:4321'\ndb_path: data/custom.db\n"))
 	if want := (Config{
 		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, IngestSlots: DefaultIngestConcurrency, ListenAddr: "[::1]:4321",
 		DBPath: filepath.Join(configDir, "data", "custom.db"), Source: origin,
@@ -358,7 +361,7 @@ func TestTraceLink(t *testing.T) {
 
 func defaultTestSource() Source {
 	d := SettingSource{Kind: "default"}
-	return Source{DashboardAddr: d, GRPCAddr: d, PublicURL: d, IngestSlots: d, ListenAddr: d, DBPath: d, RetentionDays: d, MaxDBMiB: d, OnFull: d, Redaction: d}
+	return Source{TraceLinkURL: d, TraceLinkName: d, DashboardAddr: d, GRPCAddr: d, PublicURL: d, IngestSlots: d, ListenAddr: d, DBPath: d, RetentionDays: d, MaxDBMiB: d, OnFull: d, Redaction: d}
 }
 
 func TestOptionalListeners(t *testing.T) {

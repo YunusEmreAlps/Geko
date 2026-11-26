@@ -130,7 +130,11 @@ navigation, local controls and filters compete before the first result; the
 mobile trace presents a desktop graph and wide waterfall before the detailed
 exception/stack. Settings is a long document of equally weighted properties.
 
-### Agreed direction — not yet implemented
+### Agreed direction — partially implemented
+
+The mobile Menu/Search shell and overflow corrections were implemented on
+2026-11-26, as recorded below. The broader trace ordering, Settings section
+selection and Budget mobile presentation remain separate planned work.
 
 | Option | Decision | Reason |
 | --- | --- | --- |
@@ -181,3 +185,206 @@ long identifiers and large evidence lists. Evaluate time to visible evidence
 and ability to read meaningful values, not only `scrollWidth <= innerWidth`.
 Human task measurements remain outstanding; these decisions are expert
 hypotheses informed by the user's feedback, not measured usability gains.
+
+## Corrective implementation — 2026-11-26
+
+The user explicitly requested applying the existing responsive direction and
+reported that the Go checkout example did not work. Preserve the current
+uncommitted Menu/search and first-run changes; no commits or workspace moves.
+
+Execution plan:
+
+- [x] Reproduce the Go checkout startup → request → OTLP export → stored trace
+  path using temporary data. Fix only demonstrated gaps, with regression tests
+  before product changes; update `examples/go` instructions to match.
+- [x] Reproduce actual controls overflowing at 320/390/440px and the 760/761px
+  sidebar boundary. Include valid long service/viewer names and open popovers.
+- [x] Add failing browser assertions for the demonstrated cases in
+  `scripts/browser-checks.mjs`, including menu keyboard/no-JS behavior.
+- [x] Fix shared button sizing/wrapping and popup positioning in
+  `web/assets/dashboard.css`, reusing existing markup and preserving data.
+  Do not hide overflow to make tests pass.
+- [x] Finish the approved mobile Menu/Search shell in existing layout/JS:
+  one navigation/form DOM, labelled touch targets, keyboard opening/closing,
+  and a usable fallback if JavaScript is absent or dashboard initialization fails.
+- [x] Run the example, web and full Go tests; run the rebuilt browser checks
+  in both themes, inspect populated screenshots and review the final diff.
+- [x] Address independently reproduced review cases: Search submit focus on
+  desktop resize, Escape outside an open disclosure, and reachable sticky
+  header/sidebar actions in short landscape viewports.
+
+Ruling: continue in this shared working tree because this repairs the existing
+uncommitted implementation, including user edits; an isolated checkout would
+omit the behavior being repaired. The existing mobile design is authorized;
+no additional redesign or dependency upgrade is part of this fix.
+
+Results:
+
+- The actual Go SDK/export path worked after a scenario request: HTTP
+  200/500/200, three stored traces after about five seconds, two with error
+  evidence. Starting the server alone did not create traces; `/` returned 404.
+  An exact, uninstrumented landing route now links to the three scenarios and
+  startup output explains the first request. Unknown paths remain 404. Windows
+  PowerShell 5.1's `curl -i` alias problem was reproduced; instructions use
+  `curl.exe` explicitly.
+- Red tests reproduced the landing 404 and an off-screen trace download.
+  Additional tests reproduced lost submit-button focus on desktop resize,
+  Escape stealing focus from a page filter, and unreachable controls in short
+  viewports. The repaired code passed those regressions.
+- Browser checks passed at 320/360/390/440/760/761/768/1280/1440px in both
+  themes, with extra 761×260 and 768×200 checks, open panels, full identifiers,
+  pagination, native forms and unavailable-script fallbacks. This is viewport
+  testing, not browser UI zoom or participant research.
+- The Connect action now says **View service traces**. The full service name
+  remains in the form/status and exact destination query, instead of making
+  a five-line button.
+- `go test ./... -count=1 -timeout=5m`, `go vet ./...` and `go mod tidy -diff`
+  passed. After the final copy change, `go test ./web ./examples/go -count=1`
+  and pinned staticcheck for those packages passed. An independent final
+  Chromium review found no remaining important issues in the scoped fixes.
+
+Generated before/after images are under `dist/responsive-probe-before/`,
+`dist/responsive-probe-after/` and `dist/browser-checks/`. The local runs do not
+certify a fresh hosted CI run or other browser engines. No commits were made.
+
+## Follow-up: local export and task order — 2026-11-26
+
+The user authorized continuing the usability improvements and supplied a live
+Go example failure. Review follows Apple's [layout](https://developer.apple.com/design/human-interface-guidelines/layout)
+and [accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility)
+guidance and Fluent's [layout](https://fluent2.microsoft.design/layout) and
+[accessibility](https://fluent2.microsoft.design/accessibility) principles, adapted
+to this web application. Agents are software reviewers, not former employees
+of those companies. Delegated implementation was unavailable due to account
+limits; the primary agent implemented and checked the changes.
+
+Execution order:
+
+1. Reproduce the missing trace using the running receiver, then test actual
+   SDK export destinations before changing the example's default transport.
+2. Put selected exceptions and stack traces before secondary properties,
+   waterfall and map in document order; retain the desktop sticky inspector.
+3. Enhance existing Settings anchors with a labelled mobile section selector.
+   Preserve deep links, history, runtime saves, desktop access and no-script
+   access. Keep one copy of each section and all existing authorization rules.
+4. Adapt waterfall and Budget tables to available content width. Keep every
+   duration, service, usage, limit, overage and cardinality value accessible.
+   Correct the empty state for hours containing only unattributed volume.
+5. Run Go regressions, the populated browser matrix and source checks. Inspect
+   screenshots in both themes; record measured results, not certification.
+
+The running receiver was healthy but had accepted no exports. The user's SDK
+reported `HTTP response to HTTPS client`: its generic HTTPS default conflicted
+with Geko's local HTTP listener. Earlier integration checks supplied an HTTP
+endpoint explicitly and missed this no-environment path. A real SDK transport
+test reproduced the failure; the sample now defaults to
+`http://127.0.0.1:4318/v1/traces` only when no endpoint or TLS configuration is
+supplied. Explicit HTTP/HTTPS endpoints and insecure=false settings retain SDK
+precedence. A synthetic request exported through the corrected default was
+retrieved from the user's running receiver. Existing example processes must
+be restarted; previously rejected traces are not reconstructed.
+
+Trace and Budget regressions failed before the fixes. The mobile Settings
+browser test also failed before its enhancement. The complete document remains
+usable without dashboard JavaScript. Budget cardinality scope is next to its
+usage table; historical unavailable measurements remain explicitly unavailable.
+
+Verification: `go test ./... -count=1 -timeout=5m`, `go vet ./...`,
+`go mod tidy -diff` and pinned staticcheck for `./web ./examples/go` passed.
+After the last panel markup adjustment, the web/example tests and the rebuilt
+browser matrix passed again: 320/360/390/440/760/761/768/1280/1440px, both
+themes, real nonzero budget limits/overages/cardinality, section deep links,
+history, runtime saves and no-script fallback. Screenshots in
+`dist/browser-checks/` were visually inspected at mobile and desktop sizes.
+Browser UI zoom, other engines and human usability research remain unmeasured.
+No commits were made.
+
+## Approved span inspector simplification — 2026-11-26
+
+The user approved the follow-up review of the expanded properties inspector.
+Continue in this shared working tree, preserving the ongoing settings work.
+Use existing Go templates, native details and CSS; no dependency or data-model
+change is needed. The target is one bordered inspector with exception evidence
+first, compact properties and sibling attribute disclosures. Empty attribute
+groups show a zero count without an interactive disclosure. The operation and
+service stay in the inspector heading rather than being repeated in properties.
+
+Implementation plan (inline execution):
+
+- [x] Add failing rendered/browser checks for direct attribute access, zero
+  counts, compact property alignment, one frame and page-only scrolling.
+- [x] Update `web/templates/trace.html`: one inspector surface, exception events,
+  properties and counted attribute groups at the same level. Preserve source
+  links, span links, escaping, selected span behavior and no-script access.
+- [x] Scope styles in `web/assets/dashboard.css` to the inspector. Use its
+  available width to select label/value columns; stack only on very narrow
+  panels. Remove nested borders and the independent inspector scroll container.
+- [x] Run web tests, the responsive browser matrix in both themes, vet and
+  staticcheck; inspect populated screenshots, including long stacks and IDs.
+  Record results here without adding another review document. Do not commit.
+
+Results: the zero-count Go regression and one-step resource-attribute browser
+regression both failed before implementation and passed afterwards. Full
+`go test ./... -count=1 -timeout=5m`, web vet and pinned staticcheck passed.
+The complete rebuilt-browser checks passed at nine widths from 320 to 1440px
+in both themes, including native disclosures without JavaScript, 60-line stacks,
+long status values and page-scroll access below the stack. Geometry assertions
+allow one CSS pixel for rounded client dimensions; same-document navigation
+preserves native disclosure state, so tests open it only when needed.
+
+Expanded inspector screenshots for 320/390/1440px in both themes are under
+`dist/browser-checks/span-inspector-*.png`; mobile and desktop captures were
+visually inspected. No backend behavior, authorization or dependencies changed
+in this follow-up. No commits were made.
+
+## Approved daily investigation workflow — 2026-11-26
+
+Goal: implement the user's approved field-review findings in the current tree,
+preserving earlier changes and making no commits. Keep Go templates, native
+forms/disclosures, existing SQLite read pools, redacted stored data and roles.
+No schema migration or external infrastructure is needed.
+
+Plan, executed inline with failing regressions before implementation:
+
+- [x] Make Connect's repeated Check again perform a server request, including
+  without JavaScript, while preserving the original observation window.
+- [x] Carry validated local list return URLs through trace/evidence/map/parent,
+  pagination, comparison and wide-reader links. Reject external/nested returns.
+  Preserve browser-back behavior and avoid putting unsafe values into links.
+- [x] Offer a full-width span reader with native navigation and preserve the
+  selected span. Give missing traces receiver/Connect/storage checks and explain
+  possible causes without claiming a cause that the database cannot establish.
+- [x] Compare bounded per-operation span totals from both traces in the same
+  SQLite snapshot as their summaries. Separate app/namespace/environment/kind,
+  disclose limits and overlapping inclusive durations, and link to source spans.
+- [x] Offer native datalist suggestions for observed versions, services and run
+  IDs using bounded recent retained records; keep paste/manual input. Disclose
+  omitted older records and sampling limits; do not add a full-table DISTINCT.
+- [x] Verify focused regressions, full Go tests, vet/staticcheck and rebuilt
+  desktop/mobile browser flows (including repeated checks and no-script use).
+  Update existing user documentation and record results here.
+
+
+Results: the browser regression reproduced repeated Check again not issuing a
+request. A GET form alone still allowed fragment-only navigation in Chromium;
+fresh read-only check values now force a request without changing the original
+`since` or deadline. Repeated new-window actions are fresh too. Both paths were
+verified with JavaScript enabled and Check again without JavaScript.
+
+The regression suite also checks filtered-list return links, full-width reading,
+selected spans, suggested versions/run IDs, missing-trace guidance and all
+comparison columns on phones. SQLite tests cover suggestion time/service
+filters, tied observation times, trace/value limits, query plans using existing
+indexes without global span scans or temporary sorting, and truncated trace
+comparisons. Unknown/overflowed timings stay unavailable; repeated calls and
+separate environments/kinds are tested.
+
+`go test ./... -count=1 -timeout=5m`, `go vet ./...`, pinned staticcheck on the
+changed packages and `go mod tidy -diff` passed. Independent code review found
+a wide-reader state loss in parent/waterfall/map/pagination links. A browser
+regression reproduced it, the shared navigation mapper was fixed, and the
+reviewer found no remaining important issue in the fix. Full web tests and the
+complete rebuilt-browser matrix passed again afterwards, at nine widths from
+320 to 1440px in both themes, including no-script controls. Captures are under
+`dist/browser-checks/`; wide-reader and mobile comparison captures were inspected.
+No release publication, commits or production performance claims were made.

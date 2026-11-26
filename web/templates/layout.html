@@ -17,11 +17,17 @@
       <svg viewBox="0 0 64 64" aria-hidden="true" focusable="false"><g fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M30 36c-2 7-9 8-13 13-3 4-1 9 4 9 3 0 5-2 5-4" fill="none" stroke-width="5"/><path d="M30 24 21 19l-1-6m1 6-6 1m22 7 9 1 5-5m-5 5 5 3M28 34l-8-1-6 6m6-6-6-1m18 7 7 7 7-1m-7 1 1 6" fill="none" stroke-width="4"/><path d="M27 41c-6-3-4-12 1-19l4-6c-1-4 1-8 5-10 5-3 12-1 15 3 3 5 0 11-5 13-2 1-4 1-6 1l-5 13c-2 5-5 7-9 5Z" stroke="none"/></g><circle class="brand-eye" cx="43" cy="11" r="2.5"/></svg>
       Geko
     </a>
-    <form class="side-search" action="/traces" method="get" role="search" data-loading>
-      <svg viewBox="0 0 24 24" aria-hidden="true" class="nav-icon"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      <input name="trace_id" aria-label="Go to trace ID" placeholder="Go to trace ID" required maxlength="32" pattern="[0-9A-Fa-f]{32}" title="32 hexadecimal characters" spellcheck="false" autocomplete="off" data-trace-search>
-      <kbd aria-hidden="true">/</kbd>
+    <button class="button ghost search-toggle" type="button" aria-controls="site-search" aria-expanded="false" data-search-toggle><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search</button>
+    <button class="button ghost nav-toggle" type="button" aria-controls="site-nav" aria-expanded="false" data-nav-toggle><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>Menu</button>
+    <form class="side-search" id="site-search" action="/traces" method="get" role="search" data-loading>
+      <div class="side-search-field">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="nav-icon"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input name="trace_id" aria-label="Go to trace ID" placeholder="Go to trace ID" required maxlength="32" pattern="[0-9A-Fa-f]{32}" title="32 hexadecimal characters" spellcheck="false" autocomplete="off" enterkeyhint="go" data-trace-search>
+        <kbd aria-hidden="true">/</kbd>
+      </div>
+      <button class="button side-search-submit" type="submit">Go</button>
     </form>
+    <div class="nav-panel" id="site-nav">
     <nav aria-label="Main navigation">
       <a href="/overview"{{if eq .Page "overview"}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Overview</a>
       <a href="/failures"{{if or (eq .Page "failures") (eq .Page "traces") (eq .Page "trace") (eq .Page "compare")}} aria-current="page"{{end}}><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>Traces</a>
@@ -35,6 +41,7 @@
       {{with .Caller}}<p class="nav-identity" title="Signed in with {{if eq .Via "proxy"}}the sign-in proxy{{else if eq .Name "access"}}the access token{{else}}a token{{end}}"><span class="nav-identity-name">{{if eq .Name "access"}}Access token{{else}}{{.Name}}{{end}}</span> <span class="subtle">{{.Role}}</span></p>{{end}}
       {{if .SignOut}}<form action="/logout" method="post"><button class="nav-button" type="submit"><svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Sign out</button></form>{{end}}
     </nav>
+    </div>
   </aside>
   <main id="main" tabindex="-1">
     <p class="loading" role="status" hidden>Loading…</p>
@@ -44,6 +51,7 @@
     {{else if eq .Page "regressions"}}{{template "regressions" .Data}}
     {{else if eq .Page "runs"}}{{template "runs" .Data}}
     {{else if eq .Page "trace"}}{{template "trace" .Data}}
+    {{else if eq .Page "trace-missing"}}{{template "trace-missing" .Data}}
     {{else if eq .Page "compare"}}{{template "compare" .Data}}
     {{else if eq .Page "settings"}}{{template "settings" .Data}}
     {{else if eq .Page "storage"}}{{template "storage" .Data}}

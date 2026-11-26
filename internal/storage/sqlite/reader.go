@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/investigation"
 	"github.com/YunusEmreAlps/geko/internal/telemetry"
@@ -21,6 +22,10 @@ func (r *Reader) CompareRuns(ctx context.Context, baseline, candidate string) (i
 
 // Reader opens an existing Geko database without running migrations.
 type Reader struct{ store *Store }
+
+func (r *Reader) ComparisonChoices(ctx context.Context, since time.Time, service string) (investigation.ComparisonChoices, error) {
+	return r.store.ComparisonChoices(ctx, since, service)
+}
 
 func OpenReadOnly(ctx context.Context, path string) (*Reader, error) {
 	if !filepath.IsAbs(path) {
@@ -64,6 +69,10 @@ func (r *Reader) EvidenceDetails(ctx context.Context, id telemetry.TraceID, sele
 
 func (r *Reader) CompareTrace(ctx context.Context, id telemetry.TraceID) (investigation.TraceSummary, *investigation.TraceSummary, error) {
 	return r.store.CompareTrace(ctx, id)
+}
+
+func (r *Reader) TraceComparison(ctx context.Context, id telemetry.TraceID) (investigation.TraceComparison, error) {
+	return r.store.TraceComparison(ctx, id)
 }
 
 func (r *Reader) GroupVersions(ctx context.Context, key string) ([]investigation.GroupVersion, int, error) {

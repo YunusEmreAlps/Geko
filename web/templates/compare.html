@@ -1,21 +1,37 @@
 {{define "compare"}}
 <header class="page-head">
-  <div class="title"><a class="crumb" href="{{evidenceLink .Source}}">Trace</a><span class="crumb-sep" aria-hidden="true">/</span><h1>Compare traces</h1>{{with .Source.EntrySpan}}<span class="muted">{{.Operation}} · {{serviceLabel .Application .Service}}</span>{{end}}</div>
+  <div class="title"><a class="crumb" href="{{.SourceURL}}">Trace</a><span class="crumb-sep" aria-hidden="true">/</span><h1>Compare traces</h1>{{with .Source.EntrySpan}}<span class="muted">{{.Operation}} · {{serviceLabel .Application .Service}}</span>{{end}}</div>
 </header>
 {{if .Baseline}}
-<div class="table-wrap" tabindex="0" role="region" aria-label="Trace comparison">
-<table>
-  <thead><tr><th scope="col">Measure</th><th scope="col">Trace with evidence</th><th scope="col">Successful trace</th></tr></thead>
-  <tbody>
-    <tr><th scope="row">Trace</th><td><a href="{{evidenceLink .Source}}"><code>{{.Source.TraceID}}</code></a></td><td><a href="{{evidenceLink .Baseline}}"><code>{{.Baseline.TraceID}}</code></a></td></tr>
-    <tr><th scope="row">Request result</th><td><span class="pill {{outcomeClass .Source}}">{{outcome .Source}}</span></td><td><span class="pill {{outcomeClass .Baseline}}">{{outcome .Baseline}}</span></td></tr>
-    <tr><th scope="row">Request duration</th><td>{{duration .Source.EntrySpan.DurationNS}}{{if .DurationDifference}}<span class="subtle">{{.DurationDifference}}</span>{{end}}</td><td>{{duration .Baseline.EntrySpan.DurationNS}}</td></tr>
-    <tr><th scope="row">Spans</th><td>{{.Source.Window.SpanCount}}</td><td>{{.Baseline.Window.SpanCount}}</td></tr>
-    <tr><th scope="row">Last received</th><td class="time">{{timestamp .Source.LastObserved}}</td><td class="time">{{timestamp .Baseline.LastObserved}}</td></tr>
-    <tr><th scope="row">Primary evidence</th><td>{{with .Source.Evidence}}<span class="evidence-label">{{classification .Classification}}</span> · {{.Service}} · {{.Operation}}{{if .ExceptionMessage}}<span class="subtle">{{.ExceptionMessage}}</span>{{else if .ExceptionType}}<span class="subtle">{{.ExceptionType}}</span>{{end}}{{end}}</td><td class="muted">None recorded</td></tr>
+<div class="comparison-operations"><div class="table-wrap" tabindex="0" role="region" aria-label="Trace comparison">
+<table class="operation-comparison" role="table">
+  <thead role="rowgroup"><tr role="row"><th scope="col">Measure</th><th scope="col">Trace with evidence</th><th scope="col">Successful trace</th></tr></thead>
+  <tbody role="rowgroup">
+    <tr role="row"><th scope="row" role="rowheader">Trace</th><td role="cell"><span class="usage-label" aria-hidden="true">Trace with evidence</span><a href="{{.SourceURL}}"><code>{{.Source.TraceID}}</code></a></td><td role="cell"><span class="usage-label" aria-hidden="true">Successful trace</span><a href="{{.BaselineURL}}"><code>{{.Baseline.TraceID}}</code></a></td></tr>
+    <tr role="row"><th scope="row" role="rowheader">Request result</th><td role="cell"><span class="usage-label" aria-hidden="true">Trace with evidence</span><span class="pill {{outcomeClass .Source}}">{{outcome .Source}}</span></td><td role="cell"><span class="usage-label" aria-hidden="true">Successful trace</span><span class="pill {{outcomeClass .Baseline}}">{{outcome .Baseline}}</span></td></tr>
+    <tr role="row"><th scope="row" role="rowheader">Request duration</th><td role="cell"><span class="usage-label" aria-hidden="true">Trace with evidence</span>{{duration .Source.EntrySpan.DurationNS}}{{if .DurationDifference}}<span class="subtle">{{.DurationDifference}}</span>{{end}}</td><td role="cell"><span class="usage-label" aria-hidden="true">Successful trace</span>{{duration .Baseline.EntrySpan.DurationNS}}</td></tr>
+    <tr role="row"><th scope="row" role="rowheader">Spans</th><td role="cell"><span class="usage-label" aria-hidden="true">Trace with evidence</span>{{.Source.Window.SpanCount}}</td><td role="cell"><span class="usage-label" aria-hidden="true">Successful trace</span>{{.Baseline.Window.SpanCount}}</td></tr>
+    <tr role="row"><th scope="row" role="rowheader">Last received</th><td class="time" role="cell"><span class="usage-label" aria-hidden="true">Trace with evidence</span>{{timestamp .Source.LastObserved}}</td><td class="time" role="cell"><span class="usage-label" aria-hidden="true">Successful trace</span>{{timestamp .Baseline.LastObserved}}</td></tr>
+    <tr role="row"><th scope="row" role="rowheader">Primary evidence</th><td role="cell"><span class="usage-label" aria-hidden="true">Trace with evidence</span>{{with .Source.Evidence}}<span class="evidence-label">{{classification .Classification}}</span> · {{.Service}} · {{.Operation}}{{if .ExceptionMessage}}<span class="subtle">{{.ExceptionMessage}}</span>{{else if .ExceptionType}}<span class="subtle">{{.ExceptionType}}</span>{{end}}{{end}}</td><td class="muted" role="cell"><span class="usage-label" aria-hidden="true">Successful trace</span>None recorded</td></tr>
   </tbody>
 </table>
 </div>
+</div>
+<section class="section">
+  <h2>Span operation differences</h2>
+  <p class="note">The baseline is the latest retained HTTP 2xx trace without failure evidence matching the entry operation, service, application, namespace and environment. It is one example, not a performance baseline.</p>
+  <p class="note">Repeated calls to the same operation are grouped by service identity and span kind. Total span durations are inclusive and may overlap; they are not request duration or proof of a cause.</p>
+  {{if .Truncated}}<p class="notice notice--warning">Partial comparison: only the first {{.SpanLimit}} spans of each trace are included. Not observed does not mean absent from the whole trace.</p>{{end}}
+  {{if gt .OperationCount (len .Operations)}}<p class="notice notice--warning">Showing {{len .Operations}} of {{.OperationCount}} observed operation groups, with evidence groups first. Open the traces to inspect the rest.</p>{{end}}
+  {{if .Operations}}<div class="comparison-operations"><div class="table-wrap" role="region" aria-label="Span operation differences" tabindex="0">
+  <table class="operation-comparison" role="table"><thead role="rowgroup"><tr role="row"><th scope="col">Operation / service</th><th scope="col">Trace with evidence</th><th scope="col">Successful trace</th><th scope="col">Observed difference</th></tr></thead>
+  <tbody role="rowgroup">{{range .Operations}}<tr role="row">
+    <th scope="row" role="rowheader">{{.Operation}}<span class="subtle">{{serviceLabel .Application .Service}} · namespace {{or .Namespace "not set"}} · {{or .Environment "environment not set"}} · {{.Kind}}</span></th>
+    <td role="cell"><span class="usage-label" aria-hidden="true">Trace with evidence</span>{{if .Source.Calls}}<a href="{{.SourceURL}}">{{.Source.Calls}} calls</a><span class="subtle">{{.Source.Errors}} with evidence · {{duration .Source.DurationNS}} total</span>{{else}}Not observed{{end}}</td>
+    <td role="cell"><span class="usage-label" aria-hidden="true">Successful trace</span>{{if .Baseline.Calls}}<a href="{{.BaselineURL}}">{{.Baseline.Calls}} calls</a><span class="subtle">{{.Baseline.Errors}} with evidence · {{duration .Baseline.DurationNS}} total</span>{{else}}Not observed{{end}}</td>
+    <td role="cell"><span class="usage-label" aria-hidden="true">Observed difference</span>{{.Difference}}</td>
+  </tr>{{end}}</tbody></table></div></div>{{else}}<p class="muted">Span comparison is unavailable for this reader.</p>{{end}}
+</section>
 {{else}}
 <section class="empty">
   <h2>No comparison available</h2>

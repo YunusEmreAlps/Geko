@@ -83,7 +83,7 @@ func TestFailureEventsAndGroups(t *testing.T) {
 	path := "http://127.0.0.1/failures?group=" + investigation.EncodeGroupKey(group.Key)
 	mux.ServeHTTP(detail, httptest.NewRequest("GET", path, nil))
 	detailBody := detail.Body.String()
-	evidencePath := "/traces/" + group.TraceID + "?span=" + group.SpanID + "#span-details"
+	evidencePath := "span=" + group.SpanID + "#span-details"
 	if detail.Code != 200 || !strings.Contains(detailBody, "Observed failure summary") ||
 		!strings.Contains(detailBody, "1 matching trace") || !strings.Contains(detailBody, evidencePath) ||
 		strings.Contains(detailBody, "<script>unsafe</script>") {

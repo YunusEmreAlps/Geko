@@ -7,10 +7,25 @@
   </div>{{end}}
 </header>
 <nav class="section-nav" aria-label="Settings sections">
+  {{if .RuntimeState}}<a href="#runtime-settings">Live settings</a>{{end}}
   <a href="#appearance">Appearance</a><a href="#receiver">Receiver</a><a href="#notifications">Notifications</a><a href="#ownership">Ownership</a><a href="#storage">Storage</a><a href="#configuration">Configuration</a>
 </nav>
-<p class="settings-scope muted">Theme is saved in this browser. Server configuration below is read-only; edit YAML or environment variables and restart Geko to change it.</p>
-<section class="section first" id="appearance">
+{{with .RuntimeState}}
+<section class="section first" id="runtime-settings">
+  <h2>Live settings</h2>
+  <p class="muted">Applied immediately and saved to the loaded YAML file. Every other server setting needs a restart.</p>
+  {{if not .AppliedAt.IsZero}}<p class="notice notice--success" role="status">Saved and applied {{timestamp .AppliedAt}}.</p>{{end}}
+  {{with .Warning}}<p class="notice notice--warning" role="status">{{.}}</p>{{end}}
+  {{if not .Editable}}<p class="notice notice--info">{{.Reason}}</p>{{end}}
+  <form class="properties runtime-settings-form" action="/settings/runtime" method="post" data-loading>
+    <input type="hidden" name="revision" value="{{.Revision}}">
+    <div><label for="runtime-trace-url">Trace link URL</label><div><input id="runtime-trace-url" name="trace_link_url" value="{{.URL}}" maxlength="4096" placeholder="https://tempo.example/explore?trace={trace_id}"{{if or (not .Editable) (eq .URLSource.Kind "env")}} readonly{{end}} autocomplete="off" spellcheck="false" aria-describedby="runtime-url-hint runtime-url-source"><p class="field-hint" id="runtime-url-hint">An HTTP(S) URL containing <code>{trace_id}</code></p><div id="runtime-url-source">{{if ne .URLSource.Kind "default"}}{{template "settings-source" .URLSource}}{{end}}</div></div></div>
+    <div><label for="runtime-trace-name">Link name</label><div><input id="runtime-trace-name" name="trace_link_name" value="{{.Name}}" maxlength="40" placeholder="Tempo"{{if or (not .Editable) (eq .NameSource.Kind "env")}} readonly{{end}} aria-describedby="runtime-name-source"><div id="runtime-name-source">{{if ne .NameSource.Kind "default"}}{{template "settings-source" .NameSource}}{{end}}</div></div></div>
+    <div class="form-footer"><p class="note">Clear both fields to disable the link. Environment-managed fields are locked. YAML comments are kept; formatting may change.</p><button class="button primary" type="submit"{{if not .Editable}} disabled{{end}}>Save and apply</button></div>
+  </form>
+</section>
+{{end}}
+<section class="section{{if not .RuntimeState}} first{{end}}" id="appearance">
   <h2>Appearance</h2>
   <div class="properties">
     <div class="theme-preference">
@@ -96,7 +111,7 @@
     <div><dt>Exception redaction</dt><dd><code>{{or .Redaction "best_effort"}}</code>{{template "settings-source" .ConfigSource.Redaction}}</dd></div>
     <div><dt>Loaded YAML file</dt><dd>{{with .ConfigSource.FilePath}}<code>{{.}}</code>{{else}}No YAML file loaded{{end}}</dd></div>
   </dl>
-  <p class="note">{{if .ConfigSource.FilePath}}Edit the YAML file or environment variables, then restart Geko to apply changes.{{else}}Create <code>geko.yaml</code> or set <code>GEKO_CONFIG</code> to a file path. Restart Geko to load it.{{end}}</p>
+  <p class="note">{{if .ConfigSource.FilePath}}Edit YAML or environment variables and restart Geko for settings outside the live editor.{{else}}Create <code>geko.yaml</code> or set <code>GEKO_CONFIG</code> to a file path. Restart Geko to load it.{{end}}</p>
 </section>
 {{end}}
 

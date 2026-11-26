@@ -15,6 +15,8 @@
       ? (media.matches ? "dark" : "light") : preference;
   }
   apply();
+  // Lets narrow layouts fold navigation behind a menu only when the menu works.
+  document.documentElement.classList.add("js");
   media.addEventListener("change", apply);
   window.addEventListener("storage", (event) => {
     if (event.key !== key && event.key !== null) return;

@@ -21,7 +21,7 @@ func TestRunComparisonPageShowsObservedEvidenceWithoutResolving(t *testing.T) {
 	baseline, candidate := strings.Repeat("a", 32), strings.Repeat("b", 32)
 	for i, id := range []string{baseline, candidate} {
 		span := telemetry.Span{TraceID: telemetry.TraceID{byte(i + 1)}, ID: telemetry.SpanID{1}, ServiceName: "api", Name: "GET /work", Kind: telemetry.KindServer,
-			StartTime: time.Now(), EndTime: time.Now(), ResourceAttributes: telemetry.Attributes{"service.namespace": "Shop", "geko.run.id": id}}
+			StartTime: time.Now(), EndTime: time.Now(), ResourceAttributes: telemetry.Attributes{"service.namespace": "Shop", "geko.run.id": id, "service.version": "v1.2.3"}}
 		if i == 0 {
 			span.Events = []telemetry.Event{{Name: "exception", Attributes: telemetry.Attributes{"exception.type": "<script>unsafe</script>"}}}
 		}
@@ -32,6 +32,17 @@ func TestRunComparisonPageShowsObservedEvidenceWithoutResolving(t *testing.T) {
 	mux := http.NewServeMux()
 	if err := Register(mux, store, Settings{}); err != nil {
 		t.Fatal(err)
+	}
+	for _, path := range []string{"/runs/compare", "/regressions"} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1"+path, nil))
+		want := baseline
+		if path == "/regressions" {
+			want = "v1.2.3"
+		}
+		if w.Code != 200 || !strings.Contains(w.Body.String(), `<option value="`+want+`"`) || !strings.Contains(w.Body.String(), "recent retained") {
+			t.Errorf("%s missing bounded observed suggestions", path)
+		}
 	}
 	for _, test := range []struct {
 		query  string

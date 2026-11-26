@@ -159,33 +159,47 @@ against the current Docker image and
 Jaeger on 2026-11-24 ([record](benchmarks/2026-11-24-docker-validation.md));
 this validates their data, not participant usability outcomes.
 
-### Phase 16: dynamic settings (after the preceding phases)
+### Phase 16: dynamic settings (in progress)
 
-Requested on 2026-11-24. Complete the remaining phase validation and the
-feedback-led phase 15 work first; do not start runtime configuration work
-ahead of them.
+Requested on 2026-11-24. On 2026-11-25 the user explicitly requested starting
+this phase; phase 15's participant sessions remain outstanding. The first
+implementation slice covers trace links, not every server setting.
 
 **Outcome:** administrators can change supported settings without restarting,
 with clear application status and durable configuration.
 
-- [ ] Add a central runtime settings manager with validation, immutable
+- [x] Add a central runtime settings manager with validation, immutable
       snapshots, configuration revision checks and last-known-good behavior.
-- [ ] Persist supported UI edits atomically to the resolved YAML file,
+- [x] Persist supported UI edits atomically to the resolved YAML file,
       preserving comments. Retain `env > YAML > default`; environment-managed
       fields are locked with their source shown. Handle read-only mounts.
-- [ ] Start with trace links, owner mappings and Budget limits. Preserve
-      counters and consistently update the dashboard, CLI/MCP and notifications.
+- [x] Apply trace links live through Settings and an admin-only API. Preserve
+      unrelated YAML values/comments and show env locks, conflicts, persistence
+      errors and successful application. Audit never records edited values.
+- [ ] Extend the manager to owner mappings and Budget limits. Preserve counters
+      and consistently update dashboard, CLI/MCP and notifications.
 - [ ] Add controlled reconfiguration for retention, size/full policies,
       checkpoint workers and notification schedules. Preview destructive
       retention effects; applying a smaller file limit does not compact it.
 - [ ] Redesign admission concurrency before making it live: replacing the
       existing channel while requests are active is unsafe. Apply privacy
       policy changes at export boundaries and disclose historical-data effects.
-- [ ] Keep listener addresses, database paths and access-surface changes
+- [x] Keep listener addresses, database paths and access-surface changes
       restart-required initially. Existing token-file reload stays supported.
-- [ ] Require admin access, CSRF protection, safe audit records and explicit
+- [x] Require admin access, CSRF protection, safe audit records and explicit
       saved/applied/restart-required/error states. Secret values never appear
       in configuration responses or audit diffs.
+
+The [live settings guide](configuration.md#live-settings) documents the current
+scope, revision conflicts, filesystem restrictions and recovery. These checked
+items apply to the trace-link slice only; multi-component reconfiguration and
+its rollback/lifecycle tests remain planned.
+
+Local validation: the full Go suite, vet and targeted staticcheck passed.
+Windows persistence and Linux `-race` checks covered concurrent runtime edits,
+snapshots, trace writes and dashboard reads. Browser checks covered both themes
+at seven widths, successful saves, immediate trace-link changes and recovery
+from invalid form submissions. A new hosted CI run is still needed after push.
 
 **Acceptance:** concurrent ingest plus configuration updates under `-race`,
 invalid-update rollback, restart persistence, stale-edit conflicts, env locks,

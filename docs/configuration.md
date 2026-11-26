@@ -4,8 +4,65 @@ Settings, storage limits, privacy modes, upgrades, the CLI and the JSON API. [Ba
 
 Copy [`geko.example.yaml`](../geko.example.yaml) to `geko.yaml` in the working
 directory, or set `GEKO_CONFIG` to a YAML file. Nonempty environment variables
-override YAML. Restart Geko to apply changes. **Settings** shows each value's
+override YAML. Most changes require a restart. **Settings** shows each value's
 source: default, YAML, or environment.
+
+## Live settings
+
+In source builds after v0.2.0, administrators can change **Trace link URL** and
+**Link name** under **Settings → Live settings**. **Save and apply** writes the
+loaded YAML file and updates links on subsequent trace-page requests without
+restarting. Clear both fields to disable the link. The URL must be HTTP(S),
+contain `{trace_id}`, omit URL user credentials and fit in 4,096 bytes; the name
+is limited to 40 bytes and defaults to Tempo when a URL is enabled.
+
+This first slice supports trace links only. Owners, Budget limits, listeners,
+database paths, retention, privacy, authentication and notification settings
+still require their existing restart/configuration flow. The existing token-
+file reload remains supported independently. Browser theme preferences remain
+local to the browser.
+
+- Live editing accepts configuration files up to 1 MiB. Larger existing files
+  still load at startup but require external editing and a restart.
+- A YAML file must already be loaded. Geko does not create a configuration file
+  implicitly. The file and its directory must permit replacement; read-only
+  instances, symlinked config files, root YAML merges and shared/aliased
+  trace-link scalars are not editable through this UI.
+- Nonempty `GEKO_TRACE_LINK_URL` / `GEKO_TRACE_LINK_NAME` lock their respective
+  fields. Editing an unlocked field never writes the effective env value into
+  YAML. Other keys and comments are retained; YAML formatting can change.
+- Saves validate before writing, synchronize a temporary file in the same
+  directory, then replace the existing file. Windows uses `ReplaceFileW` to
+  retain destination ACLs; Unix uses rename and directory synchronization.
+  A directory-sync warning is shown if the save applied but crash durability
+  could not be confirmed. Failed replacement leaves the live values unchanged.
+- A revision prevents stale tabs from overwriting newer saves. External YAML
+  edits cause a conflict; restart Geko to load them. There is no automatic
+  config-file watcher. Coordinate external editors with UI saves: revision
+  checks cannot lock an editor that does not cooperate.
+- Cooperating Geko writers use `<config file>.lock`. A crash can leave this
+  lock behind. Remove a stale lock only after confirming no configuration
+  writer is active. Single-file Docker bind mounts may prevent replacement;
+  mount a writable configuration directory if UI persistence is required.
+- Viewer/triager accounts and read-only instances cannot use the editor/API.
+  Writes have the dashboard's CSRF protection. Audit records contain the actor,
+  field group and result, not URL values, credentials or the full YAML file.
+
+The admin-only API uses `GET /api/v1/settings/runtime` for the current state,
+sources and revision. `POST` replaces the supported trace-link pair; both
+fields and the revision are required (empty strings explicitly disable it):
+
+```json
+{
+  "revision": "<revision from GET>",
+  "trace_link_url": "https://jaeger.example/trace/{trace_id}",
+  "trace_link_name": "Jaeger"
+}
+```
+
+A successful response contains the applied state. Conflicts return 409, invalid
+input 400, and persistence failures 503; effective settings remain unchanged on
+these failures. The API never returns the complete server configuration.
 
 ## Check an application's connection
 
@@ -13,6 +70,9 @@ On **Connect**, choose the service and optional application namespace, then
 select **Start a 60-second check**. Send a request to the application and use
 **Check again** after the SDK's batch delay. Matching accepted OTLP exports
 show a representative namespace, environment, version, run ID and trace link.
+Each **Check again** performs a fresh request, including without JavaScript,
+and keeps the original observation deadline. **Start a new 60-second check**
+starts a new window; it does not replay an earlier observation.
 
 Observations are in memory, reset on restart and retain one representative
 sample per namespace/service/environment for up to five minutes, with at most

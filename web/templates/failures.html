@@ -28,7 +28,7 @@
   {{if .Mode}}<input type="hidden" name="view" value="{{.Mode}}">{{end}}
   {{if .Group}}<input type="hidden" name="group" value="{{.Group}}">{{end}}
   {{if .GroupState}}<input type="hidden" name="state" value="{{.GroupState}}">{{end}}
-  <label><span class="sr-only">Search</span><input type="search" name="q" value="{{.Search}}" maxlength="4096" placeholder="Search trace ID or exception"></label>
+  <label class="filter-search"><span class="sr-only">Search</span><input type="search" name="q" value="{{.Search}}" maxlength="4096" placeholder="Search trace ID or exception"></label>
   <label><span class="sr-only">Application</span>
     <select name="application">
       <option value="">All applications</option>
@@ -82,7 +82,7 @@
   </div>
   {{end}}
   <div class="summary-links">
-    <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Open the latest evidence span</a>
+    <a href="{{withReturn (printf "/traces/%s?span=%s#span-details" .TraceID .SpanID) $.ReturnURL}}">Open the latest evidence span</a>
     <a href="/groups/bundle?group={{$.Group}}" download title="The group, its note and its 10 newest traces as one file another Geko can import">Download failure bundle</a>
     <button type="button" class="button small" data-copy="group-evidence" data-copy-status="group-evidence-status" hidden>Copy as bug evidence</button><span role="status" class="subtle" id="group-evidence-status"></span>
   </div>
@@ -100,13 +100,17 @@
   {{end}}
 </section>
 {{end}}
-{{if .Groups}}{{template "group-table" .Groups}}
-{{else if .Items}}{{template "failure-table" .Items}}
+{{if .Groups}}{{template "group-table" (groupTable .Groups .ReturnURL)}}
+{{else if .Items}}{{template "failure-table" (failureTable .Items .ReturnURL)}}
 {{else if not .HasTraces}}
-<section class="empty">
+<section class="empty onboarding">
   <h2>No traces received yet</h2>
-  <p>Send OTLP/HTTP traces to <code>{{.Endpoint}}</code>.</p>
-  <p>To try the Go example, set <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code> to that URL and run <code>go run ./examples/go</code> from the repository. Open <a href="http://127.0.0.1:8080/failure">the demo failure</a>, wait a few seconds, then refresh this list.</p>
+  <p>Send OTLP/HTTP traces to <code>{{.Endpoint}}</code>. To try the Go example:</p>
+  <ol class="steps">
+    <li>Set <code>OTEL_EXPORTER_OTLP_TRACES_ENDPOINT</code> to that URL.</li>
+    <li>Run <code>go run ./examples/go</code> from the repository.</li>
+    <li>Open <a href="http://127.0.0.1:8080/failure">the demo failure</a>, then refresh this list.</li>
+  </ol>
   <div class="actions"><a class="button primary" href="/connect">Connect an application</a><a class="button" href="/settings#receiver">Check receiver diagnostics</a></div>
 </section>
 {{else if or .AllTraces .Filtered .First}}
@@ -164,8 +168,8 @@
 {{define "group-table"}}
 <div class="table-wrap" tabindex="0" role="region" aria-label="Error groups">
 <table class="group-table"><thead><tr><th scope="col">Error / Operation</th><th scope="col">Service / Environment</th><th scope="col" class="num">Traces</th><th scope="col">First received</th><th scope="col">Last received</th></tr></thead><tbody>
-{{range .}}<tr data-first-received="{{.FirstObserved.UnixMilli}}">
-  <td><a class="operation" href="{{.TracesURL}}">{{failureTitle .ExceptionType .Classification}}</a> {{template "group-state" .FailureGroup}}<span class="subtle">{{.Operation}}{{if .HTTPStatus}} · HTTP {{.HTTPStatus}}{{end}} · <a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details">Latest example</a>{{with .IssueURL}} · <a href="{{.}}" target="_blank" rel="noopener noreferrer" title="{{.}}">Issue</a>{{end}}</span></td>
+{{range .Items}}<tr data-first-received="{{.FirstObserved.UnixMilli}}">
+  <td><a class="operation" href="{{.TracesURL}}">{{failureTitle .ExceptionType .Classification}}</a> {{template "group-state" .FailureGroup}}<span class="subtle">{{.Operation}}{{if .HTTPStatus}} · HTTP {{.HTTPStatus}}{{end}} · <a href="{{withReturn (printf "/traces/%s?span=%s#span-details" .TraceID .SpanID) $.ReturnURL}}">Latest example</a>{{with .IssueURL}} · <a href="{{.}}" target="_blank" rel="noopener noreferrer" title="{{.}}">Issue</a>{{end}}</span></td>
   <td>{{serviceLabel .Application .Service}}{{$namespace := and .Namespace (ne .Namespace .Application)}}{{if or $namespace .Environment}}<span class="subtle">{{if $namespace}}{{.Namespace}}{{if .Environment}} · {{end}}{{end}}{{.Environment}}</span>{{end}}{{with owner .Application .Service}}<span class="subtle">Owner {{.}}</span>{{end}}</td>
   <td class="num"><a class="operation" href="{{.TracesURL}}">{{.Count}}</a></td>
   <td class="time">{{template "age" .FirstObserved}}</td><td class="time">{{template "age" .LastObserved}}</td>
@@ -178,10 +182,10 @@
   <table class="failure-table">
     <thead><tr><th scope="col">Operation</th><th scope="col" title="The entry span's HTTP outcome. A request can succeed even when one of its spans records an error.">Result</th><th scope="col">Evidence</th><th scope="col">Last received</th></tr></thead>
     <tbody>
-    {{range .}}{{$entry := .EntrySpan}}
+    {{range .Items}}{{$entry := .EntrySpan}}
       <tr>
         <td class="operation-cell">
-          <a class="operation" href="{{evidenceLink .}}">
+          <a class="operation" href="{{withReturn (evidenceLink .) $.ReturnURL}}">
           {{if .EntrySpan}}{{.EntrySpan.Operation}}{{else if .Evidence}}{{.Evidence.Operation}}{{else}}{{.TraceID}}{{end}}
           </a>
           {{with .Pin}}<span class="pill neutral" title="Pinned {{timestamp .PinnedAt}}{{with .PinnedBy}} by {{.}}{{end}}; kept past retention">Pinned</span>{{end}}

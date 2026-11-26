@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 
 	"github.com/YunusEmreAlps/geko/internal/investigation"
@@ -17,12 +18,20 @@ func (s *Store) CompareTrace(ctx context.Context, id telemetry.TraceID) (investi
 		return investigation.TraceSummary{}, nil, err
 	}
 	defer tx.Rollback()
+	source, baseline, err := compareTrace(ctx, tx, id)
+	if err != nil {
+		return source, baseline, err
+	}
+	return source, baseline, tx.Commit()
+}
+
+func compareTrace(ctx context.Context, tx *sql.Tx, id telemetry.TraceID) (investigation.TraceSummary, *investigation.TraceSummary, error) {
 	source, err := traceSummary(ctx, tx, id)
 	if err != nil {
 		return source, nil, err
 	}
 	if source.Evidence == nil || source.EntrySpan == nil {
-		return source, nil, tx.Commit()
+		return source, nil, nil
 	}
 
 	var baselineID telemetry.TraceID
@@ -35,7 +44,7 @@ func (s *Store) CompareTrace(ctx context.Context, id telemetry.TraceID) (investi
 		err = tx.QueryRowContext(ctx, operationBaselineQuery, args...).Scan(&rawID)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
-		return source, nil, tx.Commit()
+		return source, nil, nil
 	}
 	if err != nil {
 		return source, nil, err
@@ -45,7 +54,66 @@ func (s *Store) CompareTrace(ctx context.Context, id telemetry.TraceID) (investi
 	if err != nil {
 		return source, nil, err
 	}
-	return source, &baseline, tx.Commit()
+	return source, &baseline, nil
+}
+
+// TraceComparison collects both summaries and bounded span facts in one WAL
+// read snapshot. Existing CLI/API CompareTrace callers keep their lighter read.
+func (s *Store) TraceComparison(ctx context.Context, id telemetry.TraceID) (investigation.TraceComparison, error) {
+	var result investigation.TraceComparison
+	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback()
+	result.Source, result.Baseline, err = compareTrace(ctx, tx, id)
+	if err != nil {
+		return result, err
+	}
+	if result.Baseline == nil {
+		return result, tx.Commit()
+	}
+	result.SourceSpans, err = comparisonSpans(ctx, tx, id)
+	if err != nil {
+		return result, err
+	}
+	var other telemetry.TraceID
+	// The baseline ID came from this database, in canonical hexadecimal form.
+	if _, err = hex.Decode(other[:], []byte(result.Baseline.TraceID)); err != nil {
+		return result, err
+	}
+	result.BaselineSpans, err = comparisonSpans(ctx, tx, other)
+	if err != nil {
+		return result, err
+	}
+	result.Truncated = result.Source.Window != nil && result.Source.Window.SpanCount > len(result.SourceSpans) ||
+		result.Baseline.Window != nil && result.Baseline.Window.SpanCount > len(result.BaselineSpans)
+	return result, tx.Commit()
+}
+
+func comparisonSpans(ctx context.Context, tx *sql.Tx, id telemetry.TraceID) ([]investigation.ComparisonSpan, error) {
+	rows, err := tx.QueryContext(ctx, `SELECT s.span_id,s.service_name,s.name,s.http_status,s.start_ns,s.end_ns,`+evidenceApplication+`,
+ s.service_namespace,`+spanEnvironment("s")+`,s.kind,
+ EXISTS(SELECT 1 FROM span_evidence e WHERE e.trace_id=s.trace_id AND e.span_id=s.span_id)
+ FROM spans s LEFT JOIN trace_applications ta ON ta.trace_id=s.trace_id
+ LEFT JOIN service_applications sa ON sa.service_name=s.service_name
+ WHERE s.trace_id=? ORDER BY s.start_ns,s.span_id LIMIT ?`, id[:], investigation.MapSpanLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var spans []investigation.ComparisonSpan
+	for rows.Next() {
+		var summary spanSummaryRow
+		var span investigation.ComparisonSpan
+		fields := append(summary.fields(), &span.Namespace, &span.Environment, &span.Kind, &span.HasEvidence)
+		if err := rows.Scan(fields...); err != nil {
+			return nil, err
+		}
+		span.SpanSummary = *summary.summary()
+		spans = append(spans, span)
+	}
+	return spans, rows.Err()
 }
 
 // recentBaselineTraces bounds the newest-first scan. It finds a recent

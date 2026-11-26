@@ -22,7 +22,9 @@ func TestBudgetHistoryAPIAndPage(t *testing.T) {
 	defer store.Close()
 	hour := time.Now().UTC().Truncate(time.Hour).Add(-time.Hour)
 	checkpoint := budget.Checkpoint{Session: strings.Repeat("a", 32), Start: hour, Since: hour, Until: hour.Add(time.Hour), Spans: 5, Bytes: 100, Services: []budget.Volume{{Service: "api", Spans: 5, Bytes: 100}}}
-	if err := store.SaveBudgetCheckpoints(t.Context(), time.Now(), 7, []budget.Checkpoint{checkpoint}); err != nil {
+	otherHour := hour.Add(-time.Hour)
+	other := budget.Checkpoint{Session: strings.Repeat("b", 32), Start: otherHour, Since: otherHour, Until: otherHour.Add(time.Hour), Spans: 3, Bytes: 60, OtherSpans: 3, OtherBytes: 60}
+	if err := store.SaveBudgetCheckpoints(t.Context(), time.Now(), 7, []budget.Checkpoint{checkpoint, other}); err != nil {
 		t.Fatal(err)
 	}
 	tracker := budget.New(budget.Config{Enabled: true, HistoryDays: 7}, time.Now())
@@ -31,6 +33,11 @@ func TestBudgetHistoryAPIAndPage(t *testing.T) {
 		t.Fatal(err)
 	}
 	query := "?hour=" + url.QueryEscape(hour.Format(time.RFC3339))
+	otherPage := httptest.NewRecorder()
+	mux.ServeHTTP(otherPage, httptest.NewRequest("GET", "http://127.0.0.1/budget?hour="+url.QueryEscape(otherHour.Format(time.RFC3339)), nil))
+	if otherPage.Code != 200 || !strings.Contains(otherPage.Body.String(), "Other services") || strings.Contains(otherPage.Body.String(), "No spans counted yet") {
+		t.Error("a window containing only unattributed volume must show its usage row")
+	}
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1/api/v1/budget"+query, nil))
 	var report budget.Report

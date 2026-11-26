@@ -77,7 +77,7 @@ func TestApplicationGrouping(t *testing.T) {
 		contains(body, "cross-project entry", true)
 		contains(body, "old Kavun request", false)
 	}
-	contains(get("/failures?application=group:Nar&evidence_service=api"), "?span=0200000000000000#span-details", true)
+	contains(get("/failures?application=group:Nar&evidence_service=api"), "span=0200000000000000#span-details", true)
 	contains(get("/failures?application=group:Nar&service=api"), "cross-project entry", false)
 	contains(get("/traces/01000000000000000000000000000000"), "Kavun / api → Nar / api", true)
 	contains(get("/failures?application=ungrouped"), "old Kavun request", true)
