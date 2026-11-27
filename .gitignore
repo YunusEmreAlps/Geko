@@ -22,3 +22,6 @@ examples/sdk/python/.venv/
 examples/sdk/java/target/
 examples/sdk/dotnet/bin/
 examples/sdk/dotnet/obj/
+
+# Local OpenTelemetry SDK scratch install.
+scripts/otel-sdk/node_modules/
