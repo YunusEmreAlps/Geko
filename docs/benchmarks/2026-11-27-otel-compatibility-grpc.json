@@ -1,0 +1,377 @@
+{
+  "schema_version": 1,
+  "metadata": {
+    "geko_version": "Geko dev (windows/amd64, go1.26.11)\nvcs.revision=1f3387532014751163f7dc41129025d0d2624d9a\nvcs.time=2026-11-27T18:28:15Z\nvcs.modified=true",
+    "geko_binary_sha256": "c8ca39c9a90da1bddf3613d6cc4da99c3a3ed72a42aab078bfd88172686f0894",
+    "collector_version": "otelcol version 0.166.0",
+    "collector_binary_sha256": "82ecba15c2e72cd1599b4a3251ba4875a9d419b36646f1adacad117f3f23f62b",
+    "collector_archive": "otelcol_0.166.0_windows_amd64.tar.gz",
+    "collector_archive_sha256": "20462a8d1dc069c5e2727c71ba0fe03370a63edb16f66c4de405696241f6c37c",
+    "collector_archive_checksum_verified": true,
+    "observed_at_utc": "2026-11-27T19:20:18.086561+00:00",
+    "environment": "Local Windows amd64; isolated loopback receivers and temporary databases",
+    "hosted_workflow_run": false
+  },
+  "verified_cells": 33,
+  "accepted_traces": 66,
+  "scope": "Real official SDK exports, including Go HTTP protobuf and gRPC; link/event/numeric-type fidelity across direct and two Collector routes",
+  "unexercised": [
+    "Python/Java/.NET/Go HTTP JSON"
+  ],
+  "results": [
+    {
+      "language": "node",
+      "protocol": "http/protobuf",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "node",
+      "protocol": "http/json",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "node",
+      "protocol": "grpc",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "python",
+      "protocol": "http/protobuf",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "python",
+      "protocol": "grpc",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "java",
+      "protocol": "http/protobuf",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "java",
+      "protocol": "grpc",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "dotnet",
+      "protocol": "http/protobuf",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "dotnet",
+      "protocol": "grpc",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "go",
+      "protocol": "http/protobuf",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true,
+      "cross_trace_span_link": true,
+      "retry_event_int64": true,
+      "retry_event_double": true,
+      "otlp_download_numeric_types": true
+    },
+    {
+      "language": "go",
+      "protocol": "grpc",
+      "route": "direct",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true,
+      "cross_trace_span_link": true,
+      "retry_event_int64": true,
+      "retry_event_double": true,
+      "otlp_download_numeric_types": true
+    },
+    {
+      "language": "node",
+      "protocol": "http/protobuf",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "node",
+      "protocol": "http/json",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "node",
+      "protocol": "grpc",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "python",
+      "protocol": "http/protobuf",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "python",
+      "protocol": "grpc",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "java",
+      "protocol": "http/protobuf",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "java",
+      "protocol": "grpc",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "dotnet",
+      "protocol": "http/protobuf",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "dotnet",
+      "protocol": "grpc",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "go",
+      "protocol": "http/protobuf",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true,
+      "cross_trace_span_link": true,
+      "retry_event_int64": true,
+      "retry_event_double": true,
+      "otlp_download_numeric_types": true
+    },
+    {
+      "language": "go",
+      "protocol": "grpc",
+      "route": "collector/http/protobuf",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true,
+      "cross_trace_span_link": true,
+      "retry_event_int64": true,
+      "retry_event_double": true,
+      "otlp_download_numeric_types": true
+    },
+    {
+      "language": "node",
+      "protocol": "http/protobuf",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "node",
+      "protocol": "http/json",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "node",
+      "protocol": "grpc",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "python",
+      "protocol": "http/protobuf",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "python",
+      "protocol": "grpc",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "java",
+      "protocol": "http/protobuf",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "java",
+      "protocol": "grpc",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "dotnet",
+      "protocol": "http/protobuf",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "dotnet",
+      "protocol": "grpc",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true
+    },
+    {
+      "language": "go",
+      "protocol": "http/protobuf",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true,
+      "cross_trace_span_link": true,
+      "retry_event_int64": true,
+      "retry_event_double": true,
+      "otlp_download_numeric_types": true
+    },
+    {
+      "language": "go",
+      "protocol": "grpc",
+      "route": "collector/grpc",
+      "accepted_traces": 2,
+      "exception_stacktrace": true,
+      "resource_context": true,
+      "run_id_filter": true,
+      "otel_capture_provenance": true,
+      "cross_trace_span_link": true,
+      "retry_event_int64": true,
+      "retry_event_double": true,
+      "otlp_download_numeric_types": true
+    }
+  ]
+}

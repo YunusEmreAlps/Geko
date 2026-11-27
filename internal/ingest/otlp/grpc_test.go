@@ -242,7 +242,7 @@ func TestGRPCBackpressure(t *testing.T) {
 	}
 	check(err, 30*time.Second)
 	for range maxConcurrent {
-		if ok, _ := receiver.tryAcquire(); !ok {
+		if !receiver.tryAcquire() {
 			t.Fatal("could not occupy admission slot")
 		}
 	}
@@ -288,7 +288,7 @@ func TestGRPCAdmissionPrecedesDecoding(t *testing.T) {
 	receiver.wait = 0
 	conn := grpcClient(t, receiver, "127.0.0.1:4317")
 	for range maxConcurrent {
-		if ok, _ := receiver.tryAcquire(); !ok {
+		if !receiver.tryAcquire() {
 			t.Fatal("could not occupy admission slot")
 		}
 	}

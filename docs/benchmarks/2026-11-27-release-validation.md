@@ -91,6 +91,11 @@ contains independently reported jobs for:
 - The current checkout's Action using its **release installer**, with no
   `geko-binary` override and `comment: false`. The official Python SDK example
   must yield available telemetry and a positive failure count.
+- A separate published `YunusEmreAlps/geko@v0.2.0` Action job, enabled only when
+  the selected release version is `0.2.0`. It also uses the release installer,
+  no source-built override and `comment: false`, and requires actual SDK failure
+  evidence. This closes a preparation gap: checking `uses: ./` alone does not
+  verify the published Action tag.
 
 The only trigger is `workflow_dispatch`; repository permissions are read-only.
 The version defaults to `0.2.0`. Public package metadata must match the input

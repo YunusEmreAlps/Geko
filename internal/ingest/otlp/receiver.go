@@ -3,6 +3,7 @@ package otlp
 
 import (
 	"compress/gzip"
+	"container/list"
 	"context"
 	"errors"
 	"io"
@@ -44,7 +45,7 @@ type Receiver struct {
 	concurrency        int
 	admissionMu        sync.Mutex
 	active             int
-	admissionChanged   chan struct{}
+	admissionWaiters   list.List
 	policySource       func() Policy
 	wait               time.Duration
 	strict             bool

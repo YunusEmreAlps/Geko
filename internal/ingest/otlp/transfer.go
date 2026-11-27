@@ -216,7 +216,7 @@ func transferAttributes(attrs telemetry.Attributes) []*common.KeyValue {
 // refuses a trace that is already stored so a file cannot add spans to it.
 func (h *Receiver) RestoreTraceJSON(ctx context.Context, input io.Reader, stored func(context.Context, telemetry.TraceID) (bool, error)) (telemetry.TraceID, error) {
 	var id telemetry.TraceID
-	if ok, _ := h.tryAcquire(); !ok {
+	if !h.tryAcquire() {
 		return id, ErrTransferBusy
 	}
 	defer h.release()

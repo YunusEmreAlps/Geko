@@ -21,7 +21,7 @@ import urllib.request
 ROOT = Path(__file__).resolve().parents[1]
 MATRIX = {'node': ['http/protobuf', 'http/json', 'grpc'],
           'python': ['http/protobuf', 'grpc'], 'java': ['http/protobuf', 'grpc'],
-          'dotnet': ['http/protobuf', 'grpc'], 'go': ['http/protobuf']}
+          'dotnet': ['http/protobuf', 'grpc'], 'go': ['http/protobuf', 'grpc']}
 
 
 def require(condition, message):

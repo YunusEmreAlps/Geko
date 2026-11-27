@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Reserve ingest slots in FIFO order to prevent new exports overtaking queued
+  requests. Return canceled/expired reservations and retain live limit changes.
+- Measure concurrency with optional fixed total work, rotated repeated rounds,
+  synchronized clients, request percentiles and refusal causes. Update nightly
+  summaries to expose spread and keep every refused round regression-visible.
+
+- Extend the official Go SDK compatibility fixture to gRPC, including
+  signal-specific protocol precedence and link/event/numeric-type checks.
+- Add a distinct published v0.2.0 Action release gate alongside checkout-Action
+  testing, with comments disabled and no source-built binary override.
+
 - Preserve bounded OpenTelemetry Span Links, event scalar attributes, trace context,
   schema URLs and producer dropped counters across SQLite and OTLP export.
   Distinguish legacy unknown metadata and Geko filtering in the trace inspector.

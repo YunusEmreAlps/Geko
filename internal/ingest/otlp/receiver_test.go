@@ -312,7 +312,7 @@ func (fn writeFunc) WriteSpans(ctx context.Context, observed time.Time, spans []
 func TestAdmissionWaitsForASlot(t *testing.T) {
 	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error { return nil }))
 	for range maxConcurrent {
-		if ok, _ := handler.tryAcquire(); !ok {
+		if !handler.tryAcquire() {
 			t.Fatal("could not occupy admission slot")
 		}
 	}
@@ -346,7 +346,7 @@ func TestAdmissionRefusesWhenTheWaitExpires(t *testing.T) {
 	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error { return nil }))
 	handler.wait = 0
 	for range maxConcurrent {
-		if ok, _ := handler.tryAcquire(); !ok {
+		if !handler.tryAcquire() {
 			t.Fatal("could not occupy admission slot")
 		}
 	}

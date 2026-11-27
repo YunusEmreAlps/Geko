@@ -1,6 +1,7 @@
 package otlp
 
 import (
+	"container/list"
 	"context"
 	"time"
 )
@@ -38,52 +39,112 @@ func (h *Receiver) policyFor(ctx context.Context) Policy {
 	}
 	return h.policy()
 }
-func (h *Receiver) tryAcquire() (bool, <-chan struct{}) {
+
+// admissionWaiter receives a reservation, rather than racing other requests
+// for a shared wakeup. All queue/reservation fields are protected by admissionMu.
+type admissionWaiter struct {
+	ctx      context.Context
+	deadline time.Time
+	ready    chan struct{}
+	element  *list.Element
+	granted  bool
+}
+
+// dispatchAdmissions runs under admissionMu. Active includes reservations so a
+// newly arriving request cannot steal a slot before an older goroutine resumes.
+func (h *Receiver) dispatchAdmissions() {
+	limit, now := h.policy().Concurrency, time.Now()
+	for h.active < limit && h.admissionWaiters.Len() > 0 {
+		element := h.admissionWaiters.Front()
+		waiter := element.Value.(*admissionWaiter)
+		h.admissionWaiters.Remove(element)
+		waiter.element = nil
+		if waiter.ctx.Err() == nil && now.Before(waiter.deadline) {
+			waiter.granted = true
+			h.active++
+		}
+		close(waiter.ready)
+	}
+}
+
+func (h *Receiver) tryAcquire() bool {
 	h.admissionMu.Lock()
 	defer h.admissionMu.Unlock()
-	if h.admissionChanged == nil {
-		h.admissionChanged = make(chan struct{})
-	}
-	if h.active < h.policy().Concurrency {
+	h.dispatchAdmissions()
+	if h.admissionWaiters.Len() == 0 && h.active < h.policy().Concurrency {
 		h.active++
-		return true, h.admissionChanged
+		return true
 	}
-	return false, h.admissionChanged
+	return false
 }
+
 func (h *Receiver) release() {
 	h.admissionMu.Lock()
 	defer h.admissionMu.Unlock()
 	h.active--
-	close(h.admissionChanged)
-	h.admissionChanged = make(chan struct{})
+	h.dispatchAdmissions()
 }
+
+// resolveAdmission also returns a canceled/expired reservation, so cancellation
+// racing a grant cannot leak capacity or block the next valid waiter.
+func (h *Receiver) resolveAdmission(waiter *admissionWaiter, accept bool) bool {
+	h.admissionMu.Lock()
+	defer h.admissionMu.Unlock()
+	if accept && waiter.granted && waiter.ctx.Err() == nil && time.Now().Before(waiter.deadline) {
+		return true
+	}
+	if waiter.element != nil {
+		h.admissionWaiters.Remove(waiter.element)
+		waiter.element = nil
+	}
+	if waiter.granted {
+		waiter.granted = false
+		h.active--
+	}
+	h.dispatchAdmissions()
+	return false
+}
+
 func (h *Receiver) acquire(ctx context.Context) bool {
 	if ctx.Err() != nil {
 		return false
 	}
-	if ok, _ := h.tryAcquire(); ok {
+	if h.tryAcquire() {
+		if ctx.Err() != nil {
+			h.release()
+			return false
+		}
 		return true
 	}
 	if h.wait <= 0 {
 		return false
 	}
-	timeout := time.NewTimer(h.wait)
+	waiter := &admissionWaiter{ctx: ctx, deadline: time.Now().Add(h.wait), ready: make(chan struct{})}
+	h.admissionMu.Lock()
+	if ctx.Err() != nil {
+		h.admissionMu.Unlock()
+		return false
+	}
+	waiter.element = h.admissionWaiters.PushBack(waiter)
+	h.dispatchAdmissions()
+	h.admissionMu.Unlock()
+	timeout := time.NewTimer(time.Until(waiter.deadline))
 	defer timeout.Stop()
-	// Observe increased limits without requiring callbacks into a live exporter.
+	// Poll only for runtime limit changes; releases notify granted waiters only.
 	retry := time.NewTicker(25 * time.Millisecond)
 	defer retry.Stop()
 	for {
-		ok, changed := h.tryAcquire()
-		if ok {
-			return true
-		}
 		select {
+		case <-waiter.ready:
+			return h.resolveAdmission(waiter, true)
 		case <-ctx.Done():
-			return false
+			return h.resolveAdmission(waiter, false)
 		case <-timeout.C:
-			return false
-		case <-changed:
+			return h.resolveAdmission(waiter, false)
 		case <-retry.C:
+			h.admissionMu.Lock()
+			h.dispatchAdmissions()
+			h.admissionMu.Unlock()
 		}
 	}
 }

@@ -137,11 +137,43 @@ jobs:
           python-version: '3.13'
       - name: Install the official SDK example dependencies
         run: python -m pip install -r examples/sdk/python/requirements.txt
-      - name: Run Action through its published-release installer
+      - name: Run checkout Action through its published-release installer
         id: geko
         uses: ./
         with:
           version: ${{ inputs.version }}
+          comment: 'false'
+          run: python examples/sdk/python/main.py
+      - name: Require observed failure evidence from the SDK example
+        shell: bash
+        env:
+          STATUS: ${{ steps.geko.outputs.telemetry-status }}
+          FAILURES: ${{ steps.geko.outputs.failures }}
+          EXIT_CODE: ${{ steps.geko.outputs.exit-code }}
+        run: |
+          test "$STATUS" = available
+          test "$EXIT_CODE" = 0
+          [[ "$FAILURES" =~ ^[1-9][0-9]*\+?$ ]]
+
+  action-published-tag:
+    name: Published v0.2.0 Action
+    if: inputs.version == '0.2.0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install the official SDK example dependencies
+        run: python -m pip install -r examples/sdk/python/requirements.txt
+      - name: Run the published Action tag through its release installer
+        id: geko
+        uses: YunusEmreAlps/geko@v0.2.0
+        with:
+          version: '0.2.0'
           comment: 'false'
           run: python examples/sdk/python/main.py
       - name: Require observed failure evidence from the SDK example

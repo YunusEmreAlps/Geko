@@ -157,3 +157,17 @@ instance's own policy and adds any new filtering to the reported counts.
 
 See [SDK/Collector compatibility checks](otel-compatibility.md) for the tested
 protocol matrix and how to reproduce it.
+
+## Ingest saturation and concurrency
+
+When all configured slots are active, HTTP/gRPC exports wait in FIFO order for
+up to the existing two-second admission budget. A released slot is reserved for
+the oldest valid queued export before it is woken. Cancellation/timeout returns
+reserved capacity. Restores use the same gate without waiting and cannot skip
+queued exports. Existing accepted work drains when the live limit decreases.
+
+More SDK exporters can increase queue latency once the single writer saturates;
+increasing `ingest_concurrency` does not add SQLite writers. Use fixed-work,
+repeated comparisons and inspect refused exports rather than judging capacity
+from one sweep value. See [the measured investigation](benchmarks/2026-11-27-ingest-concurrency.md)
+for the workload, source profiles and uncertainty.

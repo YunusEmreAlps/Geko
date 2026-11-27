@@ -111,11 +111,27 @@ def main():
     for row in rows:
         print("| " + " | ".join(row) + " |")
     if arguments.ingest:
-        print("\n| Exporters | Accepted spans/s | Refused with 503 |\n| ---: | ---: | ---: |")
-        for level in load(arguments.ingest)["levels"]:
-            print(f"| {level['connections']} | {level['accepted_spans_per_second']} | {level['rejected_503_exports']} |")
+        ingest = load(arguments.ingest)
+        controlled = ingest.get("workload_mode") == "fixed_total"
+        if controlled:
+            print(f"\nControlled sweep: {ingest['total_exports_per_level']} exports per level, {ingest.get('rounds', 1)} rounds; median rates and per-round range. Refusals sum all rounds.")
+            print("\n| Exporters | Median accepted spans/s | Range | Accepted request p95 (ms) | Refused with 503 |\n| ---: | ---: | ---: | ---: | ---: |")
+        else:
+            print("\nLegacy sweep: total exports vary with exporter count; these figures are not an equal-work comparison.")
+            print("\n| Exporters | Accepted spans/s | Refused with 503 |\n| ---: | ---: | ---: |")
+        for level in ingest["levels"]:
+            if controlled:
+                spread = f"{level['accepted_spans_per_second_min']}–{level['accepted_spans_per_second_max']}"
+                latency = level.get('p95_export_ms')
+                latency = f"{latency:.2f}" if latency is not None else "n/a"
+                print(f"| {level['connections']} | {level['accepted_spans_per_second']} | {spread} | {latency} | {level['rejected_503_exports']} |")
+            else:
+                print(f"| {level['connections']} | {level['accepted_spans_per_second']} | {level['rejected_503_exports']} |")
             if level["rejected_503_exports"]:
                 failures.append(f"{level['rejected_503_exports']} exports refused with HTTP 503 at {level['connections']} exporters")
+        for observation in ingest.get("observations", []):
+            if observation.get("rejected_503_exports", 0):
+                failures.append(f"refused exports in ingest round {observation.get('round', '?')} at {observation['connections']} exporters")
     if failures:
         print("\n**Regressions:** " + "; ".join(failures) + ".")
         sys.exit(1)

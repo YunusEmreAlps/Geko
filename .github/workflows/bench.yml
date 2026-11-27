@@ -21,11 +21,13 @@ jobs:
       - name: Build
         run: go build -o bin/geko ./cmd/geko
       - name: Verify regression guard behavior
-        run: python3 scripts/test-bench-compare.py
+        run: |
+          python3 scripts/test-bench-compare.py
+          python3 scripts/test-bench-ingest-concurrency.py
       - name: Measure one process end to end
         run: python3 scripts/bench-native.py --binary bin/geko --rounds 3 --out bench/native.json
       - name: Measure ingest concurrency
-        run: python3 scripts/bench-ingest-concurrency.py --binary bin/geko --connections 1,4,16 --out bench/ingest.json
+        run: python3 scripts/bench-ingest-concurrency.py --binary bin/geko --connections 1,4,16 --ingest-concurrency 4 --total-exports 512 --rounds 3 --out bench/ingest.json
       - name: Compare with the baseline
         # docs/benchmarks/ci-baseline.json is a native.json from this job,
         # committed when a change moves the figures on purpose.

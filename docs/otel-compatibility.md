@@ -22,13 +22,13 @@ plus Collector's version and binary SHA-256 when used.
 | Python | Yes | Not exercised | Yes |
 | Java | Yes | Not exercised | Yes |
 | .NET | Yes | Not exercised | Yes |
-| Go | Yes | Not exercised | Not exercised |
+| Go | Yes | Not exercised | Yes |
 
 These are tested fixture capabilities, not a claim that all SDKs support every
 OTLP encoding. Node selects the official protobuf, JSON or gRPC exporter
 package. Python selects its official HTTP or gRPC exporter. Java and .NET
 reuse the real SDK examples and their environment configuration. Go uses a
-finite HTTP protobuf SDK fixture and never starts the interactive example on
+finite HTTP protobuf/gRPC SDK fixture and never starts the interactive example on
 port 8080. The hand-built payload examples under `examples/otlp-json` do not
 count as official SDK compatibility evidence.
 
@@ -72,8 +72,8 @@ and credentials are deleted after the children stop. Reports contain no
 credentials. Export retries and API polling are bounded.
 
 [The compatibility workflow](../.github/workflows/otel-compatibility.yml)
-runs all ten cells separately for direct, Collector HTTP and Collector gRPC
-routes (30 cells). Collector 0.166.0 is downloaded from its official release
+runs all eleven cells separately for direct, Collector HTTP and Collector gRPC
+routes (33 cells). Collector 0.166.0 is downloaded from its official release
 with its release checksum verified. The workflow supports manual dispatch;
 creating this file does not dispatch or certify a hosted run.
 
@@ -98,3 +98,25 @@ whole-valued double through the stored API and downloaded OTLP payload.
 The record includes Geko/Collector versions and binary hashes; the official
 Collector 0.166.0 archive was checksum verified. No hosted workflow was run.
 Unexercised matrix cells remain explicitly listed rather than counted as passes.
+
+## Go gRPC follow-through — 2026-11-27
+
+The finite Go fixture selects the official HTTP protobuf or gRPC exporter from
+`OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, falling back to
+`OTEL_EXPORTER_OTLP_PROTOCOL` and then HTTP protobuf. Unsupported encodings fail
+explicitly. Both exporters use their standard endpoint, TLS and header environment
+configuration; no unconditional insecure override is added. The gRPC exporter
+is pinned to v1.47.0, matching the existing SDK version.
+
+```sh
+python scripts/otel-compatibility.py --binary bin/geko --languages go --protocols grpc
+```
+
+The expanded matrix has eleven cells per route, 33 total. The earlier 30-cell
+record above remains historical evidence. The
+[follow-through record](benchmarks/2026-11-27-otel-compatibility-grpc.json) contains
+33 passing cells and 66 accepted traces against the recorded binary hash. All
+six Go protocol/route cells passed link/event/numeric-type checks. Python/Java/.NET/Go HTTP JSON remain unexercised, not
+implicitly supported by those fixtures. See the
+[official Go gRPC exporter](https://pkg.go.dev/go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.47.0)
+for environment configuration semantics.

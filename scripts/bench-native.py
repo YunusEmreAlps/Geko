@@ -104,12 +104,14 @@ def wait_ready(url):
     raise RuntimeError(f"server did not become ready: {url}")
 
 
-def export(connection, payload, headers):
-    """Send one export. False means the receiver had no free ingest slot."""
+def export(connection, payload, headers, on_refusal=None):
+    """Send one export. False means a temporary OTLP 503 refusal."""
     connection.request("POST", "/v1/traces", payload, {"Content-Type": "application/json", **headers})
     response = connection.getresponse()
     body = response.read()
     if response.status == 503:
+        if on_refusal is not None:
+            on_refusal(body)
         return False
     if response.status != 200:
         raise RuntimeError(f"export rejected: {response.status} {body[:300]!r}")

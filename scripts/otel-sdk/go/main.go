@@ -10,6 +10,7 @@ import (
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -17,12 +18,19 @@ import (
 )
 
 func main() {
-	if os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL") != "http/protobuf" {
-		panic("this fixture requires http/protobuf")
+	protocol, err := selectedProtocol()
+	if err != nil {
+		panic(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	exporter, err := otlptracehttp.New(ctx)
+	var exporter sdktrace.SpanExporter
+	switch protocol {
+	case "grpc":
+		exporter, err = otlptracegrpc.New(ctx)
+	case "http/protobuf":
+		exporter, err = otlptracehttp.New(ctx)
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -61,4 +69,21 @@ func main() {
 	if err := provider.Shutdown(ctx); err != nil {
 		panic(err)
 	}
+}
+
+// The signal-specific protocol takes precedence, matching OTel SDK environment
+// configuration. Go's official fixture supports protobuf HTTP and gRPC.
+func selectedProtocol() (string, error) {
+	value := os.Getenv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL")
+	if value == "" {
+		value = os.Getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
+	}
+	if value == "" {
+		value = "http/protobuf"
+	}
+	switch value {
+	case "http/protobuf", "grpc":
+		return value, nil
+	}
+	return "", errors.New("this fixture supports http/protobuf and grpc trace export protocols")
 }

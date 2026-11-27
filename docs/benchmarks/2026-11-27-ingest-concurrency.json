@@ -1,0 +1,794 @@
+{
+  "date": "2026-11-27",
+  "scope": "Local Windows synthetic workload; not the hosted Linux CI run; no baseline replacement",
+  "binary_versions": {
+    "before": "Geko dev (windows/amd64, go1.26.11)\nvcs.revision=1f3387532014751163f7dc41129025d0d2624d9a\nvcs.time=2026-11-27T18:28:15Z\nvcs.modified=true",
+    "after": "Geko dev (windows/amd64, go1.26.11)\nvcs.revision=1f3387532014751163f7dc41129025d0d2624d9a\nvcs.time=2026-11-27T18:28:15Z\nvcs.modified=true"
+  },
+  "exploratory_http": {
+    "date": "2026-11-27",
+    "measurement_schema": 2,
+    "host": {
+      "platform": "win32",
+      "logical_cpus": 12
+    },
+    "binary_sha256": "c8ca39c9a90da1bddf3613d6cc4da99c3a3ed72a42aab078bfd88172686f0894",
+    "binary_version": "Geko dev (windows/amd64, go1.26.11)\nvcs.revision=1f3387532014751163f7dc41129025d0d2624d9a\nvcs.time=2026-11-27T18:28:15Z\nvcs.modified=true",
+    "ingest_concurrency": 4,
+    "workload_mode": "fixed_total",
+    "total_exports_per_level": 512,
+    "exports_per_connection": null,
+    "warmup_exports": 32,
+    "rounds": 3,
+    "timing": "preconnected clients released together; durable HTTP responses; counts summed, rates/latencies median across rounds",
+    "fixture": "One OTLP/HTTP JSON export per batch: 64 two-span traces, all failing.",
+    "observations": [
+      {
+        "connections": 1,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "accepted_spans": 65536,
+        "wall_seconds": 28.350817,
+        "accepted_spans_per_second": 2312,
+        "ms_per_accepted_export": 55.37,
+        "p50_export_ms": 48.95,
+        "p95_export_ms": 87.17,
+        "client_cpu_seconds": 0.359375,
+        "round": 1
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "accepted_spans": 65536,
+        "wall_seconds": 23.220991,
+        "accepted_spans_per_second": 2822,
+        "ms_per_accepted_export": 45.35,
+        "p50_export_ms": 157.34,
+        "p95_export_ms": 332.46,
+        "client_cpu_seconds": 0.375,
+        "round": 1
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 479,
+        "rejected_503_exports": 33,
+        "accepted_spans": 61312,
+        "wall_seconds": 26.483359,
+        "accepted_spans_per_second": 2315,
+        "ms_per_accepted_export": 55.29,
+        "p50_export_ms": 521.3,
+        "p95_export_ms": 1776.03,
+        "client_cpu_seconds": 0.453125,
+        "round": 1
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "accepted_spans": 65536,
+        "wall_seconds": 19.770573,
+        "accepted_spans_per_second": 3315,
+        "ms_per_accepted_export": 38.61,
+        "p50_export_ms": 142.89,
+        "p95_export_ms": 254.86,
+        "client_cpu_seconds": 0.546875,
+        "round": 2
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 478,
+        "rejected_503_exports": 34,
+        "accepted_spans": 61184,
+        "wall_seconds": 24.326649,
+        "accepted_spans_per_second": 2515,
+        "ms_per_accepted_export": 50.89,
+        "p50_export_ms": 441.19,
+        "p95_export_ms": 1708.31,
+        "client_cpu_seconds": 0.25,
+        "round": 2
+      },
+      {
+        "connections": 1,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "accepted_spans": 65536,
+        "wall_seconds": 29.316643,
+        "accepted_spans_per_second": 2235,
+        "ms_per_accepted_export": 57.26,
+        "p50_export_ms": 50.76,
+        "p95_export_ms": 85.27,
+        "client_cpu_seconds": 0.296875,
+        "round": 2
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 505,
+        "rejected_503_exports": 7,
+        "accepted_spans": 64640,
+        "wall_seconds": 22.060861,
+        "accepted_spans_per_second": 2930,
+        "ms_per_accepted_export": 43.68,
+        "p50_export_ms": 497.5,
+        "p95_export_ms": 1657.08,
+        "client_cpu_seconds": 0.34375,
+        "round": 3
+      },
+      {
+        "connections": 1,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "accepted_spans": 65536,
+        "wall_seconds": 23.654459,
+        "accepted_spans_per_second": 2771,
+        "ms_per_accepted_export": 46.2,
+        "p50_export_ms": 40.48,
+        "p95_export_ms": 61.71,
+        "client_cpu_seconds": 0.4375,
+        "round": 3
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "accepted_spans": 65536,
+        "wall_seconds": 16.183248,
+        "accepted_spans_per_second": 4050,
+        "ms_per_accepted_export": 31.61,
+        "p50_export_ms": 108.27,
+        "p95_export_ms": 160.91,
+        "client_cpu_seconds": 0.34375,
+        "round": 3
+      }
+    ],
+    "levels": [
+      {
+        "connections": 1,
+        "rounds": 3,
+        "exports_sent": 1536,
+        "accepted_exports": 1536,
+        "rejected_503_exports": 0,
+        "accepted_spans": 196608,
+        "accepted_spans_per_second": 2312,
+        "ms_per_accepted_export": 55.37,
+        "p50_export_ms": 48.95,
+        "p95_export_ms": 85.27,
+        "wall_seconds": 81.321919,
+        "client_cpu_seconds": 1.09375,
+        "accepted_spans_per_second_min": 2235,
+        "accepted_spans_per_second_max": 2771
+      },
+      {
+        "connections": 4,
+        "rounds": 3,
+        "exports_sent": 1536,
+        "accepted_exports": 1536,
+        "rejected_503_exports": 0,
+        "accepted_spans": 196608,
+        "accepted_spans_per_second": 3315,
+        "ms_per_accepted_export": 38.61,
+        "p50_export_ms": 142.89,
+        "p95_export_ms": 254.86,
+        "wall_seconds": 59.174812,
+        "client_cpu_seconds": 1.265625,
+        "accepted_spans_per_second_min": 2822,
+        "accepted_spans_per_second_max": 4050
+      },
+      {
+        "connections": 16,
+        "rounds": 3,
+        "exports_sent": 1536,
+        "accepted_exports": 1462,
+        "rejected_503_exports": 74,
+        "accepted_spans": 187136,
+        "accepted_spans_per_second": 2515,
+        "ms_per_accepted_export": 50.89,
+        "p50_export_ms": 497.5,
+        "p95_export_ms": 1708.31,
+        "wall_seconds": 72.870869,
+        "client_cpu_seconds": 1.046875,
+        "accepted_spans_per_second_min": 2315,
+        "accepted_spans_per_second_max": 2930
+      }
+    ]
+  },
+  "paired_http": {
+    "date": "2026-11-27",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "complete": true,
+    "method": "512 attempted exports/level,32 warmups,freshDBs,4 active slots;3 exploratory rotated-level repeats (4=AB,16=BA) plus one reverse-order confirmation perlevel;sequential measurement only;counts sum4samples,rates/accepted-request percentiles median4samples",
+    "binary_sha256": {
+      "before": "c8ca39c9a90da1bddf3613d6cc4da99c3a3ed72a42aab078bfd88172686f0894",
+      "after": "422fec8f8540ce0fc5541e0a23997d97dd1deb8502f470b366d1605a0b4d4a85"
+    },
+    "observations": [
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 18.134472,
+        "accepted_spans_per_second": 3614,
+        "ms_per_accepted_export": 35.42,
+        "p50_export_ms": 127.79,
+        "p95_export_ms": 206.45,
+        "client_cpu_seconds": 0.4375,
+        "variant": "before",
+        "round": 1,
+        "pair_order": [
+          "before",
+          "after"
+        ]
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 19.77549,
+        "accepted_spans_per_second": 3314,
+        "ms_per_accepted_export": 38.62,
+        "p50_export_ms": 133.86,
+        "p95_export_ms": 268.01,
+        "client_cpu_seconds": 0.390625,
+        "variant": "after",
+        "round": 1,
+        "pair_order": [
+          "before",
+          "after"
+        ]
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 25.446354,
+        "accepted_spans_per_second": 2575,
+        "ms_per_accepted_export": 49.7,
+        "p50_export_ms": 709.25,
+        "p95_export_ms": 1371.73,
+        "client_cpu_seconds": 0.328125,
+        "variant": "after",
+        "round": 1,
+        "pair_order": [
+          "after",
+          "before"
+        ]
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 496,
+        "rejected_503_exports": 16,
+        "rejection_reasons": {
+          "receiver_busy": 16
+        },
+        "accepted_spans": 63488,
+        "wall_seconds": 23.087948,
+        "accepted_spans_per_second": 2750,
+        "ms_per_accepted_export": 46.55,
+        "p50_export_ms": 517.56,
+        "p95_export_ms": 1542.99,
+        "client_cpu_seconds": 0.390625,
+        "variant": "before",
+        "round": 1,
+        "pair_order": [
+          "after",
+          "before"
+        ]
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 19.449463,
+        "accepted_spans_per_second": 3370,
+        "ms_per_accepted_export": 37.99,
+        "p50_export_ms": 554.6,
+        "p95_export_ms": 927.63,
+        "client_cpu_seconds": 0.21875,
+        "variant": "after",
+        "round": 2,
+        "pair_order": [
+          "after",
+          "before"
+        ]
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 481,
+        "rejected_503_exports": 31,
+        "rejection_reasons": {
+          "receiver_busy": 31
+        },
+        "accepted_spans": 61568,
+        "wall_seconds": 25.288895,
+        "accepted_spans_per_second": 2435,
+        "ms_per_accepted_export": 52.58,
+        "p50_export_ms": 483.57,
+        "p95_export_ms": 1680.15,
+        "client_cpu_seconds": 0.234375,
+        "variant": "before",
+        "round": 2,
+        "pair_order": [
+          "after",
+          "before"
+        ]
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 19.099687,
+        "accepted_spans_per_second": 3431,
+        "ms_per_accepted_export": 37.3,
+        "p50_export_ms": 133.1,
+        "p95_export_ms": 239.04,
+        "client_cpu_seconds": 0.28125,
+        "variant": "before",
+        "round": 2,
+        "pair_order": [
+          "before",
+          "after"
+        ]
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 19.396031,
+        "accepted_spans_per_second": 3379,
+        "ms_per_accepted_export": 37.88,
+        "p50_export_ms": 132.83,
+        "p95_export_ms": 260.39,
+        "client_cpu_seconds": 0.359375,
+        "variant": "after",
+        "round": 2,
+        "pair_order": [
+          "before",
+          "after"
+        ]
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 20.34745,
+        "accepted_spans_per_second": 3221,
+        "ms_per_accepted_export": 39.74,
+        "p50_export_ms": 143.96,
+        "p95_export_ms": 257.71,
+        "client_cpu_seconds": 0.390625,
+        "variant": "before",
+        "round": 3,
+        "pair_order": [
+          "before",
+          "after"
+        ]
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 19.993181,
+        "accepted_spans_per_second": 3278,
+        "ms_per_accepted_export": 39.05,
+        "p50_export_ms": 136.97,
+        "p95_export_ms": 278.84,
+        "client_cpu_seconds": 0.359375,
+        "variant": "after",
+        "round": 3,
+        "pair_order": [
+          "before",
+          "after"
+        ]
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 19.120239,
+        "accepted_spans_per_second": 3428,
+        "ms_per_accepted_export": 37.34,
+        "p50_export_ms": 545.18,
+        "p95_export_ms": 948.57,
+        "client_cpu_seconds": 0.21875,
+        "variant": "after",
+        "round": 3,
+        "pair_order": [
+          "after",
+          "before"
+        ]
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 511,
+        "rejected_503_exports": 1,
+        "rejection_reasons": {
+          "receiver_busy": 1
+        },
+        "accepted_spans": 65408,
+        "wall_seconds": 17.62393,
+        "accepted_spans_per_second": 3711,
+        "ms_per_accepted_export": 34.49,
+        "p50_export_ms": 391.76,
+        "p95_export_ms": 1293.19,
+        "client_cpu_seconds": 0.3125,
+        "variant": "before",
+        "round": 3,
+        "pair_order": [
+          "after",
+          "before"
+        ]
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 508,
+        "rejected_503_exports": 4,
+        "rejection_reasons": {
+          "receiver_busy": 4
+        },
+        "accepted_spans": 65024,
+        "wall_seconds": 19.958211,
+        "accepted_spans_per_second": 3258,
+        "ms_per_accepted_export": 39.29,
+        "p50_export_ms": 461.15,
+        "p95_export_ms": 1374.55,
+        "client_cpu_seconds": 0.390625,
+        "variant": "before",
+        "round": 4,
+        "pair_order": [
+          "before",
+          "after"
+        ],
+        "phase": "reverse_order_confirmation"
+      },
+      {
+        "connections": 16,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 17.448129,
+        "accepted_spans_per_second": 3756,
+        "ms_per_accepted_export": 34.08,
+        "p50_export_ms": 510.66,
+        "p95_export_ms": 744.28,
+        "client_cpu_seconds": 0.390625,
+        "variant": "after",
+        "round": 4,
+        "pair_order": [
+          "before",
+          "after"
+        ],
+        "phase": "reverse_order_confirmation"
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 16.838931,
+        "accepted_spans_per_second": 3892,
+        "ms_per_accepted_export": 32.89,
+        "p50_export_ms": 119.36,
+        "p95_export_ms": 171.11,
+        "client_cpu_seconds": 0.34375,
+        "variant": "after",
+        "round": 4,
+        "pair_order": [
+          "after",
+          "before"
+        ],
+        "phase": "reverse_order_confirmation"
+      },
+      {
+        "connections": 4,
+        "exports_sent": 512,
+        "accepted_exports": 512,
+        "rejected_503_exports": 0,
+        "rejection_reasons": {},
+        "accepted_spans": 65536,
+        "wall_seconds": 17.190875,
+        "accepted_spans_per_second": 3812,
+        "ms_per_accepted_export": 33.58,
+        "p50_export_ms": 116.04,
+        "p95_export_ms": 234.91,
+        "client_cpu_seconds": 0.34375,
+        "variant": "before",
+        "round": 4,
+        "pair_order": [
+          "after",
+          "before"
+        ],
+        "phase": "reverse_order_confirmation"
+      }
+    ],
+    "levels": {
+      "before": [
+        {
+          "connections": 4,
+          "rounds": 4,
+          "rejection_reasons": {},
+          "exports_sent": 2048,
+          "accepted_exports": 2048,
+          "rejected_503_exports": 0,
+          "accepted_spans": 262144,
+          "accepted_spans_per_second": 3522.5,
+          "ms_per_accepted_export": 36.36,
+          "p50_export_ms": 130.44,
+          "p95_export_ms": 236.97,
+          "wall_seconds": 74.772484,
+          "client_cpu_seconds": 1.453125,
+          "accepted_spans_per_second_min": 3221,
+          "accepted_spans_per_second_max": 3812
+        },
+        {
+          "connections": 16,
+          "rounds": 4,
+          "rejection_reasons": {
+            "receiver_busy": 52
+          },
+          "exports_sent": 2048,
+          "accepted_exports": 1996,
+          "rejected_503_exports": 52,
+          "accepted_spans": 255488,
+          "accepted_spans_per_second": 3004.0,
+          "ms_per_accepted_export": 42.92,
+          "p50_export_ms": 472.36,
+          "p95_export_ms": 1458.77,
+          "wall_seconds": 85.958984,
+          "client_cpu_seconds": 1.328125,
+          "accepted_spans_per_second_min": 2435,
+          "accepted_spans_per_second_max": 3711
+        }
+      ],
+      "after": [
+        {
+          "connections": 4,
+          "rounds": 4,
+          "rejection_reasons": {},
+          "exports_sent": 2048,
+          "accepted_exports": 2048,
+          "rejected_503_exports": 0,
+          "accepted_spans": 262144,
+          "accepted_spans_per_second": 3346.5,
+          "ms_per_accepted_export": 38.25,
+          "p50_export_ms": 133.35,
+          "p95_export_ms": 264.2,
+          "wall_seconds": 76.003633,
+          "client_cpu_seconds": 1.453125,
+          "accepted_spans_per_second_min": 3278,
+          "accepted_spans_per_second_max": 3892
+        },
+        {
+          "connections": 16,
+          "rounds": 4,
+          "rejection_reasons": {},
+          "exports_sent": 2048,
+          "accepted_exports": 2048,
+          "rejected_503_exports": 0,
+          "accepted_spans": 262144,
+          "accepted_spans_per_second": 3399.0,
+          "ms_per_accepted_export": 37.67,
+          "p50_export_ms": 549.89,
+          "p95_export_ms": 938.1,
+          "wall_seconds": 81.464185,
+          "client_cpu_seconds": 1.15625,
+          "accepted_spans_per_second_min": 2575,
+          "accepted_spans_per_second_max": 3756
+        }
+      ]
+    },
+    "initial_three_rounds_levels": {
+      "before": [
+        {
+          "connections": 4,
+          "rounds": 3,
+          "rejection_reasons": {},
+          "exports_sent": 1536,
+          "accepted_exports": 1536,
+          "rejected_503_exports": 0,
+          "accepted_spans": 196608,
+          "accepted_spans_per_second": 3431,
+          "ms_per_accepted_export": 37.3,
+          "p50_export_ms": 133.1,
+          "p95_export_ms": 239.04,
+          "wall_seconds": 57.581609,
+          "client_cpu_seconds": 1.109375,
+          "accepted_spans_per_second_min": 3221,
+          "accepted_spans_per_second_max": 3614
+        },
+        {
+          "connections": 16,
+          "rounds": 3,
+          "rejection_reasons": {
+            "receiver_busy": 48
+          },
+          "exports_sent": 1536,
+          "accepted_exports": 1488,
+          "rejected_503_exports": 48,
+          "accepted_spans": 190464,
+          "accepted_spans_per_second": 2750,
+          "ms_per_accepted_export": 46.55,
+          "p50_export_ms": 483.57,
+          "p95_export_ms": 1542.99,
+          "wall_seconds": 66.000773,
+          "client_cpu_seconds": 0.9375,
+          "accepted_spans_per_second_min": 2435,
+          "accepted_spans_per_second_max": 3711
+        }
+      ],
+      "after": [
+        {
+          "connections": 4,
+          "rounds": 3,
+          "rejection_reasons": {},
+          "exports_sent": 1536,
+          "accepted_exports": 1536,
+          "rejected_503_exports": 0,
+          "accepted_spans": 196608,
+          "accepted_spans_per_second": 3314,
+          "ms_per_accepted_export": 38.62,
+          "p50_export_ms": 133.86,
+          "p95_export_ms": 268.01,
+          "wall_seconds": 59.164702,
+          "client_cpu_seconds": 1.109375,
+          "accepted_spans_per_second_min": 3278,
+          "accepted_spans_per_second_max": 3379
+        },
+        {
+          "connections": 16,
+          "rounds": 3,
+          "rejection_reasons": {},
+          "exports_sent": 1536,
+          "accepted_exports": 1536,
+          "rejected_503_exports": 0,
+          "accepted_spans": 196608,
+          "accepted_spans_per_second": 3370,
+          "ms_per_accepted_export": 37.99,
+          "p50_export_ms": 554.6,
+          "p95_export_ms": 948.57,
+          "wall_seconds": 64.016056,
+          "client_cpu_seconds": 0.765625,
+          "accepted_spans_per_second_min": 2575,
+          "accepted_spans_per_second_max": 3428
+        }
+      ]
+    }
+  },
+  "storage": {
+    "exports_per_sample": 512,
+    "warmup_exports": 32,
+    "spans_per_export": 128,
+    "repetitions": 3,
+    "order": "Go benchmark grouped 1 then 4 then 16; not counterbalanced",
+    "observations": [
+      {
+        "producers": 1,
+        "spans_per_second": 3988.0,
+        "p95_export_ms": 47.66
+      },
+      {
+        "producers": 1,
+        "spans_per_second": 5492.0,
+        "p95_export_ms": 38.8
+      },
+      {
+        "producers": 1,
+        "spans_per_second": 5021.0,
+        "p95_export_ms": 38.96
+      },
+      {
+        "producers": 4,
+        "spans_per_second": 5938.0,
+        "p95_export_ms": 115.6
+      },
+      {
+        "producers": 4,
+        "spans_per_second": 6190.0,
+        "p95_export_ms": 102.5
+      },
+      {
+        "producers": 4,
+        "spans_per_second": 4627.0,
+        "p95_export_ms": 212.5
+      },
+      {
+        "producers": 16,
+        "spans_per_second": 4118.0,
+        "p95_export_ms": 802.5
+      },
+      {
+        "producers": 16,
+        "spans_per_second": 4397.0,
+        "p95_export_ms": 789.0
+      },
+      {
+        "producers": 16,
+        "spans_per_second": 4277.0,
+        "p95_export_ms": 971.2
+      }
+    ],
+    "all_export_counts_verified": true,
+    "profile": {
+      "producers": 16,
+      "duration_seconds": 17.01,
+      "sampled_seconds": 16.97,
+      "writer_cumulative_percent": 93.64,
+      "insert_span_chunk_cumulative_percent": 39.13,
+      "group_refresh_cumulative_percent": 26.1,
+      "commit_cumulative_percent": 21.33,
+      "sqlite_prepare_cumulative_percent": 12.49,
+      "windows_flush_cumulative_percent": 12.61,
+      "write_slots_aggregate_blocked_seconds": 178.78,
+      "commit_ack_aggregate_blocked_seconds": 61.98,
+      "write_mutex_blocked_microseconds": 28.4
+    },
+    "caveats": [
+      "Cumulative profile percentages overlap and include setup/calibration/warmup",
+      "Windows I/O can contribute sampled execution; not a pure CPU cost claim",
+      "Blocked times sum goroutines and exceed wall time",
+      "Storage benchmark bypasses HTTP admission and Python; do not compare absolute rates as a latency decomposition"
+    ]
+  },
+  "limitations": [
+    "Four local samples per variant/level, three exploratory orders plus one reverse-order confirmation; not statistical significance",
+    "Per-level summary p95 is median of successful-request per-round p95s; refusals reported separately",
+    "Attempted workload is equal; accepted workload differs when the baseline refuses exports",
+    "Throughput ranges overlap; no universal throughput claim",
+    "Hosted Linux result requires the next workflow run"
+  ],
+  "verification": {
+    "deterministic_old_gate_barging_tests": "failed before fix, passed after",
+    "full_windows_go_suite": "passed",
+    "go_vet": "passed",
+    "staticcheck_v0_7_0": "passed",
+    "go_mod_tidy_diff": "passed",
+    "python_harness_tests": 7,
+    "python_comparator_tests": 11,
+    "actionlint_v1_7_7": "passed",
+    "independent_review": "no important findings",
+    "linux_otlp_race": "passed full package and 100 repetitions of admission/cancellation/expiry cases; isolated golang:1.26.11-alpine, 4 CPUs/3GiB"
+  }
+}

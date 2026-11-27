@@ -48,8 +48,8 @@ Homebrew installation, formula test and release smoke also passed locally.
 Those hosted/native/package-manager jobs are not claimed executed; no workflow
 was dispatched and no branch was pushed.
 
-The local tag and changelog identify v0.2.0. This plan does not certify the
-remote release assets, hosted jobs or package-manager installation paths.
+The local release evidence identifies v0.2.0. Executed paths are recorded
+above; unexecuted native platforms, Scoop and hosted jobs remain open gates.
 
 ### Phase 12: connect a real project and explain missing data
 
@@ -324,7 +324,7 @@ rendering, storage-event updates across tabs, opt-in/deduplicated history,
 missing traces, corrupt storage, denied reads/writes and the no-script filter
 fallback. Independent review found no significant issue. Existing uncommitted
 Budget/ownership work was retained; no commit, push or release was made.
-Next: unify existing connection, receiver, Collector and storage diagnostics.
+The subsequent phase 18 completed the unified delivery diagnostics.
 
 ### Phase 18: evidence-led delivery diagnostics (implemented 2026-11-27)
 
@@ -361,7 +361,7 @@ suite and vet. Chromium checks passed at nine widths in both themes, including
 Collector return, native repeated checks and the no-script flow. Independent
 review found no significant issue. No schema, receiver protocol or CLI doctor
 behavior was changed; prior uncommitted work was preserved. No commit was made.
-Next: user-selected successful baselines and deeper trace comparisons.
+The subsequent phase 19 completed user-selected successful baselines.
 
 ### Phase 19: explicitly selected successful baselines (implemented 2026-11-27)
 
@@ -795,3 +795,59 @@ protobuf size, not wire traffic or billing. Historical cardinality is a bounded
 privacy-safe lower bound, not an exact cross-session union. Extra attributes
 are explicitly opted-in scalars; strict mode still takes precedence. The SDK
 record names unexercised cells; prepared hosted CI is not a completed run.
+
+## Validation follow-through (validated locally 2026-11-27)
+
+Use the existing official SDK fixture and manual release workflow; do not add
+application features without demonstrated need or claim external jobs ran.
+
+- [x] Add official Go OTLP/gRPC exporter support to the finite fixture and
+      compatibility matrix. First observe the current fixture refusing gRPC,
+      then verify both Go protocols through direct, Collector HTTP and Collector
+      gRPC paths, preserving links, event numeric types and privacy boundaries.
+- [x] Add a separate published `YunusEmreAlps/geko@v0.2.0` Action job to the manual
+      release workflow. Keep checkout-Action testing as a separate check; verify
+      no source-built binary override, comments disabled and positive actual SDK
+      failure evidence. Do not dispatch the workflow or mark its hosted result done.
+- [x] Update protocol counts and evidence; run full Go/static/script checks and
+      workflow validation. Native/macOS/Scoop/ARM64 and real-user sessions stay open.
+
+No commits, staging, push, deployment or hosted workflow dispatch.
+
+Local verification: all 33 selected SDK cells / 66 traces passed; all six Go
+HTTP/gRPC route cells preserved links, retry integers above 2^53 and doubles in
+stored API/OTLP downloads. The [new evidence](benchmarks/2026-11-27-otel-compatibility-grpc.json)
+records matching binary and Collector checksums. Full Go tests and actionlint
+passed, along with vet, pinned staticcheck and a clean module-tidy diff.
+Focused independent review found no actionable issue. The published-tag Action
+job is prepared, not run; existing external evidence checkboxes remain open.
+
+## Ingest concurrency investigation (validated 2026-11-27)
+
+- [x] Control the experiment before tuning: equal total exports and warm-up per
+      level, isolated fresh databases, rotating level order and repeated rounds.
+      Preserve the legacy mode for historical results; report request latency,
+      client CPU and per-round spread without hiding any refused exports.
+- [x] Reproduce 1/4/16-exporter behavior on the current binary, then profile the
+      single writer separately with the same fixed total workload. Measurements
+      run exclusively, not concurrently with profiling/tests.
+- [x] Change production batching/admission only when measurements show a real
+      bottleneck; preserve durable commit acknowledgment and failure isolation.
+- [x] Record actual results and uncertainty; test the harness/summary and any
+      demonstrated optimization. No baseline replacement, commit or push.
+
+Result: deterministic tests reproduced admission barging. FIFO slot reservations
+fixed it with cancellation, expiry and live-limit coverage. In four local paired
+16-exporter samples, receiver-busy refusals fell from 52 to zero and median
+accepted-request p95 fell from 1,458.77 to 938.10 ms. Local throughput ranges
+overlap; four-exporter results show no established speedup. SQLite mutex waiting
+was negligible, while SQL execution and durable commits dominated profiling.
+No write-slot, durability or batch-policy change was made. Statement reuse is
+a future A/B candidate, not an implemented optimization or promised gain.
+
+See [the investigation](benchmarks/2026-11-27-ingest-concurrency.md) and its raw
+JSON for workload, binary hashes, mixed ordering, accepted-only percentiles and
+host caveats. Full Windows Go/static/module checks, 18 Python benchmark tests,
+actionlint, independent review and Linux OTLP race (including 100 stress repeats)
+passed. CI now measures 512 attempted exports per level in three rotated rounds;
+its existing native baseline was retained. No hosted run, commit or push.
