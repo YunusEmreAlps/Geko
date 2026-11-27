@@ -95,6 +95,7 @@ type Notifier struct {
 	recent       map[string]time.Time
 	owners       ownership.Owners
 	digest       Digest
+	digestSource func() Digest
 	// settled holds groups a full check has seen, so later checks can skip
 	// grouping every stored failure while nothing new appears.
 	settled map[string]time.Time
@@ -141,9 +142,10 @@ func (n *Notifier) destination(application string) (Webhook, bool) {
 func (n *Notifier) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	digest := n.digestPolicy()
 	var digestAt time.Time
-	if n.digest.Enabled {
-		digestAt = n.digest.Next(time.Now())
+	if digest.Enabled {
+		digestAt = digest.Next(time.Now())
 	}
 	for {
 		select {
@@ -153,11 +155,18 @@ func (n *Notifier) Run(ctx context.Context, interval time.Duration) {
 			if err := n.Check(ctx, now); err != nil && ctx.Err() == nil {
 				log.Printf("notifications: %v", err)
 			}
-			if n.digest.Enabled && !now.Before(digestAt) {
+			nextDigest := n.digestPolicy()
+			if nextDigest != digest {
+				digest = nextDigest
+				if digest.Enabled {
+					digestAt = digest.Next(now)
+				}
+			}
+			if digest.Enabled && !now.Before(digestAt) {
 				if err := n.SendDigest(ctx, now); err != nil && ctx.Err() == nil {
 					log.Printf("weekly digest: %v", err)
 				}
-				digestAt = n.digest.Next(now)
+				digestAt = digest.Next(now)
 			}
 		}
 	}
@@ -508,4 +517,16 @@ func marshal(value any) ([]byte, error) {
 	encoder.SetEscapeHTML(false)
 	err := encoder.Encode(value)
 	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), err
+}
+
+// WithDigestSource is configured before Run; schedules are immutable values.
+func (n *Notifier) WithDigestSource(source func() Digest) *Notifier {
+	n.digestSource = source
+	return n
+}
+func (n *Notifier) digestPolicy() Digest {
+	if n.digestSource != nil {
+		return n.digestSource()
+	}
+	return n.digest
 }

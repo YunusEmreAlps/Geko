@@ -3,6 +3,7 @@
   <div class="title"><a class="crumb" href="/settings">Settings</a><span class="crumb-sep" aria-hidden="true">/</span><h1>Telemetry Budget</h1></div>
   <div class="actions"><a class="button" href="/budget"{{if .CurrentHour}} aria-current="page"{{end}}>Current hour</a><a class="button" href="/budget?previous=true"{{if .PreviousHour}} aria-current="page"{{end}}>Previous hour</a></div>
 </header>
+<p class="note">Current reporting limits also apply to historical hours. <a class="text-link" href="/settings#budget-limits">Review reporting limits</a>.</p>
 <section class="budget-summary" aria-label="Selected measurement window">
   <div class="budget-window">
     <h2>{{if .Start.IsZero}}Selected hour{{else}}{{.Start.UTC.Format "2006-01-02 15:04"}}–{{.End.UTC.Format "15:04"}} UTC{{end}}</h2>

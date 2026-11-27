@@ -71,6 +71,8 @@ await new Promise((done) => socket.close(done));
 const base = `http://127.0.0.1:${port}`;
 const directory = await mkdtemp(join(tmpdir(), "geko-browser-"));
 await writeFile(join(directory,"geko.yaml"),"telemetry_budget:\n  enabled: true\n  history_days: 7\n  default:\n    spans_per_hour: 1\n    bytes_per_hour: 1\n  cardinality_limit: 1\n  attributes: [http.route]\n");
+await writeFile(join(directory,'collector.yaml'),'receivers:\n  otlp: {}\nexporters:\n  debug: {}\nservice:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      exporters: [debug]\n');
+await writeFile(join(directory,'geko.yaml'),(await readFile(join(directory,'geko.yaml'),'utf8'))+'collector_doctor:\n  config_file: collector.yaml\n');
 const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GEKO_")));
 const server = spawn(resolve(binary), ["serve"], {
   cwd: directory,
@@ -137,6 +139,13 @@ try {
   browser = await chromium.launch({ executablePath: process.env.GEKO_BROWSER_EXECUTABLE });
   await mkdir("dist/browser-checks", { recursive: true });
 
+  const chosenSuccess='03'+'00'.repeat(15),newestSuccess='04'+'00'.repeat(15);
+  const newerSuccess=structuredClone(payload);
+  const newerSpan=newerSuccess.resourceSpans[0].scopeSpans[0].spans[0];
+  newerSpan.traceId=newestSuccess;newerSpan.events=[];newerSpan.status={code:1};
+  newerSpan.attributes=newerSpan.attributes.filter(attribute=>!['http.response.status_code','http.status_code'].includes(attribute.key));
+  newerSpan.attributes.push({key:'http.response.status_code',value:{intValue:'200'}});
+  assert((await fetch(base+'/v1/traces',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(newerSuccess)})).ok);
   // A repeated check must issue a fresh request even if its URL is unchanged.
   const connectionPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await connectionPage.goto(base + "/connect?service=inventory&application=otlp-json-demo");
@@ -164,6 +173,28 @@ try {
     ]);
   }
 
+  const delivery=connectionPage.locator('#delivery-diagnostics');
+  assert.equal(await delivery.locator('.delivery-stages > li').count(),4,'delivery diagnostics expose four scoped stages');
+  assert(await delivery.innerText().then(text=>text.includes('All applications, cumulative')&&text.includes('not an integrity check')),'diagnostics disclose evidence scope');
+  await delivery.getByRole('link',{name:'Inspect Collector',exact:true}).click();
+  assert(new URL(await connectionPage.getByRole('link',{name:'Refresh',exact:true}).getAttribute('href'),base).searchParams.has('return'),'Collector refresh retains Connect context');
+  await connectionPage.getByRole('link',{name:'Back to connection check',exact:true}).click();
+  assert.equal(new URL(connectionPage.url()).searchParams.get('service'),'inventory');
+  assert.equal(new URL(connectionPage.url()).searchParams.get('application'),'otlp-json-demo');
+  assert(await delivery.innerText().then(text=>text.includes('Last check available')),'explicit Collector check publishes summary');
+  for (const theme of ['light','dark']) {
+    await connectionPage.evaluate(value=>document.documentElement.dataset.theme=value,theme);
+    for (const width of [320,360,390,440,760,761,768,1280,1440]) {
+      await connectionPage.setViewportSize({width,height:900});
+      await assertControlsFit(delivery.locator('a'),'.delivery-stages',`delivery links fit at ${width}px in ${theme}`);
+      assert(await connectionPage.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+1),'delivery diagnostics do not overflow');
+    }
+  }
+  await connectionPage.setViewportSize({width:390,height:900});
+  await delivery.scrollIntoViewIfNeeded();
+  await connectionPage.screenshot({path:'dist/browser-checks/delivery-diagnostics-mobile.png'});
+  await connectionPage.setViewportSize({width:1280,height:900});
+
   const filteredURL = '/failures?application=group%3Aotlp-json-demo&range=1h';
   await connectionPage.goto(base + filteredURL);
   await connectionPage.locator(`a.operation[href^="/traces/${id}?"]`).first().click();
@@ -184,6 +215,30 @@ try {
   assert(await connectionPage.getByRole('region',{name:'Span operation differences',exact:true}).isVisible(),'comparison includes per-operation span observations');
   const sourceBack = await connectionPage.locator('.crumb').getAttribute('href');
   assert.equal(new URL(sourceBack,base).searchParams.get('return'), filteredURL,'comparison preserves the return context');
+  assert(await connectionPage.getByRole('link',{name:newestSuccess,exact:true}).isVisible(),'automatic comparison selects latest matching success');
+  await connectionPage.getByLabel('Successful trace ID',{exact:true}).fill(chosenSuccess);
+  await connectionPage.getByRole('button',{name:'Compare selected trace',exact:true}).click();
+  assert.equal(new URL(connectionPage.url()).searchParams.get('baseline'),chosenSuccess);
+  assert(await connectionPage.getByRole('link',{name:chosenSuccess,exact:true}).isVisible(),'manual comparison can select an older success');
+  assert(!(await connectionPage.getByRole('link',{name:newestSuccess,exact:true}).count()),'manual choice is not replaced by automatic reference');
+  assert.equal(new URL(await connectionPage.locator('.crumb').getAttribute('href'),base).searchParams.get('return'),filteredURL,'selection preserves results context');
+  for (const theme of ['light','dark']) {
+    await connectionPage.evaluate(value=>document.documentElement.dataset.theme=value,theme);
+    for (const width of [320,360,390,440,760,761,768,1280,1440]) {
+      await connectionPage.setViewportSize({width,height:844});
+      await assertControlsFit(connectionPage.locator('.baseline-form :is(input:not([type=hidden]),button,a)'),'.baseline-selector',`baseline selector fits at ${width}px in ${theme}`);
+    }
+  }
+  await connectionPage.getByLabel('Successful trace ID',{exact:true}).fill(id);
+  await connectionPage.getByRole('button',{name:'Compare selected trace',exact:true}).click();
+  assert(await connectionPage.getByRole('alert').innerText().then(text=>text.includes('No other reference was substituted')),'ineligible selection is recoverable and explicit');
+  assert.equal(await connectionPage.getByLabel('Successful trace ID',{exact:true}).inputValue(),id,'invalid choice remains editable');
+  await connectionPage.getByLabel('Successful trace ID',{exact:true}).fill('fe'.repeat(16));
+  await connectionPage.getByRole('button',{name:'Compare selected trace',exact:true}).click();
+  assert(await connectionPage.getByRole('alert').innerText().then(text=>text.includes('not retained')),'missing baseline does not claim source trace is missing');
+  await connectionPage.getByRole('link',{name:'Use automatic match',exact:true}).click();
+  assert(!new URL(connectionPage.url()).searchParams.has('baseline'));
+  assert(await connectionPage.getByRole('link',{name:newestSuccess,exact:true}).isVisible());
   await connectionPage.setViewportSize({width:390,height:844});
   for(const name of ['Trace comparison','Span operation differences']) {
     const region=connectionPage.getByRole('region',{name,exact:true});
@@ -221,6 +276,140 @@ try {
   await settingsProbe.goto(base + "/settings#unknown");
   assert(await settingsProbe.locator("#runtime-settings").isVisible(), "unknown fragments have a useful fallback");
   await settingsProbe.close();
+
+  const budgetProbe = await browser.newPage({viewport:{width:390,height:844}});
+  const budgetBefore = await fetch(base+'/api/v1/budget').then(response=>response.json());
+  await budgetProbe.goto(base+'/settings#budget-limits');
+  await budgetProbe.getByLabel('Reporting limits (YAML)',{exact:true}).fill('default: {spans_per_hour: 100000, bytes_per_hour: 10000000}\ncardinality_limit: 10\n');
+  await budgetProbe.getByRole('button',{name:'Save Budget limits',exact:true}).click();
+  await budgetProbe.getByRole('status').filter({hasText:'Budget limits active since'}).waitFor();
+  const budgetAfter = await fetch(base+'/api/v1/budget').then(response=>response.json());
+  assert.deepEqual(budgetAfter.total,budgetBefore.total,'live limits preserve volume');
+  assert.equal(budgetAfter.cardinality_limit,10,'existing tracker uses live threshold');
+  assert(budgetAfter.services.every(service=>service.span_overage===0&&service.byte_overage===0),'new limits apply without restart');
+  await budgetProbe.getByLabel('Reporting limits (YAML)',{exact:true}).fill('enabled: false\n');
+  await budgetProbe.getByRole('button',{name:'Save Budget limits',exact:true}).click();
+  await budgetProbe.getByRole('heading',{name:'Budget limits not applied',exact:true}).waitFor();
+  assert.equal((await fetch(base+'/api/v1/budget').then(response=>response.json())).cardinality_limit,10,'invalid edit retains policy');
+  await budgetProbe.getByRole('link',{name:'Retry',exact:true}).click();
+  await assertControlsFit(budgetProbe.locator('#budget-limits').locator('textarea, button'),'.properties','mobile Budget editor fits');
+  // Restore the fixture limits before the existing budget matrix assertions.
+  await budgetProbe.getByLabel('Reporting limits (YAML)',{exact:true}).fill('default: {spans_per_hour: 1, bytes_per_hour: 1}\ncardinality_limit: 1\n');
+  await budgetProbe.getByRole('button',{name:'Save Budget limits',exact:true}).click();
+  await budgetProbe.getByRole('status').filter({hasText:'Budget limits active since'}).waitFor();
+  await budgetProbe.screenshot({path:'dist/browser-checks/budget-limits-mobile.png'});
+  await budgetProbe.close();
+  const ownerProbe = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await ownerProbe.goto(base + '/settings#ownership');
+  await ownerProbe.getByLabel('Owner rules (YAML)', { exact: true }).fill('services:\n  inventory: runtime-review-team\napplications:\n  legacy: legacy-team\n');
+  await ownerProbe.getByRole('button', { name: 'Save ownership', exact: true }).click();
+  await ownerProbe.getByRole('status').filter({hasText:'Owner rules active since'}).waitFor();
+  await ownerProbe.goto(base + '/failures?view=groups');
+  assert(await ownerProbe.locator('.group-table').innerText().then(text=>text.includes('Owner runtime-review-team')), 'existing server uses saved owners without restart');
+  const ownerState = await fetch(base + '/api/v1/settings/owners').then(response=>response.json());
+  assert.equal(ownerState.owners.services.inventory,'runtime-review-team');
+  assert.equal(ownerState.source.kind,'yaml');
+  await ownerProbe.goto(base + '/settings#ownership');
+  await ownerProbe.getByLabel('Owner rules (YAML)', {exact:true}).fill('services: &shared {inventory: wrong-team}\napplications: *shared\n');
+  await ownerProbe.getByRole('button',{name:'Save ownership',exact:true}).click();
+  await ownerProbe.getByRole('heading',{name:'Owners not applied',exact:true}).waitFor();
+  assert.equal((await fetch(base+'/api/v1/settings/owners').then(response=>response.json())).owners.services.inventory,'runtime-review-team','invalid YAML keeps the active rules');
+  await ownerProbe.getByRole('link',{name:'Retry',exact:true}).click();
+  assert(await ownerProbe.getByLabel('Owner rules (YAML)',{exact:true}).isVisible(),'owner errors return to the correct mobile section');
+  await ownerProbe.screenshot({path:'dist/browser-checks/ownership-mobile.png'});
+  await ownerProbe.close();
+
+  const workspaceContext = await browser.newContext({viewport:{width:390,height:844}});
+  const workspace = await workspaceContext.newPage();
+  const savedPanel = workspace.locator('[data-workspace]');
+  const savedName = 'Storefront ' + 'x'.repeat(53);
+  const filteredPath = '/failures?service=inventory&range=24h&q=private-workspace-query';
+  await workspace.goto(base+filteredPath);
+  await savedPanel.locator('summary').focus();
+  await workspace.keyboard.press('Enter');
+  await workspace.getByLabel('View name',{exact:true}).fill(savedName);
+  await workspace.getByLabel('View name',{exact:true}).press('Enter');
+  await savedPanel.getByRole('status').filter({hasText:'View saved in this browser'}).waitFor();
+  let saved = await workspace.evaluate(()=>{
+    const key=Object.keys(localStorage).find(key=>key.startsWith('geko.workspace.v1:'));
+    return {key,raw:localStorage.getItem(key)};
+  });
+  assert(!saved.raw.includes('private-workspace-query'),'saved views omit search text');
+  assert.equal(JSON.parse(saved.raw).views.length,1);
+  assert.equal(JSON.parse(saved.raw).remember,false,'history is opt-in');
+  for (const theme of ['light','dark']) {
+    await workspace.evaluate(value=>document.documentElement.dataset.theme=value,theme);
+    for (const width of [320,360,390,440,760,761,768,1280,1440]) {
+      await workspace.setViewportSize({width,height:844});
+      await assertControlsFit(savedPanel.locator('input, button, a:not([hidden])'),'.workspace-content',`local workspace controls fit at ${width}px in ${theme}`);
+      assert(await workspace.evaluate(()=>document.documentElement.scrollWidth<=document.documentElement.clientWidth+1),'workspace has no page overflow');
+    }
+  }
+  await workspace.setViewportSize({width:390,height:844});
+  await workspace.screenshot({path:'dist/browser-checks/saved-views-mobile.png'});
+  await workspace.goto(base+'/overview');
+  const resume = workspace.getByRole('link',{name:'Resume last view',exact:true});
+  await resume.waitFor();
+  assert.equal(await resume.getAttribute('href'),'/failures?service=inventory&range=24h');
+  await resume.click();
+  assert.equal(new URL(workspace.url()).searchParams.get('q'),null,'resume opens saved filters only');
+  await savedPanel.locator('summary').click();
+  await savedPanel.getByRole('link',{name:savedName,exact:true}).click();
+  await savedPanel.locator('summary').click();
+  await workspace.getByLabel('View name',{exact:true}).fill(savedName.toUpperCase());
+  await workspace.getByRole('button',{name:'Save current view',exact:true}).click();
+  await savedPanel.getByRole('status').filter({hasText:'View saved in this browser'}).waitFor();
+  assert.equal(await savedPanel.locator('[data-workspace-views] li').count(),1,'reusing a name replaces the view');
+  await workspace.getByLabel('Remember recent investigations',{exact:true}).check();
+  await workspace.goto(base+'/traces/'+id);
+  await workspace.goto(base+'/traces/'+id+'?span=0100000000000000');
+  await workspace.goto(base+'/traces/'+'fe'.repeat(16));
+  await workspace.getByRole('heading',{name:'Trace not found',exact:true}).waitFor();
+  await workspace.goto(base+'/traces');
+  await savedPanel.locator('summary').click();
+  const recent = savedPanel.locator('[data-workspace-recent] a');
+  assert.equal(await recent.count(),1,'span selections deduplicate; missing traces are not recorded');
+  assert.equal(await recent.getAttribute('href'),'/traces/'+id);
+  await workspace.getByLabel('Remember recent investigations',{exact:true}).uncheck();
+  assert.equal(await recent.count(),0,'opting out clears history');
+  await savedPanel.getByRole('button',{name:'Remove view '+savedName.toUpperCase(),exact:true}).click();
+  assert.equal(await savedPanel.locator('[data-workspace-views] li').count(),0);
+  const workspacePeer=await workspaceContext.newPage();
+  await workspacePeer.goto(base+'/traces');
+  await workspacePeer.locator('[data-workspace] > summary').click();
+  await workspace.getByLabel('View name',{exact:true}).fill('<img src=x onerror=alert(1)>');
+  await workspace.getByRole('button',{name:'Save current view',exact:true}).click();
+  await savedPanel.getByRole('status').filter({hasText:'View saved in this browser'}).waitFor();
+  await workspacePeer.getByRole('link',{name:'<img src=x onerror=alert(1)>',exact:true}).waitFor();
+  assert.equal(await savedPanel.locator('img').count(),0,'view names render as text, never HTML');
+  await savedPanel.getByRole('button',{name:'Remove view <img src=x onerror=alert(1)>',exact:true}).click();
+  await workspacePeer.locator('[data-workspace-views] li').waitFor({state:'detached'});
+  await workspacePeer.close();
+  await workspace.evaluate(key=>localStorage.setItem(key,'{'),saved.key);
+  await workspace.reload();
+  await savedPanel.locator('summary').click();
+  assert(await savedPanel.getByRole('status').innerText().then(text=>text.includes('Saved data could not be read')),'corrupt storage offers recovery');
+  await savedPanel.getByRole('button',{name:'Clear local data',exact:true}).click();
+  assert.equal(await workspace.evaluate(key=>localStorage.getItem(key),saved.key),null,'clear removes local preferences');
+  await workspace.close();
+  const blockedStorage=await workspaceContext.newPage();
+  await blockedStorage.addInitScript(()=>{Storage.prototype.setItem=function(){throw new DOMException('Denied','SecurityError');};});
+  await blockedStorage.goto(base+'/traces?service=inventory');
+  await blockedStorage.locator('[data-workspace] > summary').click();
+  await blockedStorage.getByLabel('View name',{exact:true}).fill('Unavailable storage');
+  await blockedStorage.getByRole('button',{name:'Save current view',exact:true}).click();
+  assert(await blockedStorage.locator('[data-workspace-status]').innerText().then(text=>text.includes('Browser storage is unavailable')),'storage failure is visible');
+  await blockedStorage.locator('input[name=q]').fill('inventory');
+  await blockedStorage.getByRole('button',{name:'Apply',exact:true}).click();
+  assert.equal(new URL(blockedStorage.url()).searchParams.get('q'),'inventory','normal filters work when persistence is unavailable');
+  const deniedReads=await workspaceContext.newPage();
+  await deniedReads.addInitScript(()=>{Storage.prototype.getItem=function(){throw new DOMException('Denied','SecurityError');};});
+  await deniedReads.goto(base+'/traces');
+  await deniedReads.locator('[data-workspace] > summary').click();
+  await deniedReads.getByLabel('View name',{exact:true}).fill('Denied reads');
+  await deniedReads.getByRole('button',{name:'Save current view',exact:true}).click();
+  assert(await deniedReads.locator('[data-workspace-status]').innerText().then(text=>text.includes('Browser storage is unavailable')),'read-denied storage has an actionable message');
+  await workspaceContext.close();
 
   // Disclosure boxes can spill left without changing the document's scrollWidth.
   const layout = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -462,12 +651,15 @@ try {
           const sections = page.getByRole("navigation", { name: "Settings sections", exact: true });
           assert.equal(await sections.isVisible(), width > 760, "desktop uses anchor navigation; mobile uses a selector");
           if (width > 760) await assertControlsFit(sections.getByRole("link"), ".section-nav", `Settings section links fit at ${width}px`);
-          for (const href of await sections.getByRole("link").evaluateAll((links) => links.map((link) => link.getAttribute("href")))) {
+          for (const href of await sections.locator('a[href^="#"]').evaluateAll((links) => links.map((link) => link.getAttribute("href")))) {
             assert(href?.startsWith("#"), "Settings section links stay within the page");
             assert.equal(await page.locator(href).count(), 1, `Settings section ${href} exists`);
             if (width <= 760) {
               await page.getByLabel("Settings section", { exact: true }).selectOption(href.slice(1));
               assert(await page.locator(href).isVisible(), "each selected settings section is available");
+              if (href === '#operations') await assertControlsFit(page.locator('#operations :is(input:not([type=hidden]),button)'),'.operational-settings-form',`operational fields fit at ${width}px`);
+              if (href === '#budget-limits') await assertControlsFit(page.locator('#budget-limits :is(textarea,button)'),'.owner-settings-form',`Budget editor fits at ${width}px`);
+              if (href === '#ownership') await assertControlsFit(page.locator('#ownership .owner-settings-form :is(textarea, button)'), '.owner-settings-form', `ownership editor fits at ${width}px`);
             }
           }
           if (width <= 760) await page.getByLabel("Settings section", { exact: true }).selectOption("runtime-settings");
@@ -612,11 +804,29 @@ try {
   assert(await evidenceDisclosure.locator('a.operation').first().isVisible(), 'all evidence remains accessible without JavaScript');
   await noScript.locator('.trace-tools > summary').click();
   assert(await noScript.getByRole('link', { name: 'Download OTLP JSON', exact: true }).isVisible(), 'download remains accessible without JavaScript');
+  await noScript.goto(base+'/traces');
+  assert.equal(await noScript.locator('[data-workspace]').isVisible(),false,'local views stay out of the way without JavaScript');
+  await noScript.goto(base+'/traces/'+id+'/compare');
+  await noScript.getByLabel('Successful trace ID',{exact:true}).fill(chosenSuccess);
+  await noScript.getByRole('button',{name:'Compare selected trace',exact:true}).click();
+  assert.equal(new URL(noScript.url()).searchParams.get('baseline'),chosenSuccess,'reference selection works without JavaScript');
+  assert(await noScript.getByRole('link',{name:chosenSuccess,exact:true}).isVisible());
+  await noScript.getByRole('link',{name:'Use automatic match',exact:true}).click();
+  assert(!new URL(noScript.url()).searchParams.has('baseline'),'automatic reset works without JavaScript');
   await noScript.goto(base + "/settings");
   assert(await noScript.getByRole("navigation", { name: "Settings sections" }).isVisible(), "settings anchors survive without JavaScript");
   for (const target of ["#runtime-settings", "#appearance", "#receiver", "#configuration"]) {
     assert(await noScript.locator(target).isVisible(), "settings content survives without JavaScript");
   }
+  await noScript.getByLabel('Owner rules (YAML)',{exact:true}).fill('services:\n  inventory: no-script-team\n');
+  await noScript.getByRole('button',{name:'Save ownership',exact:true}).click();
+  assert(await noScript.getByRole('status').filter({hasText:'Owner rules active since'}).isVisible(),'ownership saves without JavaScript');
+  assert.equal((await fetch(base+'/api/v1/settings/owners').then(response=>response.json())).owners.services.inventory,'no-script-team');
+  await noScript.goto(base+'/settings#budget-limits');
+  await noScript.getByLabel('Reporting limits (YAML)',{exact:true}).fill('default: {spans_per_hour: 5}\ncardinality_limit: 2\n');
+  await noScript.getByRole('button',{name:'Save Budget limits',exact:true}).click();
+  assert(await noScript.getByRole('status').filter({hasText:'Budget limits active since'}).isVisible(),'Budget limits save without JavaScript');
+  assert.equal((await fetch(base+'/api/v1/budget').then(response=>response.json())).cardinality_limit,2);
   await noScript.goto(base + '/connect?service=inventory');
   await noScript.getByRole('link',{name:'Start a 60-second check',exact:true}).click();
   for(let attempt=0;attempt<2;attempt++) {
@@ -625,7 +835,54 @@ try {
       noScript.getByRole('button',{name:'Check again',exact:true}).click(),
     ]);
   }
+  assert(await noScript.locator('#delivery-diagnostics').isVisible(),'delivery diagnostics work without JavaScript');
+  await noScript.getByRole('link',{name:'Inspect Collector',exact:true}).click();
+  await noScript.getByRole('link',{name:'Back to connection check',exact:true}).click();
+  assert.equal(new URL(noScript.url()).searchParams.get('service'),'inventory','Collector return works without JavaScript');
   await noScript.close();
+
+  const operationsOriginal=await fetch(base+'/api/v1/settings/operations').then(r=>r.json());
+  const opsPage=await browser.newPage({viewport:{width:390,height:844}});
+  await opsPage.goto(base+'/settings#operations');
+  await opsPage.getByLabel('Retention days',{exact:true}).fill('1');
+  await opsPage.getByLabel('Main database limit (MiB)',{exact:true}).fill('64');
+  await opsPage.getByLabel('Concurrent exports',{exact:true}).fill('2');
+  await opsPage.getByLabel('Exception redaction',{exact:true}).fill('strict');
+  await opsPage.getByLabel('Budget history days',{exact:true}).fill('0');
+  await opsPage.getByRole('button',{name:'Preview operational changes',exact:true}).click();
+  await opsPage.getByRole('heading',{name:'Review operational changes',exact:true}).waitFor();
+  assert.equal((await fetch(base+'/api/v1/settings/operations').then(r=>r.json())).policy.retention_days,operationsOriginal.policy.retention_days,'preview does not apply');
+  for(const width of [320,390,760,768,1440]) {
+    await opsPage.setViewportSize({width,height:844});
+    await assertControlsFit(opsPage.locator('.operations-apply-form :is(input:not([type=hidden]),button,a)'),'.operations-apply-form',`operational apply fits at ${width}px`);
+  }
+  await opsPage.setViewportSize({width:390,height:844});
+  await opsPage.getByRole('checkbox').check();
+  await opsPage.getByRole('button',{name:'Apply operational changes',exact:true}).click();
+  await opsPage.getByRole('status').filter({hasText:'Operational settings active since'}).waitFor();
+  const appliedOps=await fetch(base+'/api/v1/settings/operations').then(r=>r.json());
+  assert.equal(appliedOps.policy.ingest_concurrency,2);assert.equal(appliedOps.policy.redaction,'strict');
+  assert.equal((await fetch(base+'/api/v1/budget').then(r=>r.json())).history_days,0,'live history disable changes reports');
+  const policyTrace=structuredClone(tracePayload);
+  for(const resource of policyTrace.resourceSpans) for(const scope of resource.scopeSpans) for(const span of scope.spans) {
+    span.traceId='fa'.repeat(16);
+    for(const event of span.events||[]) for(const attr of event.attributes||[]) if(attr.key==='exception.message') attr.value={stringValue:'operation-private-message-marker'};
+  }
+  assert((await fetch(base+'/v1/traces',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(policyTrace)})).ok);
+  const strictTrace=await fetch(base+'/api/v1/traces/'+'fa'.repeat(16)).then(r=>r.text());
+  assert(!strictTrace.includes('operation-private-message-marker')&&strictTrace.includes('exception.message_hash'),'new exports use live strict normalization');
+  const latestOps=await fetch(base+'/api/v1/settings/operations').then(r=>r.json());
+  assert((await fetch(base+'/api/v1/settings/operations',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:latestOps.revision,policy:operationsOriginal.policy,confirmed:true})})).ok);
+  await opsPage.goto(base+'/settings#operations');
+  await opsPage.screenshot({path:'dist/browser-checks/operational-settings-mobile.png'});
+  await opsPage.close();
+  const plainOps=await browser.newPage({javaScriptEnabled:false,viewport:{width:390,height:844}});
+  await plainOps.goto(base+'/settings#operations');
+  await plainOps.getByLabel('Concurrent exports',{exact:true}).fill('3');
+  await plainOps.getByRole('button',{name:'Preview operational changes',exact:true}).click();
+  await plainOps.getByRole('button',{name:'Apply operational changes',exact:true}).click();
+  assert.equal((await fetch(base+'/api/v1/settings/operations').then(r=>r.json())).policy.ingest_concurrency,3,'operational edits work without JavaScript');
+  await plainOps.close();
 
   const missingDashboardScript = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await missingDashboardScript.route("**/assets/dashboard.js", (route) => route.abort());

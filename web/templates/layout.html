@@ -8,9 +8,10 @@
   <script src="/assets/theme.js"></script>
   <link rel="stylesheet" href="/assets/dashboard.css">
   <script defer src="/assets/dashboard.js"></script>
+  {{if or (eq .Page "failures") (eq .Page "traces") (eq .Page "trace") (eq .Page "overview")}}<script type="module" src="/assets/workspace.mjs"></script>{{end}}
   {{if or (eq .Page "failures") (eq .Page "traces")}}<script defer src="/assets/live.js"></script>{{end}}
 </head>
-<body>
+<body data-workspace-scope="{{with .Caller}}{{.Via}}:{{.Name}}:{{.Role}}{{else}}local{{end}}"{{if eq .Page "trace"}} data-workspace-trace="{{.Data.Trace.TraceID}}"{{end}}>
   <a class="skip-link" href="#main">Skip to content</a>
   <aside class="sidebar">
     <a href="/overview" class="brand" aria-label="Geko home">
@@ -53,6 +54,7 @@
     {{else if eq .Page "trace"}}{{template "trace" .Data}}
     {{else if eq .Page "trace-missing"}}{{template "trace-missing" .Data}}
     {{else if eq .Page "compare"}}{{template "compare" .Data}}
+    {{else if eq .Page "operations-preview"}}{{template "operations-preview" .Data}}
     {{else if eq .Page "settings"}}{{template "settings" .Data}}
     {{else if eq .Page "storage"}}{{template "storage" .Data}}
     {{else if eq .Page "collector-doctor"}}{{template "collector-doctor" .Data}}

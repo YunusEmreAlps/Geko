@@ -55,6 +55,9 @@ func TestLoadOverrides(t *testing.T) {
 		RetentionDays: 14, MaxDBMiB: 512, IngestSlots: DefaultIngestConcurrency, ListenAddr: "[::1]:4320", DBPath: path,
 		OnFull: storage.Reject, Redaction: "strict",
 		Source: Source{
+			Digest: SettingSource{Kind: "default"}, BudgetHistory: SettingSource{Kind: "default"},
+			Owners:       SettingSource{Kind: "default"},
+			Budget:       defaultBudgetSources(),
 			TraceLinkURL: SettingSource{Kind: "default"}, TraceLinkName: SettingSource{Kind: "default"},
 			DashboardAddr: SettingSource{Kind: "default"}, GRPCAddr: SettingSource{Kind: "default"}, PublicURL: SettingSource{Kind: "default"}, IngestSlots: SettingSource{Kind: "default"},
 			ListenAddr: envSource("GEKO_LISTEN_ADDR"), DBPath: envSource("GEKO_DB_PATH"),
@@ -361,7 +364,7 @@ func TestTraceLink(t *testing.T) {
 
 func defaultTestSource() Source {
 	d := SettingSource{Kind: "default"}
-	return Source{TraceLinkURL: d, TraceLinkName: d, DashboardAddr: d, GRPCAddr: d, PublicURL: d, IngestSlots: d, ListenAddr: d, DBPath: d, RetentionDays: d, MaxDBMiB: d, OnFull: d, Redaction: d}
+	return Source{Digest: d, BudgetHistory: d, Budget: defaultBudgetSources(), Owners: d, TraceLinkURL: d, TraceLinkName: d, DashboardAddr: d, GRPCAddr: d, PublicURL: d, IngestSlots: d, ListenAddr: d, DBPath: d, RetentionDays: d, MaxDBMiB: d, OnFull: d, Redaction: d}
 }
 
 func TestOptionalListeners(t *testing.T) {

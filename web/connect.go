@@ -31,6 +31,7 @@ type connectView struct {
 	Bash, PowerShell, Compose string
 	TracesURL                 string
 	Check                     connectionCheck
+	Delivery                  deliveryReport
 }
 
 type connectionCheck struct {
@@ -51,6 +52,10 @@ func (d *dashboard) connectionCheck(r *http.Request, view connectView, now time.
 	query.Set("service", view.Service)
 	query.Set("protocol", view.Protocol)
 	check := connectionCheck{Available: d.settings.ReceiverConnections != nil}
+	if snapshot := d.settings.ReceiverDiagnostics; snapshot != nil {
+		check.Diagnostics = snapshot()
+	}
+
 	query.Set("observe", "start")
 	query.Set("check", rand.Text())
 	check.StartURL = route("/connect", query) + "#connection-check"
@@ -87,9 +92,6 @@ func (d *dashboard) connectionCheck(r *http.Request, view connectView, now time.
 	// Browsers can treat even a GET form targeting the same URL+fragment as
 	// an in-page navigation. A fresh value forces a read without resetting since.
 	check.RefreshFields = append(check.RefreshFields, envVar{"check", rand.Text()})
-	if snapshot := d.settings.ReceiverDiagnostics; snapshot != nil {
-		check.Diagnostics = snapshot()
-	}
 	snapshot := d.settings.ReceiverConnections()
 	check.Replacements = snapshot.Replacements
 	namespace := view.Application
@@ -184,6 +186,25 @@ func (d *dashboard) connect(w http.ResponseWriter, r *http.Request) {
 		view.Error = err.Error()
 		d.render(w, r, http.StatusBadRequest, "connect", "Connect an application", view)
 		return
+	}
+	var receiver *otlp.Diagnostics
+	if settings.ReceiverDiagnostics != nil {
+		receiver = &view.Check.Diagnostics
+	}
+	view.Delivery = buildDelivery(view, settings, receiver, d.deliveryStatus(r), d.collectorLast.Load(), time.Now())
+	if settings.CollectorDoctor.Enabled() {
+		context := url.Values{"service": {view.Service}, "protocol": {view.Protocol}}
+		if view.Application != "" {
+			context.Set("application", view.Application)
+		}
+		if view.Token != "" {
+			context.Set("token", view.Token)
+		}
+		if view.Check.Started {
+			context.Set("since", strconv.FormatInt(view.Check.Until.Add(-time.Minute).UnixMilli(), 10))
+		}
+		back := safeConnectReturn(route("/connect", context), settings)
+		view.Delivery.Stages[3].URL = route("/collector-doctor", url.Values{"return": {back}})
 	}
 	d.render(w, r, http.StatusOK, "connect", "Connect an application", view)
 }

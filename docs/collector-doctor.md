@@ -47,3 +47,15 @@ configuration values and arbitrary metric labels omitted.
 See [Collector configuration](https://opentelemetry.io/docs/collector/configuration/)
 and [Collector internal telemetry](https://opentelemetry.io/docs/collector/internal-telemetry/)
 for Collector-side options.
+
+## Return to a connection check
+
+In source builds after v0.2.0, opening Collector Doctor from **Connect → Delivery
+diagnostics** keeps a validated local return context through Refresh and sample
+comparison. **Back to connection check** restores the service/application,
+protocol, configured token name and observation start. An old observation can
+expire under the existing check-window rules; start a fresh one if needed.
+Connect shows only the last requested report's time, source coverage and
+error/warning counts, never its raw findings or source credentials. It does not
+trigger a Collector request itself. See [delivery evidence](connect.md#follow-delivery-evidence)
+for each source's scope and limitations.

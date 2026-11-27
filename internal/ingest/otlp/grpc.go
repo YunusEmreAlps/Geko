@@ -46,7 +46,7 @@ func (exportCodec) Unmarshal(data []byte, value any) error {
 func (h *Receiver) NewGRPCServer(token access.Token) *grpc.Server {
 	server := grpc.NewServer(
 		grpc.ForceServerCodec(exportCodec{}), grpc.MaxRecvMsgSize(maxPayloadBytes),
-		grpc.MaxConcurrentStreams(uint32(cap(h.slots))), grpc.MaxHeaderListSize(16<<10),
+		grpc.MaxConcurrentStreams(64), grpc.MaxHeaderListSize(16<<10),
 		grpc.ConnectionTimeout(5*time.Second),
 		grpc.WaitForHandlers(true),
 		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle: time.Minute}),
@@ -74,7 +74,8 @@ func (h *Receiver) NewGRPCServer(token access.Token) *grpc.Server {
 			h.reject(receiverBusy)
 			return nil, retryStatus("trace receiver is busy", time.Second)
 		}
-		defer func() { <-h.slots }()
+		defer h.release()
+		ctx = h.capturePolicy(ctx)
 		var export guardedExport
 		if err := decode(&export); err != nil {
 			if status.Code(err) == codes.ResourceExhausted {

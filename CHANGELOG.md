@@ -2,6 +2,54 @@
 
 ## Unreleased
 
+- Extend live operational settings to retention, storage capacity/full policy,
+  shared HTTP/gRPC/import admission, redaction, Budget-history retention and weekly
+  digest scheduling. Add admin preview/apply with current expiry counts, explicit
+  destructive/privacy acknowledgment, env locks and atomic persisted publication.
+  In-flight exports/writes keep captured policies; worker changes apply on ticks.
+  Downloads and metrics use current policies. Raising capacity ignores stale full
+  hints instead of unnecessarily evicting traces.
+- Record a genuine coding-agent investigation of an instrumented synthetic defect,
+  a source-linked fix, repeated workload and actual MCP comparison evidence.
+- Validate published v0.2.0 Windows/Linux installer, checksums, demo, setup and MCP
+  interaction; add a manual native/package-manager/release-install Action workflow.
+  Native macOS, package managers, ARM64, hosted jobs and human study remain external
+  validation gates rather than claimed successes.
+
+- Select a successful reference trace explicitly from Compare traces, with a
+  native form and an automatic-match reset. Validate the selected trace against
+  the same clean HTTP 2xx and entry-identity rules as automatic matching in one
+  read snapshot. Distinguish missing/ineligible references without substituting
+  another trace; preserve results navigation and existing span limits. Existing
+  CLI/MCP automatic comparison methods keep their behavior.
+
+- Bring delivery evidence together on Connect: scoped recent-export observation,
+  cumulative receiver counters, bounded storage metadata and the last requested
+  Collector Doctor check's value-only summary. Preserve setup on diagnostic
+  failure and local return context through Collector refresh/sample checks.
+  Do not scrape Collector sources from Connect or infer delivery from global
+  historical counters. Existing doctor commands keep their behavior.
+
+- Save up to 12 named project/filter views locally in the browser and resume
+  the last list context from Overview. Add optional recent investigations with
+  up to 20 trace IDs and visit times. Scope preferences by signed-in identity
+  and role; omit search text, protected attribute digests, run/group IDs and
+  trace payloads. Include removal, corrupt-storage recovery and mobile/keyboard
+  access while keeping normal filters available without JavaScript.
+
+- Apply Telemetry Budget reporting limits live from Settings or an admin API.
+  Persist the policy before publishing it, sharing revision checks with trace
+  links and ownership. Keep counters, session IDs, cardinality observations and
+  hourly volume history; current limits apply to historical reports as well.
+  Preserve collection settings and bound tracked service rows across rule
+  changes. Budget enablement, attributes and history workers remain restart-only.
+
+- Administrators can save service/application owner mappings from Settings or
+  the ownership API without restarting the server. The dashboard, HTTP MCP and
+  notifications share immutable published rules; separate CLI/stdio processes
+  load configuration on startup. Ownership and trace links share revision and
+  atomic YAML persistence, with environment locks and value-free audit records.
+
 - Improve daily investigation workflows: repeated Connect checks fetch fresh
   data without resetting their observation window; trace links preserve the
   filtered results destination. A full-width span reader retains navigation

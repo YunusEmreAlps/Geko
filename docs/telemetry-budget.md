@@ -137,3 +137,20 @@ go test ./internal/storage/sqlite -run '^$' -bench '^BenchmarkBudgetHistoryWrite
 
 The production worker runs once per minute; the stress cadence is not a claim
 about the exact latency cost in a real workload.
+
+## Change reporting limits while running
+
+In source builds after v0.2.0, an administrator can open **Settings → Budget
+limits**, edit the reporting YAML and choose **Save Budget limits**. Budget must
+already be enabled with a loaded writable configuration. Changes apply to the
+existing tracker without resetting volume, cardinality observations or history.
+Both live and historical reports use current limits. Collection attributes and enabling/disabling Budget still need a restart.
+History retention can change under Operational settings.
+
+For validation, sources, row bounds and the admin API, see
+[Live Budget reporting limits](configuration.md#live-budget-reporting-limits).
+
+History enable/disable and retention can be changed under **Settings → Operational
+settings**, with preview and acknowledgment for persistence/deletion effects.
+The single existing checkpoint worker skips disabled ticks; counter/session state
+is preserved. See [operational policies](configuration.md#operational-policies-preview-and-apply).

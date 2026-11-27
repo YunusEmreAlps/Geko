@@ -14,7 +14,12 @@ import (
 // Owners maps services, then applications, to the teams that own them.
 type Owners struct {
 	services, applications map[string]string
+	source                 func() Owners
 }
+
+// Dynamic resolves immutable ownership snapshots at lookup time. The supplier
+// must return static owners and be safe for concurrent use.
+func Dynamic(source func() Owners) Owners { return Owners{source: source} }
 
 // Rule is one mapping, for display.
 type Rule struct {
@@ -69,6 +74,9 @@ func New(services, applications map[string]string) (Owners, error) {
 // For returns the team owning failures recorded by service in application,
 // preferring a rule for the service, or "" when no rule matches.
 func (o Owners) For(application, service string) string {
+	if o.source != nil {
+		return o.source().For(application, service)
+	}
 	if team, ok := o.services[service]; ok {
 		return team
 	}
@@ -77,6 +85,9 @@ func (o Owners) For(application, service string) string {
 
 // Rules lists every mapping, services first, each sorted by name.
 func (o Owners) Rules() []Rule {
+	if o.source != nil {
+		return o.source().Rules()
+	}
 	var rules []Rule
 	for kind, mapping := range map[string]map[string]string{"service": o.services, "application": o.applications} {
 		for name, team := range mapping {

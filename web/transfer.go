@@ -21,8 +21,9 @@ func (d *dashboard) downloadTrace(w http.ResponseWriter, r *http.Request) {
 		d.problem(w, r, http.StatusBadRequest, "Invalid trace ID", err.Error())
 		return
 	}
+	strict := d.currentSettings().Redaction == "strict"
 	d.withQuery(w, r, func(ctx context.Context) {
-		body, err := otlp.EncodeTraceJSON(id, d.settings.Redaction == "strict", func(visit func(investigation.Span) error) error {
+		body, err := otlp.EncodeTraceJSON(id, strict, func(visit func(investigation.Span) error) error {
 			return d.store.VisitTraceSpans(ctx, id, visit)
 		})
 		switch {

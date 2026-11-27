@@ -100,3 +100,7 @@ func (r *Reader) Backup(ctx context.Context, path string) error {
 	}
 	return nil
 }
+
+func (r *Reader) TraceComparisonWithBaseline(ctx context.Context, id, baseline telemetry.TraceID) (investigation.TraceComparison, error) {
+	return r.store.TraceComparisonWithBaseline(ctx, id, baseline)
+}

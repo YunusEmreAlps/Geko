@@ -31,3 +31,9 @@ type Status struct {
 	// PinnedTraces are kept past retention and never evicted.
 	PinnedTraces int64
 }
+
+// CapacityPolicy is captured once for each export or metadata write.
+type CapacityPolicy struct {
+	MaxBytes int64
+	OnFull   FullPolicy
+}

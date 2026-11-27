@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/YunusEmreAlps/geko/internal/access"
@@ -127,6 +128,7 @@ type dashboard struct {
 	templates       *template.Template
 	slots           chan struct{}
 	collectorSample chan struct{}
+	collectorLast   atomic.Pointer[collectorSnapshot]
 	// usage caches the storage breakdown, which reads every stored trace.
 	usage struct {
 		sync.Mutex
@@ -145,6 +147,9 @@ type screen struct {
 }
 
 func Register(mux *http.ServeMux, store Reader, settings Settings) error {
+	if settings.Runtime != nil {
+		settings.Owners = ownership.Dynamic(settings.Runtime.Owners)
+	}
 	t, err := template.New("dashboard").Funcs(template.FuncMap{
 		"withReturn": withReturn, "failureTable": failureTable, "groupTable": groupTable,
 		"sourceLinks": sourceLinks,
@@ -197,6 +202,17 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	mux.HandleFunc("GET /metrics", d.local(d.metrics))
 	protect := http.NewCrossOriginProtection()
 	if settings.Runtime != nil {
+		mux.Handle("POST /settings/owners", protect.Handler(d.local(d.updateRuntimeOwners)))
+		mux.HandleFunc("GET /api/v1/settings/owners", d.local(d.runtimeOwnersAPI))
+		mux.Handle("POST /settings/operations/preview", protect.Handler(d.local(d.previewRuntimeOperations)))
+		mux.Handle("POST /settings/operations", protect.Handler(d.local(d.updateRuntimeOperations)))
+		mux.HandleFunc("GET /api/v1/settings/operations", d.local(d.runtimeOperationsAPI))
+		mux.Handle("POST /api/v1/settings/operations/preview", protect.Handler(d.local(d.previewRuntimeOperations)))
+		mux.Handle("POST /api/v1/settings/operations", protect.Handler(d.local(d.updateRuntimeOperations)))
+		mux.Handle("POST /settings/budget", protect.Handler(d.local(d.updateRuntimeBudget)))
+		mux.HandleFunc("GET /api/v1/settings/budget", d.local(d.runtimeBudgetAPI))
+		mux.Handle("POST /api/v1/settings/budget", protect.Handler(d.local(d.updateRuntimeBudget)))
+		mux.Handle("POST /api/v1/settings/owners", protect.Handler(d.local(d.updateRuntimeOwners)))
 		mux.Handle("POST /settings/runtime", protect.Handler(d.local(d.updateRuntimeSettings)))
 		mux.HandleFunc("GET /api/v1/settings/runtime", d.local(d.runtimeSettingsAPI))
 		mux.Handle("POST /api/v1/settings/runtime", protect.Handler(d.local(d.updateRuntimeSettings)))
@@ -218,7 +234,7 @@ func Register(mux *http.ServeMux, store Reader, settings Settings) error {
 	if settings.Notifications != nil {
 		mux.Handle("POST /settings/notifications/test", protect.Handler(d.local(d.testNotification)))
 	}
-	for _, name := range []string{"dashboard.css", "dashboard.js", "geko.svg", "theme.js", "live.js"} {
+	for _, name := range []string{"dashboard.css", "dashboard.js", "geko.svg", "theme.js", "live.js", "workspace.mjs"} {
 		mux.HandleFunc("GET /assets/"+name, d.local(func(w http.ResponseWriter, r *http.Request) {
 			http.ServeFileFS(w, r, files, "assets/"+name)
 		}))
@@ -583,7 +599,10 @@ func (d *dashboard) status(w http.ResponseWriter, r *http.Request) {
 			Notification  string
 			ReadOnly      bool
 			RuntimeState  *config.RuntimeState
-		}{d.currentSettings(), status, receiver, d.traceEndpoint(r.Host), r.URL.Query().Get("notification"), d.readOnly(r), d.runtimeSettingsState(r)})
+			OwnersState   *config.OwnersState
+			BudgetState   *config.BudgetState
+			Operations    *operationsSettings
+		}{d.currentSettings(), status, receiver, d.traceEndpoint(r.Host), r.URL.Query().Get("notification"), d.readOnly(r), d.runtimeSettingsState(r), d.runtimeOwnersState(r), d.runtimeBudgetState(r), d.runtimeOperationsState(r)})
 	})
 }
 
@@ -611,12 +630,13 @@ func (d *dashboard) storageUsage(w http.ResponseWriter, r *http.Request) {
 			}
 			d.usage.value, d.usage.at = usage, time.Now()
 		}
+		settings := d.currentSettings()
 		d.render(w, r, http.StatusOK, "storage", "Storage by application", struct {
 			investigation.StorageUsage
 			Computed   time.Time
 			OnFull     storage.FullPolicy
 			MaxDBBytes int64
-		}{d.usage.value, d.usage.at, d.settings.OnFull, d.settings.MaxDBBytes})
+		}{d.usage.value, d.usage.at, settings.OnFull, settings.MaxDBBytes})
 	})
 }
 
@@ -626,6 +646,24 @@ func (d *dashboard) currentSettings() Settings {
 	if settings.Runtime != nil {
 		snapshot := settings.Runtime.Snapshot()
 		settings.TraceLinkURL, settings.TraceLinkName = snapshot.URL, snapshot.Name
+		settings.ConfigSource.Owners = settings.Runtime.OwnersSource()
+		operation := settings.Runtime.OperationsState()
+		p := operation.Policy
+		settings.RetentionDays, settings.MaxDBBytes, settings.IngestConcurrency, settings.OnFull, settings.Redaction = p.RetentionDays, int64(p.MaxDBMiB)<<20, p.IngestConcurrency, p.OnFull, p.Redaction
+		settings.ConfigSource.RetentionDays = operation.Sources["retention_days"]
+		settings.ConfigSource.MaxDBMiB = operation.Sources["max_db_mib"]
+		settings.ConfigSource.IngestSlots = operation.Sources["ingest_concurrency"]
+		settings.ConfigSource.OnFull = operation.Sources["on_full"]
+		settings.ConfigSource.Redaction = operation.Sources["redaction"]
+		if settings.Notifications != nil {
+			notifications := *settings.Notifications
+			notifications.Digest = ""
+			if p.Digest != "" {
+				notifications.Digest = p.Digest + " UTC"
+			}
+			settings.Notifications = &notifications
+		}
+
 	}
 	if settings.Tokens.Enabled() {
 		settings.IngestTokens = settings.Tokens.Names(access.ScopeIngest)

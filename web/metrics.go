@@ -11,6 +11,7 @@ import (
 // metrics serves Prometheus text exposition about Geko itself. It reports no
 // telemetry content, only receiver counters and storage sizes.
 func (d *dashboard) metrics(w http.ResponseWriter, r *http.Request) {
+	settings := d.currentSettings()
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	status, err := d.store.Status(ctx)
@@ -43,8 +44,8 @@ func (d *dashboard) metrics(w http.ResponseWriter, r *http.Request) {
 	metric("geko_storage_bytes", "gauge", "SQLite file sizes, by file.",
 		fmt.Sprintf(`{file="main"} %d`, status.MainBytes), fmt.Sprintf(`{file="wal"} %d`, status.WALBytes), fmt.Sprintf(`{file="shm"} %d`, status.SHMBytes))
 	metric("geko_storage_free_bytes", "gauge", "Reusable space in the main database file.", fmt.Sprintf(" %d", status.FreeBytes))
-	if d.settings.MaxDBBytes > 0 {
-		metric("geko_storage_limit_bytes", "gauge", "Configured main database size limit.", fmt.Sprintf(" %d", d.settings.MaxDBBytes))
+	if settings.MaxDBBytes > 0 {
+		metric("geko_storage_limit_bytes", "gauge", "Configured main database size limit.", fmt.Sprintf(" %d", settings.MaxDBBytes))
 	}
 	metric("geko_storage_evicted_traces_total", "counter", "Traces evicted at capacity.", fmt.Sprintf(" %d", status.EvictedTraces))
 	metric("geko_storage_rejected_exports_total", "counter", "Exports rejected at capacity.", fmt.Sprintf(" %d", status.RejectedExports))

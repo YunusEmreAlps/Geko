@@ -121,3 +121,10 @@ func TestBulkSpanWriteRollsBackEarlierChunks(t *testing.T) {
 		t.Fatalf("retry membership = %d, %v", count, err)
 	}
 }
+
+func TestExplicitBaselineUsesPointLookups(t *testing.T) {
+	steps := queryPlan(t, openTestStore(t), selectedBaselineQuery, make([]byte, 16), "api", "GET /", "", make([]byte, 16))
+	if strings.Contains(steps, "SCAN ") || strings.Contains(steps, "TEMP B-TREE") || !strings.Contains(steps, "SEARCH t ") {
+		t.Fatalf("manual reference must use point lookups:\n%s", steps)
+	}
+}

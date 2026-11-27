@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -57,7 +58,7 @@ func TestCompareTraceUsesMatchingCleanSuccess(t *testing.T) {
 	if !strings.Contains(get(path), "Compare with success") || !strings.Contains(get(path+"/compare"), "No comparison available") {
 		t.Fatal("missing comparison link or empty state")
 	}
-	write(2, "shop", "prod", "GET /orders", 200, false, 50*time.Millisecond)
+	older := write(2, "shop", "prod", "GET /orders", 200, false, 50*time.Millisecond)
 	want := write(3, "shop", "prod", "GET /orders", 200, false, 100*time.Millisecond)
 	wrong := []string{
 		write(4, "shop", "staging", "GET /orders", 200, false, 50*time.Millisecond),
@@ -72,6 +73,30 @@ func TestCompareTraceUsesMatchingCleanSuccess(t *testing.T) {
 	}
 	if !strings.Contains(body, want) || !strings.Contains(body, "200ms slower") {
 		t.Fatalf("comparison missing baseline or duration difference: %s", body)
+	}
+	selected := get(path + "/compare?baseline=" + older + "&return=" + url.QueryEscape("/failures?service=orders"))
+	if !strings.Contains(selected, "Selected reference") || !strings.Contains(selected, older) || strings.Contains(selected, want) || !strings.Contains(selected, `name="baseline"`) {
+		t.Fatal("manual choice ignored or missing selector")
+	}
+	for _, choice := range []struct {
+		id      string
+		status  int
+		message string
+	}{
+		{wrong[0], 400, "matching the source"}, {source, 400, "matching the source"}, {"ff" + strings.Repeat("0", 30), 404, "not retained"}, {"bad", 400, "Invalid baseline ID"},
+	} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1"+path+"/compare?baseline="+choice.id, nil))
+		if w.Code != choice.status || !strings.Contains(w.Body.String(), choice.message) || strings.Contains(w.Body.String(), want) {
+			t.Fatalf("manual error %q: %d %s", choice.id, w.Code, w.Body)
+		}
+	}
+	for _, query := range []string{"baseline=" + older + "&baseline=" + want, "baseline="} {
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, httptest.NewRequest("GET", "http://127.0.0.1"+path+"/compare?"+query, nil))
+		if w.Code != 400 {
+			t.Fatalf("ambiguous reference: %d", w.Code)
+		}
 	}
 	for _, id := range wrong {
 		if strings.Contains(body, id) {

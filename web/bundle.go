@@ -43,6 +43,7 @@ func (d *dashboard) downloadBundle(w http.ResponseWriter, r *http.Request) {
 		d.problem(w, r, http.StatusBadRequest, "Invalid group", "Open the group from Error groups and download it again.")
 		return
 	}
+	strict := d.currentSettings().Redaction == "strict"
 	d.withQuery(w, r, func(ctx context.Context) {
 		groups, err := d.store.FailureGroups(ctx, investigation.FailureFilter{Limit: 1, GroupKey: key, GroupState: investigation.GroupAll}, nil)
 		if err != nil {
@@ -64,7 +65,7 @@ func (d *dashboard) downloadBundle(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				continue
 			}
-			body, err := otlp.EncodeTraceJSON(traceID, d.settings.Redaction == "strict", func(visit func(investigation.Span) error) error {
+			body, err := otlp.EncodeTraceJSON(traceID, strict, func(visit func(investigation.Span) error) error {
 				return d.store.VisitTraceSpans(ctx, traceID, visit)
 			})
 			// A trace beyond the transfer limit stays out; the rest still travel.

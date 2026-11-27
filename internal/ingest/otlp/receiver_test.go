@@ -312,7 +312,9 @@ func (fn writeFunc) WriteSpans(ctx context.Context, observed time.Time, spans []
 func TestAdmissionWaitsForASlot(t *testing.T) {
 	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error { return nil }))
 	for range maxConcurrent {
-		handler.slots <- struct{}{}
+		if ok, _ := handler.tryAcquire(); !ok {
+			t.Fatal("could not occupy admission slot")
+		}
 	}
 	payload := encodeBatch(t, fixtureSpan())
 	codes := make(chan int, 1)
@@ -328,7 +330,7 @@ func TestAdmissionWaitsForASlot(t *testing.T) {
 		t.Fatalf("export answered %d without a free slot", code)
 	case <-time.After(50 * time.Millisecond):
 	}
-	<-handler.slots
+	handler.release()
 	if code := <-codes; code != http.StatusOK {
 		t.Fatalf("export that waited for a slot = %d", code)
 	}
@@ -336,7 +338,7 @@ func TestAdmissionWaitsForASlot(t *testing.T) {
 		t.Fatalf("waiting export counted as refused: %d", busy)
 	}
 	for range maxConcurrent - 1 {
-		<-handler.slots
+		handler.release()
 	}
 }
 
@@ -344,11 +346,13 @@ func TestAdmissionRefusesWhenTheWaitExpires(t *testing.T) {
 	handler := NewHandler(writeFunc(func(context.Context, time.Time, []telemetry.Span) error { return nil }))
 	handler.wait = 0
 	for range maxConcurrent {
-		handler.slots <- struct{}{}
+		if ok, _ := handler.tryAcquire(); !ok {
+			t.Fatal("could not occupy admission slot")
+		}
 	}
 	defer func() {
 		for range maxConcurrent {
-			<-handler.slots
+			handler.release()
 		}
 	}()
 	request := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/v1/traces", bytes.NewReader(encodeBatch(t, fixtureSpan())))

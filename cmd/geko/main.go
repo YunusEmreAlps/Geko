@@ -27,6 +27,8 @@ import (
 	"github.com/YunusEmreAlps/geko/internal/config"
 	"github.com/YunusEmreAlps/geko/internal/ingest/otlp"
 	"github.com/YunusEmreAlps/geko/internal/notify"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
+	"github.com/YunusEmreAlps/geko/internal/storage"
 	"github.com/YunusEmreAlps/geko/internal/storage/sqlite"
 	"github.com/YunusEmreAlps/geko/web"
 )
@@ -278,12 +280,18 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 	if cfg.ReadOnly {
 		cfg.MCPTriage = false
 	}
+	liveSettings := config.NewRuntime(cfg)
 	maxBytes := int64(cfg.MaxDBMiB) << 20
 	db, err := sqlite.OpenWithPolicy(ctx, cfg.DBPath, maxBytes, cfg.OnFull)
 	if err != nil {
 		return err
 	}
 	defer func() { err = errors.Join(err, db.Close()) }()
+	db.WithCapacitySource(func() storage.CapacityPolicy {
+		o := liveSettings.Operations()
+		return storage.CapacityPolicy{MaxBytes: int64(o.MaxDBMiB) << 20, OnFull: o.OnFull}
+	})
+
 	if options.prepare != nil {
 		if err := options.prepare(ctx, db); err != nil {
 			return err
@@ -322,7 +330,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		stopped := make(chan struct{})
 		go func() {
 			defer close(stopped)
-			prunePeriodically(maintenance, db, retention)
+			pruneLivePeriodically(maintenance, db, liveSettings)
 		}()
 		defer func() {
 			cancel()
@@ -344,12 +352,16 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 	}
 
 	mux := http.NewServeMux()
-	tracker := budget.New(cfg.TelemetryBudget, time.Now())
-	if tracker != nil && tracker.HistoryDays() > 0 && !cfg.ReadOnly {
+	liveOwners := ownership.Dynamic(liveSettings.Owners)
+	tracker := budget.New(cfg.TelemetryBudget, time.Now()).WithPolicySource(liveSettings.BudgetPolicy)
+	if tracker != nil && !cfg.ReadOnly {
 		defer startBudgetHistory(ctx, db, tracker)()
 	}
 	receiver := otlp.NewHandlerWithRedaction(db, cfg.Redaction == "strict").
-		WithAttributeSearch(cfg.AttributeSearch).WithBudget(tracker)
+		WithAttributeSearch(cfg.AttributeSearch).WithBudget(tracker).WithPolicySource(func() otlp.Policy {
+		o := liveSettings.Operations()
+		return otlp.Policy{Concurrency: o.IngestConcurrency, Strict: o.Redaction == "strict"}
+	})
 	if cfg.IngestSlots > 0 {
 		receiver.WithConcurrency(cfg.IngestSlots)
 	}
@@ -382,7 +394,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		if baseURL == "" {
 			baseURL = "http://" + dashboardAddr
 		}
-		notifier := notify.New(cfg.WebhookURL, cfg.WebhookFormat, baseURL, db, time.Now()).WithApplications(cfg.ApplicationWebhooks).WithOwners(cfg.Owners).WithDigest(cfg.Digest)
+		notifier := notify.New(cfg.WebhookURL, cfg.WebhookFormat, baseURL, db, time.Now()).WithApplications(cfg.ApplicationWebhooks).WithOwners(liveOwners).WithDigest(cfg.Digest).WithDigestSource(liveSettings.DigestPolicy)
 		notifications = &web.Notifications{Format: string(notifier.Format()), Host: notifier.Host(), Test: notifier.Test}
 		if cfg.Digest.Enabled {
 			notifications.Digest = cfg.Digest.String()
@@ -426,13 +438,13 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 	if cfg.MCPTriage {
 		triage = db
 	}
-	dashboardMux.Handle("/mcp", mcpHandler(db, triage, cfg.Owners, cfg.AccessToken.Enabled(), auditLog))
+	dashboardMux.Handle("/mcp", mcpHandler(db, triage, liveOwners, cfg.AccessToken.Enabled(), auditLog))
 	restore := receiver.RestoreTraceJSON
 	if cfg.ReadOnly {
 		restore = nil
 	}
 	if err := web.Register(dashboardMux, db, web.Settings{
-		Runtime:       config.NewRuntime(cfg),
+		Runtime:       liveSettings,
 		Shutdown:      ctx.Done(),
 		DashboardAddr: dashboardAddr, GRPCAddr: grpcAddr,
 		ListenAddr: listener.Addr().String(), DBPath: cfg.DBPath, Version: version,
@@ -453,7 +465,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		ConfigSource:      cfg.Source,
 		OnFull:            cfg.OnFull, Redaction: cfg.Redaction,
 		ReadOnly: cfg.ReadOnly,
-		Owners:   cfg.Owners,
+		Owners:   liveOwners,
 	}); err != nil {
 		return err
 	}
@@ -524,7 +536,13 @@ func backupCommand(ctx context.Context, args []string, out io.Writer) error {
 	return err
 }
 
-func prunePeriodically(ctx context.Context, db *sqlite.Store, retention time.Duration) {
+func pruneExpired(ctx context.Context, db *sqlite.Store, retention time.Duration) {
+	if err := db.Prune(ctx, time.Now().Add(-retention)); err != nil && ctx.Err() == nil {
+		log.Printf("trace retention: %v", err)
+	}
+}
+
+func pruneLivePeriodically(ctx context.Context, db *sqlite.Store, settings *config.Runtime) {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
 	for {
@@ -532,13 +550,14 @@ func prunePeriodically(ctx context.Context, db *sqlite.Store, retention time.Dur
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			pruneExpired(ctx, db, retention)
+			pruneLive(ctx, db, settings)
 		}
 	}
 }
 
-func pruneExpired(ctx context.Context, db *sqlite.Store, retention time.Duration) {
-	if err := db.Prune(ctx, time.Now().Add(-retention)); err != nil && ctx.Err() == nil {
-		log.Printf("trace retention: %v", err)
+func pruneLive(ctx context.Context, db *sqlite.Store, settings *config.Runtime) {
+	days := settings.Operations().RetentionDays
+	if days > 0 {
+		pruneExpired(ctx, db, time.Duration(days)*24*time.Hour)
 	}
 }

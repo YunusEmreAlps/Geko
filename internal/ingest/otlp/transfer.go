@@ -160,12 +160,11 @@ func transferAttributes(attrs telemetry.Attributes) []*common.KeyValue {
 // refuses a trace that is already stored so a file cannot add spans to it.
 func (h *Receiver) RestoreTraceJSON(ctx context.Context, input io.Reader, stored func(context.Context, telemetry.TraceID) (bool, error)) (telemetry.TraceID, error) {
 	var id telemetry.TraceID
-	select {
-	case h.slots <- struct{}{}:
-		defer func() { <-h.slots }()
-	default:
+	if ok, _ := h.tryAcquire(); !ok {
 		return id, ErrTransferBusy
 	}
+	defer h.release()
+	ctx = h.capturePolicy(ctx)
 	payload, err := io.ReadAll(io.LimitReader(input, maxPayloadBytes+1))
 	if err != nil {
 		return id, ErrInvalidTransfer
@@ -180,7 +179,7 @@ func (h *Receiver) RestoreTraceJSON(ctx context.Context, input io.Reader, stored
 		}
 		return id, ErrInvalidTransfer
 	}
-	spans, rejected, err := normalize(&request, h.strict, h.attributeSearch, nil)
+	spans, rejected, err := normalize(&request, h.policyFor(ctx).Strict, h.attributeSearch, nil)
 	if err != nil || rejected != 0 || len(spans) == 0 {
 		return id, ErrInvalidTransfer
 	}

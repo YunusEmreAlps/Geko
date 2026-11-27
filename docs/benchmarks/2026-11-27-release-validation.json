@@ -1,0 +1,127 @@
+{
+  "date": "2026-11-27",
+  "release": "v0.2.0",
+  "release_revision": "cada0af1b37cf6ca903828227e3cd87e51e1bae0",
+  "scope": "Local released-binary validation including isolated Linux Homebrew; no hosted workflow dispatched or host package manager installed",
+  "windows": {
+    "installer": "current checkout scripts/install.ps1",
+    "install_directory": "temporary directory",
+    "no_modify_path": true,
+    "checksum_verified_by_installer": true,
+    "archive": "geko_0.2.0_windows_amd64.zip",
+    "smoke": {
+      "version": "0.2.0",
+      "version_output": "Geko 0.2.0 (windows/amd64, go1.26.11)\nvcs.revision=cada0af1b37cf6ca903828227e3cd87e51e1bae0\nvcs.time=2026-11-23T16:52:50Z\nvcs.modified=false",
+      "platform": "Windows",
+      "machine": "AMD64",
+      "demo_ready": true,
+      "seeded_failures": true,
+      "mcp_absolute_paths": true,
+      "dashboard": true,
+      "mcp_command": "geko",
+      "mcp_protocol_verified": false,
+      "hosted_action_verified": false
+    }
+  },
+  "linux": {
+    "runtime": "Docker Desktop Linux/amd64",
+    "image": "golang:1.26.11-alpine",
+    "installer": "current checkout scripts/install.sh, LF copy in disposable container",
+    "install_directory": "/tmp/installed",
+    "host_path_modified": false,
+    "checksum_verified_by_installer": true,
+    "archive": "geko_0.2.0_linux_amd64.tar.gz",
+    "smoke": {
+      "version": "0.2.0",
+      "version_output": "Geko 0.2.0 (linux/amd64, go1.26.11)\nvcs.revision=cada0af1b37cf6ca903828227e3cd87e51e1bae0\nvcs.time=2026-11-23T16:52:50Z\nvcs.modified=false",
+      "platform": "Linux",
+      "machine": "x86_64",
+      "demo_ready": true,
+      "seeded_failures": true,
+      "mcp_absolute_paths": true,
+      "dashboard": true,
+      "mcp_command": "geko",
+      "mcp_protocol_verified": false,
+      "hosted_action_verified": false
+    }
+  },
+  "windows_sdk_run": {
+    "run_id": "6ca35ff7db92e494f832d065924f63e6",
+    "telemetry_status": "available",
+    "failures": 1,
+    "truncated": false,
+    "limit": 25
+  },
+  "windows_mcp_protocol": {
+    "server_version": "0.2.0",
+    "protocol_version": "2024-11-05",
+    "tool_count": 6,
+    "list_failures_items": 1,
+    "from_another_directory": true
+  },
+  "published_checksums": {
+    "geko_0.2.0_darwin_amd64.tar.gz": "821bca5d5ff5d79bd18978f0fd0ad20d288514332cd7ff5b48e2ecc0d3748e7a",
+    "geko_0.2.0_darwin_arm64.tar.gz": "86d45d53a9fbdcb583e17da338a0e52b6cc7e4a31bb1034a1f8e87826d8bb8d5",
+    "geko_0.2.0_linux_amd64.tar.gz": "f0e23436ea1dcc7ac271e0ae59e6eb36c0aba0fcb8dba9005fef6a25ae7f316f",
+    "geko_0.2.0_linux_arm64.tar.gz": "aff0318377a06f85e812a95b7097296cfb7dbdec62b7f7705b242d8aef22fd16",
+    "geko_0.2.0_windows_amd64.zip": "46356889cd9b9d39f3e246083fe7d7a8ea21f7d1934952964807964fbbd0e119",
+    "geko_0.2.0_windows_arm64.zip": "a7732b55021113d7289d2c1bddfae947d701ea931e6820e5b064b84837ac0645"
+  },
+  "unexecuted_gates": {
+    "native_macos": "No native macOS runner available locally",
+    "native_linux": "Linux checked in Docker; native hosted job prepared",
+    "scoop": "Package manager unavailable locally; real public bucket job prepared",
+    "hosted_action": "Release-install job prepared with comment:false; not dispatched",
+    "arm64": "No ARM64 release execution performed",
+    "homebrew_macos": "Linux public-tap install/formula/smoke passed in Docker; native macOS public-tap job remains unexecuted"
+  },
+  "harness_checks": {
+    "release_smoke_unit_tests": 3,
+    "existing_benchmark_compare_tests": 9,
+    "config_path_mutation": "Rejected as expected; original restored; suite passed",
+    "actionlint": "1.7.7: passed",
+    "python_compilation": "passed",
+    "yaml_parsing": "passed"
+  },
+  "local_failures_and_corrections": [
+    "Bind-mounted Windows checkout had CRLF in install.sh; copied to disposable /tmp/install.sh with CR removed and reran successfully",
+    "Sandboxed Windows loopback check timed out; authorized escalated rerun passed",
+    "First isolated Homebrew attempt reached the public tap but failed because the temporary prefix bin directory was root-owned; corrected container ownership.",
+    "Second isolated Homebrew attempt downloaded the published formula/archive but lacked Homebrew-required developer tools; restored build-essential for the final attempt."
+  ],
+  "homebrew_linux": {
+    "runtime": "Disposable Ubuntu 24.04 Linux/amd64 Docker container",
+    "resources": {
+      "cpus": 2,
+      "memory_gib": 2,
+      "pids_limit": 256
+    },
+    "user": "non-root linuxbrew",
+    "repository_mount": "read-only",
+    "tap": "https://github.com/YunusEmreAlps/geko",
+    "formula": "yunusemrealps/geko/geko",
+    "commands": [
+      "brew tap yunusemrealps/geko https://github.com/YunusEmreAlps/geko",
+      "brew install yunusemrealps/geko/geko",
+      "brew test yunusemrealps/geko/geko",
+      "python3 /src/scripts/release-smoke.py /home/linuxbrew/.linuxbrew/bin/geko --version 0.2.0"
+    ],
+    "exit_code": 0,
+    "formula_test_passed": true,
+    "host_path_or_registry_modified": false,
+    "brew_sandbox_warning": "Homebrew reported sandbox unavailable inside the disposable Docker container; no brew sandbox guarantee is claimed.",
+    "smoke": {
+      "version": "0.2.0",
+      "version_output": "Geko 0.2.0 (linux/amd64, go1.26.11)\nvcs.revision=cada0af1b37cf6ca903828227e3cd87e51e1bae0\nvcs.time=2026-11-23T16:52:50Z\nvcs.modified=false",
+      "platform": "Linux",
+      "machine": "x86_64",
+      "demo_ready": true,
+      "seeded_failures": true,
+      "mcp_absolute_paths": true,
+      "dashboard": true,
+      "mcp_command": "/home/linuxbrew/.linuxbrew/Cellar/geko/0.2.0/bin/geko",
+      "mcp_protocol_verified": false,
+      "hosted_action_verified": false
+    }
+  }
+}

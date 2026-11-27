@@ -27,6 +27,7 @@ func (s *Store) WriteSpans(ctx context.Context, observed time.Time, spans []tele
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+	ctx = s.captureCapacity(ctx)
 	req := spanWrite{ctx: ctx, observedNS: observed.UnixNano(), spans: spans, done: make(chan error, 1)}
 	s.writeMu.Lock()
 	if s.closed {
@@ -75,7 +76,14 @@ func (s *Store) writeBatch(batch []spanWrite) {
 	for _, req := range batch {
 		spans += len(req.spans)
 	}
-	if len(batch) > 1 && !s.mustEvict(context.Background(), spans) && s.commitExports(batch) == nil {
+	samePolicy := true
+	for _, req := range batch[1:] {
+		if s.capacity(req.ctx) != s.capacity(batch[0].ctx) {
+			samePolicy = false
+			break
+		}
+	}
+	if len(batch) > 1 && samePolicy && !s.mustEvict(batch[0].ctx, spans) && s.commitExports(batch) == nil {
 		s.full.Store(false)
 		for _, req := range batch {
 			req.done <- nil
@@ -96,7 +104,7 @@ func (s *Store) writeBatch(batch []spanWrite) {
 }
 
 func (s *Store) commitExports(batch []spanWrite) error {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.WithValue(context.Background(), capacityKey{}, s.capacity(batch[0].ctx)))
 	defer cancel()
 	for _, req := range batch {
 		if err := req.ctx.Err(); err != nil {

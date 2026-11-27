@@ -16,11 +16,11 @@ restarting. Clear both fields to disable the link. The URL must be HTTP(S),
 contain `{trace_id}`, omit URL user credentials and fit in 4,096 bytes; the name
 is limited to 40 bytes and defaults to Tempo when a URL is enabled.
 
-This first slice supports trace links only. Owners, Budget limits, listeners,
-database paths, retention, privacy, authentication and notification settings
-still require their existing restart/configuration flow. The existing token-
-file reload remains supported independently. Browser theme preferences remain
-local to the browser.
+Owner mappings, Budget reporting limits and supported operational policies can
+also be changed live, as described below. Listener addresses, database paths,
+authentication/access surfaces, webhook destinations, Collector sources, Budget
+enablement and tracked attribute keys retain their restart/configuration flow.
+Token-file reload remains independent; theme and saved views are browser-local.
 
 - Live editing accepts configuration files up to 1 MiB. Larger existing files
   still load at startup but require external editing and a restart.
@@ -63,6 +63,152 @@ fields and the revision are required (empty strings explicitly disable it):
 A successful response contains the applied state. Conflicts return 409, invalid
 input 400, and persistence failures 503; effective settings remain unchanged on
 these failures. The API never returns the complete server configuration.
+
+### Live Budget reporting limits
+
+When Budget was enabled at startup, **Settings → Budget limits** can change
+`default`, `services` and `cardinality_limit` without a restart. Save the complete
+reporting policy as YAML; omitted limits become unlimited and an omitted or zero
+cardinality threshold uses 100. Existing counters, session IDs, cardinality
+fingerprints and persisted hourly volume are preserved. Reports for current and
+historical hours use the **current** reporting limits, not the limits that were
+active when the spans arrived. These thresholds never reject an export. `geko budget --server` reads the running
+instance's updated reports on its next request.
+
+The form supports up to 128 distinct namespace/service rules and 128 KiB of YAML.
+Nonnegative span/byte limits use zero for unlimited; the cardinality threshold
+accepts 0–255. Service rules replace the default limits for that service. Tracking
+stays bounded to at most 256 dedicated service rows per hour even after repeated
+rule changes. Traffic already counted in Other cannot be attributed retroactively;
+a newly configured service may remain in Other until the next hour if the row
+cap is full. Fingerprints remain process-local and are not persisted.
+
+Enabling/disabling Budget and attribute keys remain restart-required.
+`history_days` is editable under Operational settings.
+Live saves retain those settings and unrelated YAML. Anchors, aliases or merges
+inside `telemetry_budget` disable this editor; configuration loading still supports
+those existing YAML constructs. Source labels reflect loaded values even when the
+editor is disabled. There are no environment overrides for these Budget limits.
+
+Administrators use `GET /api/v1/settings/budget` for supported limits, their sources
+and the shared revision, and `POST /api/v1/settings/budget` to replace the reporting
+policy. The `limits` object is required; `{}` explicitly restores unlimited volume
+and the default cardinality threshold. Unknown fields such as `enabled` are rejected.
+The trace-link, ownership and Budget editors share revision checks, file locking,
+atomic replacement, CSRF protection and value-free audit records. Saving any of
+them invalidates stale forms in the others. No full configuration is returned.
+
+```json
+{
+  "revision": "<revision from GET>",
+  "limits": {
+    "default": {"spans_per_hour": 100000, "bytes_per_hour": 10485760},
+    "services": [
+      {"namespace": "storefront", "service": "payments", "spans_per_hour": 50000}
+    ],
+    "cardinality_limit": 100
+  }
+}
+```
+
+### Operational policies: preview and apply
+
+**Settings → Operational settings** edits these supported policies:
+
+| Setting | Application boundary |
+| --- | --- |
+| `retention_days` | Next minute maintenance tick; an active prune finishes with its captured cutoff. Pins remain protected. |
+| `max_db_mib`, `on_full` | New export/metadata-write boundary. Existing accepted work keeps its captured policy. Reducing a limit does not compact the database. |
+| `ingest_concurrency` | New admission attempts; reducing the limit drains existing exports without cancelling them. Waiting attempts observe increases within the existing two-second admission budget. HTTP, gRPC and imports share the gate. |
+| `redaction` | Captured for each admitted export/import and each future trace/bundle download. Stored records are not rewritten, so historical UI/MCP evidence remains as originally stored. |
+| `telemetry_budget.history_days` | Next checkpoint tick and new report snapshots. Zero skips checkpoints and hides persisted-history reports without deleting saved rows; 1–30 requires Budget enabled at startup. Enabling can persist already observed counters for the current live hour. Shortening expires older checkpoints on a subsequent successful save. |
+| `digest` | Next notification tick; changes reschedule the next weekly delivery without a catch-up message. Existing destinations must be configured at startup. Empty disables the digest. |
+
+Choose **Preview operational changes** before applying. The preview does not
+write configuration or delete data. It counts currently eligible unpinned traces
+with the same last-observed cutoff as retention and, when history is enabled,
+older Budget checkpoints eligible for expiry. Main-file and reusable sizes are
+shown. Counts are a point-in-time observation, not a guarantee about later ingest,
+pins or already running maintenance.
+
+An explicit checkbox is required when shrinking trace retention/capacity,
+enabling eviction from reject mode, weakening redaction, enabling Budget history
+or shortening enabled history retention. New policy is published only after the
+shared atomic YAML save; stale revisions, env locks and failed replacement retain
+the old policy. Other YAML fields/comments are kept. Environment-managed fields
+are read-only and their effective values are never copied into YAML by a save.
+Supported edits require unaliased operational fields and an unaliased Budget
+subtree; a root YAML merge disables these edits. No new listener or file watcher
+is created. Worker counts remain fixed; disabled work skips future ticks and all
+workers are joined at shutdown.
+
+The admin-only API uses `GET /api/v1/settings/operations`,
+`POST /api/v1/settings/operations/preview` and
+`POST /api/v1/settings/operations`. A preview takes the complete `policy` and
+shared `revision`; apply uses the same body plus `confirmed: true` for the effects
+above. Confirmation acknowledges the policy's effects, not a fixed deletion count.
+The existing CSRF/access rules apply. Audit records actor, operation and outcome,
+never the submitted policy values. JSON responses omit secrets and full config.
+
+```json
+{
+  "revision": "<revision from GET>",
+  "policy": {
+    "retention_days": 7,
+    "max_db_mib": 256,
+    "ingest_concurrency": 4,
+    "on_full": "evict_oldest",
+    "redaction": "strict",
+    "budget_history_days": 7,
+    "digest": "monday 09:00"
+  },
+  "confirmed": true
+}
+```
+
+### Live ownership mappings
+
+**Settings → Ownership → Owner rules (YAML)** edits the service/application
+maps. Service rules take precedence. **Save ownership** persists the loaded
+configuration before publishing new immutable rules. Matching mapping comments
+and unrelated YAML are retained; removed rules are removed. Save `{}` in the
+editor to clear both groups. Edits support up to 256 rules and 128 KiB of owner
+YAML. Names use at most 256 bytes; team names at most 128 bytes and no control
+characters. Aliases, anchors and merges inside `owners` are not editable.
+An unsafe ownership subtree does not disable an otherwise safe trace-link
+editor, and a trace-link anchor does not prevent a safe ownership edit.
+
+The running dashboard, its HTTP MCP endpoint and future notifications use the
+same published ownership source. Old or already queued notifications are not
+rewritten. CLI commands reload YAML on their next invocation. A separately
+running stdio MCP process has its own startup configuration: restart that
+session to reload its rules, or connect to the running server's HTTP MCP.
+
+Nonempty `GEKO_OWNERS` locks the entire ownership editor; its value is never
+copied into YAML by another editor. Ownership and trace-link edits share the
+same revision and file lock, so saving either invalidates stale forms in the
+other. External file edits still require a Geko restart. Role, CSRF, atomic
+replacement and filesystem restrictions above apply to both editors.
+
+Administrators can read ownership with `GET /api/v1/settings/owners` and replace
+the mappings with `POST /api/v1/settings/owners`:
+
+```json
+{
+  "revision": "<revision from GET>",
+  "owners": {
+    "services": {"payments": "payments-team"},
+    "applications": {"storefront": "web-team"}
+  }
+}
+```
+
+This replaces both maps, not a patch: omitted groups become empty. The `owners`
+object is required; `{ "owners": {} }` with a current revision explicitly
+clears all mappings. Invalid input returns 400, a locked field or non-admin
+caller 403, stale revisions 409 and persistence failure 503. Rejected writes
+keep the previous rules active. Audit records name the `owners` field group
+and result, never rule names, team values or submitted YAML.
 
 ## Check an application's connection
 
@@ -204,7 +350,9 @@ Telemetry is filtered before it is stored or indexed.
   message, or the full hex digest. Search terms appear in the URL, so search by
   digest to keep a message out of browser history.
 
-A mode change applies only to new spans. See
+A mode change does not rewrite stored spans. New exports/imports capture the
+current policy; future trace/bundle downloads reapply the current export
+redaction policy. Historical UI and MCP reads retain their stored evidence. See
 [Architecture](architecture.md) for details.
 
 To search a custom span attribute by exact value, set

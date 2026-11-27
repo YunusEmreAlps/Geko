@@ -93,19 +93,20 @@ var migrations = []string{
 }
 
 type Store struct {
-	revision   atomic.Uint64
-	db         *sql.DB
-	read       *sql.DB
-	path       string
-	maxBytes   int64
-	onFull     storage.FullPolicy
-	assignment sync.Mutex
-	writeMu    sync.Mutex
-	pending    []spanWrite
-	writing    bool
-	closed     bool
-	writer     sync.WaitGroup
-	writeSlots chan struct{}
+	revision       atomic.Uint64
+	db             *sql.DB
+	read           *sql.DB
+	path           string
+	maxBytes       int64
+	onFull         storage.FullPolicy
+	capacitySource func() storage.CapacityPolicy
+	assignment     sync.Mutex
+	writeMu        sync.Mutex
+	pending        []spanWrite
+	writing        bool
+	closed         bool
+	writer         sync.WaitGroup
+	writeSlots     chan struct{}
 	// full records that the last export had to evict, so the next one can
 	// evict without first failing a write it cannot fit.
 	full atomic.Bool

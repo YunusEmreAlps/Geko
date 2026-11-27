@@ -17,6 +17,7 @@ const maxBudgetCheckpoints = 1024
 // It waits at most 50ms for the serialized writer; a busy/full store leaves
 // volume in memory and the caller marks history persistence unavailable.
 func (s *Store) SaveBudgetCheckpoints(ctx context.Context, now time.Time, days int, checkpoints []budget.Checkpoint) error {
+	ctx = s.captureCapacity(ctx)
 	if days < 1 || days > 30 || len(checkpoints) > 2 {
 		return errors.New("invalid budget history bounds")
 	}
@@ -46,22 +47,22 @@ func (s *Store) SaveBudgetCheckpoints(ctx context.Context, now time.Time, days i
 	for _, payload := range data {
 		estimate += int64(len(payload))*2 + 8192
 	}
-	if s.maxBytes > 0 {
+	if s.capacity(ctx).MaxBytes > 0 {
 		size, err := s.journalSize()
 		if err != nil {
 			return err
 		}
-		if size+estimate >= s.maxBytes-s.maxBytes/10 {
+		if size+estimate >= s.capacity(ctx).MaxBytes-s.capacity(ctx).MaxBytes/10 {
 			return storage.ErrCapacity
 		}
 	}
 	return s.withinCapacity(ctx, func(tx *sql.Tx) error {
-		if s.maxBytes > 0 {
+		if s.capacity(ctx).MaxBytes > 0 {
 			var used int64
 			if err := tx.QueryRowContext(ctx, "SELECT (page_count-freelist_count)*page_size FROM pragma_page_count(),pragma_freelist_count(),pragma_page_size()").Scan(&used); err != nil {
 				return err
 			}
-			if used+estimate > s.maxBytes-s.maxBytes/10 {
+			if used+estimate > s.capacity(ctx).MaxBytes-s.capacity(ctx).MaxBytes/10 {
 				return storage.ErrCapacity
 			}
 		}

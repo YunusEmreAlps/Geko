@@ -11,6 +11,38 @@ record real HTTP requests and flush exports before exit. On **Connect**, start
 a 60-second check before running an example, then use **Check again** to see
 newly accepted telemetry. A printed trace ID alone does not prove delivery.
 
+## Follow delivery evidence
+
+In source builds after v0.2.0, **Connect → Delivery diagnostics** brings four
+existing sources together. The disclosure opens when a 60-second check starts;
+exporter setup remains available even if one diagnostic source cannot be read.
+
+| Stage | Evidence and scope | Next step |
+| --- | --- | --- |
+| Service observation | A recent committed export matching the selected service and namespace in the check window; not proof of credential or transport. | Generate a request, check again, then open the observed or retained service traces. A missing sample does not prove missing instrumentation. |
+| Receiver | Accepted exports, partial rejections and rejection reasons across all applications, cumulative since this receiver started. | Compare exporter response codes with endpoint/protocol, batch limits, namespace/Host restrictions and admission/storage settings. Authentication failures happen before receiver counters; inspect Geko logs. |
+| Storage | A bounded metadata read: main/WAL/reusable bytes, capacity policy, pinned traces and persistent eviction/rejection counts. These counters cover the database lifetime. | Review storage and retention; use the existing `geko doctor` for integrity and port checks. A file at its limit may still accept writes into reusable pages, and counters cannot identify a specific missing trace. |
+| Collector | Whether sources are configured, and the time, coverage and severity counts of the last explicitly requested Collector Doctor report in this server session. | Open **Inspect Collector** for full evidence and recommendations; **Back to connection check** preserves the selected service/application/protocol/token name and observation start. |
+
+Opening or refreshing Connect never scrapes a Collector or starts a polling
+worker. Requesting **Collector Doctor**, its Refresh or sample comparison runs
+that existing inspection and updates the shared summary. A summary older than
+five minutes is labelled stale; every summary is historical evidence, not proof
+of the Collector's current health or this service's delivery. Restarting Geko
+clears it. An SDK exporting directly to Geko does not need a Collector check.
+The shared summary contains no raw findings, configuration paths, metrics URLs
+or credentials. Collector checks and return navigation retain the existing
+dashboard access rules and work without JavaScript.
+
+Storage diagnostics share dashboard query admission and have a 500 ms deadline.
+Busy, failed or cancelled reads show **Unavailable** rather than blocking setup
+behind a full database scan or suggesting that the database was integrity-checked.
+Listener availability, SDK TLS configuration and external network delivery are
+not probed by this page. Existing `geko doctor` and `geko doctor --collector`
+commands retain their behavior.
+
+## Exporter configuration
+
 OTLP/gRPC and a separate dashboard port are optional. For example, add these
 settings to `geko.yaml` and restart Geko:
 

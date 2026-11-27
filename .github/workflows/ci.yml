@@ -83,6 +83,7 @@ jobs:
       - name: Build browser test binary
         run: go build -buildvcs=false -o ./bin/geko ./cmd/geko
       - run: npm install --no-save --no-package-lock playwright@1.56.1
+      - run: node --test scripts/workspace.test.mjs
       - run: node scripts/browser-checks.mjs ./bin/geko
       - uses: actions/upload-artifact@v4
         if: always()

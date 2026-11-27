@@ -60,6 +60,9 @@ func TestDashboardInvestigation(t *testing.T) {
 	get("/assets/dashboard.css", http.StatusOK, ".waterfall")
 	get("/assets/dashboard.js", http.StatusOK, "clipboard.writeText")
 	get("/assets/theme.js", http.StatusOK, "geko.theme")
+	get("/assets/workspace.mjs", http.StatusOK, "export function listURL")
+	get("/traces", http.StatusOK, `data-workspace hidden`, `type="module" src="/assets/workspace.mjs"`, `data-workspace-scope="local"`)
+	get("/overview", http.StatusOK, "Resume last view")
 	get("/settings", http.StatusOK, "schema 21", "SQLite sidecars", "127.0.0.1:4318", configPath,
 		"Set by <code>GEKO_DB_PATH</code>", ">yaml</span>", ">default</span>", "Traces evicted at capacity")
 

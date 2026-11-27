@@ -76,6 +76,9 @@ type Config struct {
 
 // Source records where each effective setting came from.
 type Source struct {
+	Digest, BudgetHistory                                          SettingSource
+	Budget                                                         BudgetSources
+	Owners                                                         SettingSource
 	TraceLinkURL, TraceLinkName                                    SettingSource
 	FileRevision                                                   string
 	DashboardAddr, GRPCAddr, PublicURL                             SettingSource
@@ -260,6 +263,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 	if value := os.Getenv("GEKO_DIGEST"); value != "" {
+		cfg.Source.Digest = SettingSource{Kind: "env", Variable: "GEKO_DIGEST"}
 		if cfg.Digest, err = notify.ParseDigest(value); err != nil {
 			return Config{}, fmt.Errorf("GEKO_DIGEST: %w", err)
 		}
@@ -271,6 +275,7 @@ func Load() (Config, error) {
 		if cfg.Owners, err = ownership.Parse(value); err != nil {
 			return Config{}, fmt.Errorf("GEKO_OWNERS: %w", err)
 		}
+		cfg.Source.Owners = SettingSource{Kind: "env", Variable: "GEKO_OWNERS"}
 	}
 	if value := os.Getenv("GEKO_READ_ONLY"); value != "" {
 		if cfg.ReadOnly, err = strconv.ParseBool(value); err != nil {
@@ -435,6 +440,9 @@ func loadFile(path string, optional bool) (Config, error) {
 		RetentionDays: DefaultRetentionDays, MaxDBMiB: DefaultMaxDBMiB, IngestSlots: DefaultIngestConcurrency,
 		OnFull: storage.EvictOldest, Redaction: DefaultRedaction,
 		Source: Source{
+			Owners: defaultSource,
+			Budget: defaultBudgetSources(),
+			Digest: defaultSource, BudgetHistory: defaultSource,
 			TraceLinkURL: defaultSource, TraceLinkName: defaultSource,
 			IngestSlots:   defaultSource,
 			DashboardAddr: defaultSource, GRPCAddr: defaultSource, PublicURL: defaultSource,
@@ -462,7 +470,7 @@ func loadFile(path string, optional bool) (Config, error) {
 	decoder.KnownFields(true)
 	var values struct {
 		CollectorDoctor collectordoctor.Sources `yaml:"collector_doctor"`
-		TelemetryBudget budget.Config           `yaml:"telemetry_budget"`
+		TelemetryBudget budgetFileConfig        `yaml:"telemetry_budget"`
 		DashboardAddr   *string                 `yaml:"dashboard_addr"`
 		GRPCAddr        *string                 `yaml:"grpc_addr"`
 		PublicURL       *string                 `yaml:"public_url"`
@@ -525,6 +533,9 @@ func loadFile(path string, optional bool) (Config, error) {
 	if values.ReadOnly != nil {
 		cfg.ReadOnly = *values.ReadOnly
 	}
+	if values.Digest != nil {
+		cfg.Source.Digest = SettingSource{Kind: "yaml"}
+	}
 	if values.Digest != nil && *values.Digest != "" {
 		if cfg.Digest, err = notify.ParseDigest(*values.Digest); err != nil {
 			return Config{}, fmt.Errorf("config %q: %w", path, err)
@@ -534,9 +545,13 @@ func loadFile(path string, optional bool) (Config, error) {
 		if cfg.Owners, err = ownership.New(values.Owners.Services, values.Owners.Applications); err != nil {
 			return Config{}, fmt.Errorf("config %q owners: %w", path, err)
 		}
+		cfg.Source.Owners = SettingSource{Kind: "yaml"}
 	}
 	cfg.CollectorDoctor = values.CollectorDoctor
-	cfg.TelemetryBudget = values.TelemetryBudget
+	cfg.TelemetryBudget, cfg.Source.Budget = values.TelemetryBudget.effective()
+	if values.TelemetryBudget.HistoryDays != nil {
+		cfg.Source.BudgetHistory = SettingSource{Kind: "yaml"}
+	}
 	if cfg.CollectorDoctor.ConfigFile != "" && !filepath.IsAbs(cfg.CollectorDoctor.ConfigFile) {
 		cfg.CollectorDoctor.ConfigFile = filepath.Join(filepath.Dir(path), cfg.CollectorDoctor.ConfigFile)
 	}

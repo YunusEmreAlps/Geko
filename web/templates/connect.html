@@ -44,11 +44,6 @@
   </dl>
   {{end}}
   {{if .Check.Replacements}}<p class="note">Recent service history is limited to 128 identities; older entries have been replaced. Absence from this check is inconclusive.</p>{{end}}
-  <details class="reference-details"><summary>Receiver context — all applications</summary>
-    <p class="muted">Counters are since Geko started, not just this check, and cannot be attributed to this service. Authentication failures happen before the receiver; check Geko logs for 401/403 responses.</p>
-    <dl class="properties"><div><dt>Accepted exports</dt><dd>{{.Check.Diagnostics.AcceptedExports}}</dd></div>{{range .Check.Diagnostics.Rejections}}{{if .Count}}<div><dt>{{.Reason}}</dt><dd>{{.Count}}</dd></div>{{end}}{{end}}</dl>
-    <p>Check the endpoint and protocol above, ingest credentials, and the SDK's shutdown/flush. An idle application or a sampled-out request may export nothing.</p>
-  </details>
   <div class="actions">{{if not .Check.Expired}}<form method="get" action="/connect#connection-check">{{range .Check.RefreshFields}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}<button class="button" type="submit">Check again</button></form>{{end}}<a class="button ghost" href="{{.Check.StartURL}}">Start a new 60-second check</a></div>
   {{else}}<p><a class="button" href="{{.Check.StartURL}}">Start a 60-second check</a></p>{{end}}
   <p class="note">No observed telemetry does not prove that instrumentation is missing.</p>
@@ -56,6 +51,18 @@
     <p>Checks use one sample from the latest committed OTLP export per namespace, service and environment, kept in memory for up to five minutes. Imports and old stored traces are excluded. A newer sample can replace an earlier one; versions and run IDs are representative, not exhaustive. Token selection configures the snippets, not proof of which credential exported a sample.</p>
   </details>
   {{end}}
+  <details class="reference-details delivery-diagnostics" id="delivery-diagnostics"{{if .Check.Started}} open{{end}}>
+    <summary>Delivery diagnostics</summary>
+    <p class="note">Evidence has different scopes. A previous rejection or a missing sample does not establish the cause of this service's missing trace. Use the next step for each stage.</p>
+    <ol class="delivery-stages">
+      {{range .Delivery.Stages}}<li>
+        <div class="delivery-heading"><h3>{{.Title}}</h3><span class="pill neutral">{{.State}}</span></div>
+        <p class="note">{{.Scope}}</p>
+        <dl class="delivery-facts"><div><dt>Evidence</dt><dd>{{.Evidence}}</dd></div><div><dt>Next step</dt><dd>{{.Action}}</dd></div></dl>
+        {{if .URL}}<a class="text-link" href="{{.URL}}">{{.Link}}</a>{{end}}
+      </li>{{end}}
+    </ol>
+  </details>
   <p><a class="button" href="{{.TracesURL}}">View service traces</a> <a class="button ghost" href="/settings#receiver">Receiver diagnostics</a></p>
 </section>
 <section class="section">

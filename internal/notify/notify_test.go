@@ -3,12 +3,14 @@ package notify
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -401,5 +403,46 @@ func TestNotificationsNameTheOwner(t *testing.T) {
 			t.Fatalf("JSON payload has no owner: %s", got[0].body)
 		}
 		start = start.Add(time.Minute)
+	}
+}
+
+func TestExistingNotifierReadsNewOwnerSnapshots(t *testing.T) {
+	store, err := sqlite.Open(t.Context(), filepath.Join(t.TempDir(), "live-owners.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	before, _ := ownership.Parse("service:checkout=old-team")
+	after, _ := ownership.Parse("service:checkout=new-team")
+	var current atomic.Pointer[ownership.Owners]
+	current.Store(&before)
+	server, messages := webhook(t, http.StatusOK)
+	start := time.Now().UTC().Truncate(time.Second)
+	n := New(server.URL, JSON, "https://geko.example.com", store, start).WithOwners(ownership.Dynamic(func() ownership.Owners { return *current.Load() }))
+	for i, team := range []string{"old-team", "new-team"} {
+		if i == 1 {
+			current.Store(&after)
+		}
+		at := start.Add(time.Duration(i+1) * time.Minute)
+		record(t, store, byte(i+1), fmt.Sprintf("POST /pay/%d", i), at)
+		if err := n.Check(t.Context(), at.Add(time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		got := messages()
+		if len(got) != 1 || !strings.Contains(got[0].body, `"owner":"`+team+`"`) {
+			t.Fatalf("live owner %s: %+v", team, got)
+		}
+	}
+}
+
+func TestLiveDigestSource(t *testing.T) {
+	current := Digest{}
+	n := New("", "", "", nil, time.Now()).WithDigestSource(func() Digest { return current })
+	if n.digestPolicy().Enabled {
+		t.Fatal("disabled schedule")
+	}
+	current = Digest{Enabled: true, Weekday: time.Monday, Hour: 9}
+	if n.digestPolicy() != current {
+		t.Fatal("schedule source not live")
 	}
 }

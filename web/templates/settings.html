@@ -8,12 +8,12 @@
 </header>
 <nav class="section-nav" aria-label="Settings sections">
   {{if .RuntimeState}}<a href="#runtime-settings">Live settings</a>{{end}}
-  <a href="#appearance">Appearance</a><a href="#receiver">Receiver</a><a href="#notifications">Notifications</a><a href="#ownership">Ownership</a><a href="#storage">Storage</a><a href="#configuration">Configuration</a>
+  <a href="#appearance">Appearance</a><a href="#receiver">Receiver</a><a href="#notifications">Notifications</a><a href="#ownership">Ownership</a><a href="#budget-limits">Budget limits</a><a href="#operations">Operational settings</a><a href="#storage">Storage</a><a href="#configuration">Configuration</a>
 </nav>
 {{with .RuntimeState}}
 <section class="section first" id="runtime-settings">
   <h2>Live settings</h2>
-  <p class="muted">Applied immediately and saved to the loaded YAML file. Every other server setting needs a restart.</p>
+  <p class="muted">Trace links apply immediately and are saved to the loaded YAML file. Ownership has its own live editor below; other server settings need a restart.</p>
   {{if not .AppliedAt.IsZero}}<p class="notice notice--success" role="status">Saved and applied {{timestamp .AppliedAt}}.</p>{{end}}
   {{with .Warning}}<p class="notice notice--warning" role="status">{{.}}</p>{{end}}
   {{if not .Editable}}<p class="notice notice--info">{{.Reason}}</p>{{end}}
@@ -82,10 +82,56 @@
 </section>
 <section class="section" id="ownership">
   <h2>Ownership</h2>
+  {{if not .OwnersState}}<p class="note">{{template "settings-source" .ConfigSource.Owners}}</p>{{end}}
   <dl class="properties">
     {{range .Owners.Rules}}<div><dt>{{if eq .Kind "service"}}Service{{else}}Application{{end}} {{.Name}}</dt><dd>{{.Team}}</dd></div>
     {{else}}<div><dt>Owners</dt><dd>None <span class="subtle">Set <code>owners</code> in YAML or <code>GEKO_OWNERS</code> to name the team owning each group in notifications and here</span></dd></div>{{end}}
   </dl>
+  {{with .OwnersState}}
+  <p class="note">Changes apply to new owner lookups in this dashboard, its HTTP MCP endpoint and notifications. Existing or already queued notifications are not rewritten. CLI commands read the saved rules on startup; restart separate stdio MCP sessions to reload their configuration.</p>
+  {{if not .AppliedAt.IsZero}}<p class="notice notice--success" role="status">Owner rules active since {{timestamp .AppliedAt}}.</p>{{end}}
+  {{with .Warning}}<p class="notice notice--warning" role="status">{{.}}</p>{{end}}
+  {{if not .Editable}}<p class="notice notice--info">{{.Reason}}</p>{{end}}
+  <form class="properties owner-settings-form" action="/settings/owners" method="post" data-loading>
+    <input type="hidden" name="revision" value="{{.Revision}}">
+    <div><label for="runtime-owners">Owner rules (YAML)</label><div><textarea id="runtime-owners" name="owners_yaml" rows="8" maxlength="131072" spellcheck="false" aria-describedby="owners-hint owners-source"{{if not .Editable}} readonly{{end}}>{{.YAML}}</textarea><p class="field-hint" id="owners-hint">Use <code>services</code> and <code>applications</code> mappings, up to 256 rules. Service rules take precedence. Save <code>{}</code> to clear the rules. YAML aliases and merges are not supported.</p><div id="owners-source">{{template "settings-source" .Source}}</div></div></div>
+    <div class="form-footer"><p class="note">Saved to YAML before activation. All live editors share a revision; reload Settings after a conflict. Other configuration is retained.</p><button class="button primary" type="submit"{{if not .Editable}} disabled{{end}}>Save ownership</button></div>
+  </form>
+  {{end}}
+</section>
+<section class="section" id="budget-limits">
+  <h2>Budget limits</h2>
+  <p class="note">Reporting thresholds apply to current and historical reports. Saving keeps counters, volume history and cardinality observations. These limits do not reject exports.</p>
+  {{with .BudgetState}}
+  {{if not .AppliedAt.IsZero}}<p class="notice notice--success" role="status">Budget limits active since {{timestamp .AppliedAt}}.</p>{{end}}
+  {{with .Warning}}<p class="notice notice--warning" role="status">{{.}}</p>{{end}}
+  {{if not .Editable}}<p class="notice notice--info">{{.Reason}}</p>{{end}}
+  <form class="properties owner-settings-form" action="/settings/budget" method="post" data-loading>
+    <input type="hidden" name="revision" value="{{.Revision}}">
+    <div><label for="runtime-budget">Reporting limits (YAML)</label><div><textarea id="runtime-budget" name="budget_yaml" rows="10" maxlength="131072" spellcheck="false" aria-describedby="budget-limits-hint"{{if not .Editable}} readonly{{end}}>{{.YAML}}</textarea><p class="field-hint" id="budget-limits-hint">Use <code>default</code>, <code>services</code> and <code>cardinality_limit</code>. Zero volume limits are unlimited; cardinality zero uses 100. Up to 128 namespace/service rules. Changes cannot recover services already counted in Other; up to 256 service rows are tracked per hour.</p></div></div>
+    <div><span>Default spans</span><div>{{template "settings-source" .Sources.DefaultSpans}}</div></div>
+    <div><span>Default bytes</span><div>{{template "settings-source" .Sources.DefaultBytes}}</div></div>
+    <div><span>Service rules</span><div>{{template "settings-source" .Sources.Services}}</div></div>
+    <div><span>Cardinality threshold</span><div>{{template "settings-source" .Sources.Cardinality}}</div></div>
+    <div class="form-footer"><p class="note">Saved to YAML before activation. All live editors share a revision. Enabling Budget and attribute keys require a restart. History retention is editable under Operational settings.</p><button class="button primary" type="submit"{{if not .Editable}} disabled{{end}}>Save Budget limits</button></div>
+  </form>
+  {{else}}<p class="note">Administrator access and a loaded writable YAML file are required to edit reporting limits.</p>{{end}}
+  {{if .TelemetryBudget}}<p><a class="text-link" href="/budget">Open Telemetry Budget</a></p>{{end}}
+</section>
+<section class="section" id="operations">
+ <h2>Operational settings</h2>
+ <p class="note">Changes apply at new export/write boundaries or the next maintenance/notification tick. In-flight work finishes under its captured policy. Retention and eviction can remove unpinned traces; reducing a limit does not compact the file. Privacy changes affect new telemetry/imports and future downloads; stored history is not rewritten.</p>
+ {{with .Operations}}
+ {{if not .Editable}}<p class="notice notice--info">{{.Reason}}</p>{{end}}
+ {{if not .AppliedAt.IsZero}}<p class="notice notice--success" role="status">Operational settings active since {{timestamp .AppliedAt}}.</p>{{end}}
+ {{with .Warning}}<p class="notice notice--warning">{{.}}</p>{{end}}
+ <form class="properties operational-settings-form" method="post" action="/settings/operations/preview" data-loading>
+ <input type="hidden" name="revision" value="{{.Revision}}">
+ {{range .Fields}}<div><label for="operation-{{.Name}}">{{.Label}}</label><div><input id="operation-{{.Name}}" name="{{.Name}}" type="{{.Type}}" value="{{.Value}}"{{with .Min}} min="{{.}}"{{end}}{{with .Max}} max="{{.}}"{{end}}{{if .Locked}} readonly{{end}}>{{template "settings-source" .Source}}</div></div>{{end}}
+ <p class="note">on_full: evict_oldest, evict_fair or reject. Redaction: best_effort or strict. Budget history: 0 disables checkpoints; 1–30 requires Budget enabled at startup. Digest: leave empty to disable, or use monday 09:00 (UTC); a webhook must already be configured. Environment-managed fields stay locked.</p>
+ <div class="form-footer"><p class="note">Preview changes before applying. Listeners, database paths, authentication and webhook destinations still require a restart.</p><button class="button primary" type="submit"{{if not .Editable}} disabled{{end}}>Preview operational changes</button></div>
+ </form>
+ {{else}}<p class="note">Administrator access is required to preview and apply operational changes.</p>{{end}}
 </section>
 <section class="section" id="storage">
   <h2>Storage</h2>

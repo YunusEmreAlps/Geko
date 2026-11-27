@@ -60,13 +60,48 @@ func compareTrace(ctx context.Context, tx *sql.Tx, id telemetry.TraceID) (invest
 // TraceComparison collects both summaries and bounded span facts in one WAL
 // read snapshot. Existing CLI/API CompareTrace callers keep their lighter read.
 func (s *Store) TraceComparison(ctx context.Context, id telemetry.TraceID) (investigation.TraceComparison, error) {
+	return s.traceComparison(ctx, id, nil)
+}
+
+// TraceComparisonWithBaseline validates a point-selected reference in the same
+// read snapshot as both summaries and bounded span facts. No automatic fallback.
+func (s *Store) TraceComparisonWithBaseline(ctx context.Context, id, baseline telemetry.TraceID) (investigation.TraceComparison, error) {
+	return s.traceComparison(ctx, id, &baseline)
+}
+func (s *Store) traceComparison(ctx context.Context, id telemetry.TraceID, selected *telemetry.TraceID) (investigation.TraceComparison, error) {
 	var result investigation.TraceComparison
 	tx, err := s.read.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return result, err
 	}
 	defer tx.Rollback()
-	result.Source, result.Baseline, err = compareTrace(ctx, tx, id)
+	if selected == nil {
+		result.Source, result.Baseline, err = compareTrace(ctx, tx, id)
+	} else {
+		result.Source, err = traceSummary(ctx, tx, id)
+		if err == nil {
+			if result.Source.Evidence == nil || result.Source.EntrySpan == nil {
+				return result, investigation.ErrComparisonSource
+			}
+			baseline, readErr := traceSummary(ctx, tx, *selected)
+			if errors.Is(readErr, investigation.ErrTraceNotFound) {
+				return result, investigation.ErrBaselineNotFound
+			}
+			if readErr != nil {
+				return result, readErr
+			}
+			var rawID []byte
+			entry := result.Source.EntrySpan
+			readErr = tx.QueryRowContext(ctx, selectedBaselineQuery, id[:], entry.Service, entry.Operation, entry.Application, selected[:]).Scan(&rawID)
+			if errors.Is(readErr, sql.ErrNoRows) {
+				return result, investigation.ErrBaselineIneligible
+			}
+			if readErr != nil {
+				return result, readErr
+			}
+			result.Baseline = &baseline
+		}
+	}
 	if err != nil {
 		return result, err
 	}
@@ -120,7 +155,7 @@ func comparisonSpans(ctx context.Context, tx *sql.Tx, id telemetry.TraceID) ([]i
 // success of a busy operation within a few pages.
 const recentBaselineTraces = 1000
 
-var baselineMatch = `
+var baselineConditions = `
 JOIN traces original ON original.trace_id = ?
 JOIN spans original_root ON original_root.trace_id = original.trace_id AND original_root.span_id = original.entry_span_id
 LEFT JOIN trace_applications ta ON ta.trace_id = t.trace_id
@@ -129,7 +164,9 @@ WHERE t.has_evidence = 0 AND r.kind = 2 AND r.parent_span_id IS NULL AND r.http_
   AND r.service_name = ? AND r.name = ? AND ` + rootApplication + ` = ?
   AND r.service_namespace = original_root.service_namespace
   AND ` + spanEnvironment("r") + ` = ` + spanEnvironment("original_root") + `
-ORDER BY t.last_observed_ns DESC, t.trace_id DESC LIMIT 1`
+`
+
+var baselineMatch = baselineConditions + `ORDER BY t.last_observed_ns DESC,t.trace_id DESC LIMIT 1`
 
 // recentBaselineQuery scans the newest successful traces. CROSS JOIN keeps
 // that scan as the outer loop, so it stops at the first match instead of
@@ -149,3 +186,7 @@ func spanEnvironment(alias string) string {
 	return `coalesce(nullif(json_extract(` + attrs + `, '$."deployment.environment.name"'), ''),
         json_extract(` + attrs + `, '$."deployment.environment"'), '')`
 }
+
+// Primary-key lookup; eligibility is shared with automatic matching.
+var selectedBaselineQuery = `SELECT t.trace_id FROM traces t
+ JOIN spans r ON r.trace_id=t.trace_id AND r.span_id=t.entry_span_id` + baselineConditions + ` AND t.trace_id=?`

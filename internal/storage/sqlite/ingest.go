@@ -125,11 +125,16 @@ const spanBytesEstimate = 512
 // mustEvict reports whether an export of n spans cannot fit without evicting:
 // the last export had to evict and the free pages are too few for this one.
 func (s *Store) mustEvict(ctx context.Context, n int) bool {
-	if !s.onFull.Evicts() || !s.full.Load() {
+	if !s.capacity(ctx).OnFull.Evicts() || !s.full.Load() {
 		return false
 	}
-	var free int64
-	err := s.db.QueryRowContext(ctx, "SELECT freelist_count * page_size FROM pragma_freelist_count(), pragma_page_size()").Scan(&free)
+	var free, used int64
+	err := s.db.QueryRowContext(ctx, "SELECT freelist_count*page_size,page_count*page_size FROM pragma_freelist_count(),pragma_page_size(),pragma_page_count()").Scan(&free, &used)
+	policy := s.capacity(ctx)
+	// A prior export's full hint must not evict after the live limit increased.
+	if policy.MaxBytes == 0 || used < policy.MaxBytes {
+		return false
+	}
 	return err == nil && free < int64(n)*spanBytesEstimate
 }
 
@@ -139,7 +144,7 @@ func (s *Store) writeSpans(ctx context.Context, observedNS int64, spans []teleme
 		if err == nil {
 			s.full.Store(false)
 		}
-		if !errors.Is(err, storage.ErrCapacity) || !s.onFull.Evicts() {
+		if !errors.Is(err, storage.ErrCapacity) || !s.capacity(ctx).OnFull.Evicts() {
 			return err
 		}
 	}
@@ -183,7 +188,7 @@ func (s *Store) writeSpanBatch(ctx context.Context, observedNS int64, spans []te
 	var deleted int64
 	if limit > 0 {
 		var err error
-		if s.onFull == storage.EvictFair {
+		if s.capacity(ctx).OnFull == storage.EvictFair {
 			deleted, err = s.evictFairly(ctx, tx, observedNS, protected, limit)
 		}
 		// The largest owner may only hold traces in this export; fall back.

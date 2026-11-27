@@ -30,8 +30,8 @@ type Limits struct {
 }
 
 type ServiceLimit struct {
-	Namespace string `yaml:"namespace"`
-	Service   string `yaml:"service"`
+	Namespace string `yaml:"namespace" json:"namespace"`
+	Service   string `yaml:"service" json:"service"`
 	Limits    `yaml:",inline"`
 }
 
@@ -95,7 +95,8 @@ type window struct {
 type Tracker struct {
 	cfg               Config
 	seed              maphash.Seed
-	limits            map[identity]Limits
+	basePolicy        Policy
+	policySource      func() Policy
 	keys              map[string]bool
 	started           time.Time
 	mu                sync.Mutex
@@ -115,11 +116,10 @@ func New(cfg Config, now time.Time) *Tracker {
 	if cfg.Attributes == nil {
 		cfg.Attributes = []string{"http.route", "url.path", "db.query.summary", "service.instance.id"}
 	}
-	t := &Tracker{cfg: cfg, seed: maphash.MakeSeed(), started: now.UTC(), limits: make(map[identity]Limits), keys: make(map[string]bool)}
+	t := &Tracker{cfg: cfg, seed: maphash.MakeSeed(), started: now.UTC(), keys: make(map[string]bool)}
 	t.session = newSessionID()
-	for _, rule := range cfg.Services {
-		t.limits[identity{rule.Namespace, rule.Service}] = rule.Limits
-	}
+	t.basePolicy, _ = NewPolicy(ReportingLimits{Defaults: cfg.Defaults, Services: cfg.Services, CardinalityLimit: cfg.CardinalityLimit})
+	t.basePolicy = t.basePolicy.WithHistoryDays(cfg.HistoryDays)
 	for _, key := range cfg.Attributes {
 		t.keys[key] = true
 	}
@@ -185,9 +185,9 @@ func (w *window) service(key identity, configured bool) *usage {
 	if existing := w.services[key]; existing != nil {
 		return existing
 	}
-	// Configured services always retain a dedicated row even during a burst
-	// of new service names. Other services share a separate tracking allowance.
-	if !configured && len(w.services) >= maxServices {
+	// Reserve extra rows for configured services, with an absolute cap even
+	// when live rules change repeatedly within the same hour.
+	if len(w.services) >= MaxHistoryServices || !configured && len(w.services) >= maxServices {
 		return nil
 	}
 	created := &usage{}
@@ -196,6 +196,7 @@ func (w *window) service(key identity, configured bool) *usage {
 }
 
 func (t *Tracker) Record(at time.Time, spans []telemetry.Span, observations []Observation) {
+	policy := t.policy()
 	batch := window{services: make(map[identity]*usage)}
 	resources := make(map[*resource.Resource][]fingerprint)
 	for i, span := range spans {
@@ -204,7 +205,7 @@ func (t *Tracker) Record(at time.Time, spans []telemetry.Span, observations []Ob
 		batch.total.Bytes += size
 		namespace, _ := span.ResourceAttributes["service.namespace"].(string)
 		key := identity{namespace, span.ServiceName}
-		_, configured := t.limits[key]
+		_, configured := policy.services[key]
 		entry := batch.service(key, configured)
 		if entry == nil {
 			batch.other.Spans++
@@ -242,7 +243,7 @@ func (t *Tracker) Record(at time.Time, spans []telemetry.Span, observations []Ob
 	target.other.Spans += batch.other.Spans
 	target.other.Bytes += batch.other.Bytes
 	for key, entry := range batch.services {
-		_, configured := t.limits[key]
+		_, configured := policy.services[key]
 		destination := target.service(key, configured)
 		if destination == nil {
 			target.other.Spans += entry.Spans
@@ -315,6 +316,10 @@ type Report struct {
 }
 
 func (t *Tracker) Snapshot(now time.Time, previous bool) Report {
+	return t.snapshotWithPolicy(now, previous, t.policy())
+}
+func (t *Tracker) snapshotWithPolicy(now time.Time, previous bool, policy Policy) Report {
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.advance(now)
@@ -322,14 +327,14 @@ func (t *Tracker) Snapshot(now time.Time, previous bool) Report {
 	if previous {
 		active = t.previous
 	}
-	return t.report(active, now)
+	return t.report(active, now, policy)
 }
 
 // report is called with the tracker locked; the history path supplies a
 // separate aggregated window and replaces observation/cardinality metadata.
-func (t *Tracker) report(active window, now time.Time) Report {
+func (t *Tracker) report(active window, now time.Time, policy Policy) Report {
 	report := Report{Available: !active.start.IsZero(), Start: active.start, Total: active.total,
-		Other: active.other, CardinalityLimit: t.cfg.CardinalityLimit, Services: []Service{}, Advice: []string{}}
+		Other: active.other, CardinalityLimit: policy.threshold(), Services: []Service{}, Advice: []string{}}
 	if !report.Available {
 		return report
 	}
@@ -341,14 +346,14 @@ func (t *Tracker) report(active window, now time.Time) Report {
 	report.ObservedUntil = minTime(now, report.End)
 	report.Partial = report.ObservedSince.After(report.Start) || report.ObservedUntil.Before(report.End)
 	report.CardinalitySince = report.ObservedSince
-	report.HistoryDays = t.cfg.HistoryDays
+	report.HistoryDays = policy.historyDays
 	report.CheckpointedAt = t.checkpointAt
 	report.CheckpointFailed = t.checkpointFailed
 	var volume, cardinality bool
 	for key, entry := range active.services {
-		limits, configured := t.limits[key]
+		limits, configured := policy.services[key]
 		if !configured {
-			limits = t.cfg.Defaults
+			limits = policy.values.Defaults
 		}
 		service := Service{Namespace: key.namespace, Name: key.service, totals: entry.totals, Limits: limits}
 		if limits.Spans > 0 && entry.Spans > limits.Spans {
@@ -359,7 +364,7 @@ func (t *Tracker) report(active window, now time.Time) Report {
 		}
 		volume = volume || service.SpanOverage > 0 || service.ByteOverage > 0
 		for key, set := range entry.values {
-			if len(set) > t.cfg.CardinalityLimit {
+			if len(set) > policy.threshold() {
 				service.HighCardinality = append(service.HighCardinality, Cardinality{key, len(set), len(set) == maxDistinct})
 			}
 		}

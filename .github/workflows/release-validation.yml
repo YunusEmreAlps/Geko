@@ -1,0 +1,156 @@
+name: Validate published release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published release version without v (must match package manifests)
+        required: true
+        default: '0.2.0'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  installer:
+    name: Release installer (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      GEKO_VERSION: ${{ inputs.version }}
+      GEKO_NO_MODIFY_PATH: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Select a temporary installation directory
+        shell: bash
+        run: echo "GEKO_INSTALL_DIR=$RUNNER_TEMP/geko-release-bin" >> "$GITHUB_ENV"
+      - name: Install checksum-verified release on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $before = [Environment]::GetEnvironmentVariable('Path', 'User')
+          & ./scripts/install.ps1
+          if ([Environment]::GetEnvironmentVariable('Path', 'User') -ne $before) {
+            throw 'Installer modified user PATH despite GEKO_NO_MODIFY_PATH'
+          }
+      - name: Install checksum-verified release on Linux or macOS
+        if: runner.os != 'Windows'
+        shell: bash
+        run: sh scripts/install.sh
+      - name: Demo, dashboard and project-pinned MCP setup from another directory
+        shell: bash
+        run: |
+          binary="$GEKO_INSTALL_DIR/geko"
+          if [[ "$RUNNER_OS" == Windows ]]; then binary="$binary.exe"; fi
+          python scripts/release-smoke.py "$binary" --version "$GEKO_VERSION" --output release-smoke.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-smoke-${{ runner.os }}
+          path: release-smoke.json
+
+  scoop:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install Scoop in the disposable runner
+        shell: pwsh
+        run: |
+          $env:SCOOP = Join-Path $env:RUNNER_TEMP 'scoop'
+          "SCOOP=$env:SCOOP" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Invoke-WebRequest https://get.scoop.sh -OutFile "$env:RUNNER_TEMP/install-scoop.ps1"
+          & "$env:RUNNER_TEMP/install-scoop.ps1" -ScoopDir $env:SCOOP -RunAsAdmin
+          if ($LASTEXITCODE -ne 0) { throw 'Scoop bootstrap failed' }
+      - name: Install through the advertised public bucket and smoke test
+        shell: pwsh
+        run: |
+          $scoop = Join-Path $env:SCOOP 'shims/scoop.ps1'
+          & $scoop bucket add geko https://github.com/YunusEmreAlps/geko
+          if ($LASTEXITCODE -ne 0) { throw 'Scoop bucket failed' }
+          & $scoop install geko/geko
+          if ($LASTEXITCODE -ne 0) { throw 'Scoop installation failed' }
+          python scripts/release-smoke.py "$env:SCOOP/apps/geko/current/geko.exe" --version $env:EXPECTED_VERSION --output scoop-smoke.json
+          if ($LASTEXITCODE -ne 0) { throw 'Scoop release smoke failed (check bucket version)' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scoop-release-smoke
+          path: scoop-smoke.json
+
+  homebrew:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      EXPECTED_VERSION: ${{ inputs.version }}
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install through the advertised public tap and smoke test
+        shell: bash
+        run: |
+          if ! command -v brew >/dev/null; then
+            eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          fi
+          brew tap yunusemrealps/geko https://github.com/YunusEmreAlps/geko
+          brew install yunusemrealps/geko/geko
+          brew test yunusemrealps/geko/geko
+          python scripts/release-smoke.py "$(brew --prefix geko)/bin/geko" --version "$EXPECTED_VERSION" --output homebrew-smoke.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-release-smoke-${{ runner.os }}
+          path: homebrew-smoke.json
+
+  action-release-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install the official SDK example dependencies
+        run: python -m pip install -r examples/sdk/python/requirements.txt
+      - name: Run Action through its published-release installer
+        id: geko
+        uses: ./
+        with:
+          version: ${{ inputs.version }}
+          comment: 'false'
+          run: python examples/sdk/python/main.py
+      - name: Require observed failure evidence from the SDK example
+        shell: bash
+        env:
+          STATUS: ${{ steps.geko.outputs.telemetry-status }}
+          FAILURES: ${{ steps.geko.outputs.failures }}
+          EXIT_CODE: ${{ steps.geko.outputs.exit-code }}
+        run: |
+          test "$STATUS" = available
+          test "$EXIT_CODE" = 0
+          [[ "$FAILURES" =~ ^[1-9][0-9]*\+?$ ]]

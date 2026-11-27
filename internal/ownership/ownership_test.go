@@ -2,6 +2,7 @@ package ownership
 
 import (
 	"slices"
+	"sync/atomic"
 	"testing"
 )
 
@@ -25,6 +26,21 @@ func TestOwnersPreferTheServiceRule(t *testing.T) {
 	}
 	if empty, err := Parse(""); err != nil || empty.For("a", "b") != "" || len(empty.Rules()) != 0 {
 		t.Fatalf("empty owners = %v, %v", empty, err)
+	}
+}
+
+func TestDynamicOwnersUsePublishedSnapshot(t *testing.T) {
+	before, _ := Parse("service:api=before")
+	after, _ := Parse("application:shop=after")
+	var current atomic.Pointer[Owners]
+	current.Store(&before)
+	live := Dynamic(func() Owners { return *current.Load() })
+	if live.For("shop", "api") != "before" {
+		t.Fatal("initial source ignored")
+	}
+	current.Store(&after)
+	if live.For("shop", "api") != "after" || len(live.Rules()) != 1 || live.Rules()[0].Kind != "application" {
+		t.Fatal("published ownership not visible")
 	}
 }
 

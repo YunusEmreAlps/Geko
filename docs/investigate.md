@@ -15,6 +15,45 @@ Find a failure, follow its trace, and triage recurring errors. [Back to the READ
    durations. **Span details** shows the stored attributes, events, and stack
    traces.
 
+## Save recurring project views
+
+In source builds after v0.2.0, open **Saved views** below the filters in **All
+traces**, **Failures** or **Error groups**. Apply your application/service/time
+filters, enter a name and choose **Save current view**. Up to 12 views can be
+saved; names have at most 64 characters. Reusing a name (ignoring case) replaces
+it. **Remove** deletes one view; **Clear local data** removes this local workspace.
+
+Views keep application, request/evidence service, time range, HTTP status, pins,
+and error-group view/state. They omit text searches, protected attribute digests,
+run IDs, individual group IDs, pagination and trace payloads. If one of those
+omitted filters was active, reopening the view can show a broader result set.
+Apply filters before saving: unsent form edits are not saved.
+
+**Overview → Resume last view** returns to the most recent list context after
+you have saved a view or enabled recent investigations. It opens only on click;
+Geko never redirects you or silently applies project filters. Relative time
+ranges are evaluated again, so Last hour remains the latest hour.
+
+**Remember recent investigations** is optional and off by default. When enabled,
+it keeps up to 20 unique trace IDs and visit times, with no operation names,
+exceptions or span contents. Entries older than 30 days are removed on the next
+workspace visit. Selecting another span in a trace updates its single entry.
+Opening a missing trace does not add it; if a saved trace later expires or is
+evicted, its link uses the existing missing-trace diagnostics. Disabling the
+option clears the recent list. **Clear recent investigations** keeps the option
+enabled but clears its entries.
+
+Preferences live in this browser on this site, separated by signed-in identity
+and role; they do not sync to the server or between browsers. They are browser
+conveniences, not an authorization boundary: use separate browser profiles on a
+shared computer. Signing out does not delete preferences; **Clear local data**
+or the browser's site-data controls removes them. A server/database change at the
+same URL can leave old project links behind. Existing access checks still apply
+to every opened trace. If JavaScript or browser storage is unavailable, the
+normal server-rendered filters and trace lookup keep working.
+
+## Keep investigation context
+
 **Back to results** retains the application, time range, filters, group and
 page you opened the trace from. **Expand span details** gives long stack traces
 the full workspace width; **Use split view** restores the waterfall/map beside
@@ -77,6 +116,28 @@ with success**. Geko picks the most recently received trace with an HTTP 2xx
 entry span and no failure evidence for the same application, namespace,
 service, operation and environment. The comparison shows both request
 durations, the difference, span counts and a link to each trace.
+
+In source builds after v0.2.0, the comparison page also offers **Successful
+trace ID → Compare selected trace**. Open **All traces**, find a suitable
+successful request, and paste its 32-character ID. The chosen trace can be older
+than the automatic reference; service versions may differ. The same eligibility
+rules still apply: a unique root server span with HTTP 2xx, no failure evidence
+anywhere in the baseline, and matching entry operation/service/application/
+namespace/environment. The source must have failure evidence and a unique entry.
+
+The page labels a **Selected reference** explicitly. Ineligible and no-longer-
+retained IDs leave the selection editable and explain the failed requirements;
+Geko does not silently substitute another trace. **Use automatic match** removes
+the explicit reference and returns to the latest matching retained success.
+The results-return context is preserved. This is a native GET form and works
+without JavaScript. The URL carries `baseline=<trace ID>`; it reads retained data
+without pinning, copying or modifying either trace. Existing CLI/MCP automatic
+comparison calls keep their current behavior.
+
+Both summaries, eligibility and bounded span facts are read from one database
+snapshot. A later export, retention or mapping change can alter a subsequent
+comparison. A single successful example is not a statistical performance baseline
+or proof that a code change fixed a failure; compare repeatable runs for that.
 
 **Span operation differences** also compares call counts, evidence counts and
 total observed span durations by application, namespace, service, environment,

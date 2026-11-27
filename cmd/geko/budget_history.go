@@ -10,8 +10,12 @@ import (
 )
 
 func checkpointBudget(ctx context.Context, db *sqlite.Store, tracker *budget.Tracker) {
+	days := tracker.HistoryDays()
+	if days == 0 {
+		return
+	}
 	now := time.Now()
-	err := db.SaveBudgetCheckpoints(ctx, now, tracker.HistoryDays(), tracker.Checkpoints(now))
+	err := db.SaveBudgetCheckpoints(ctx, now, days, tracker.Checkpoints(now))
 	tracker.CheckpointResult(now, err)
 	if err != nil && ctx.Err() == nil {
 		log.Printf("budget history checkpoint skipped: %v", err)

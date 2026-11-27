@@ -92,6 +92,18 @@ func TestTraceComparisonBoundsSpanFacts(t *testing.T) {
 	if err != nil || got.Baseline == nil || !got.Truncated || len(got.SourceSpans) != investigation.MapSpanLimit || len(got.BaselineSpans) != 1 {
 		t.Fatalf("comparison counts: source=%d baseline=%d truncated=%v err=%v", len(got.SourceSpans), len(got.BaselineSpans), got.Truncated, err)
 	}
+	manual, err := store.TraceComparisonWithBaseline(t.Context(), root.TraceID, telemetry.TraceID{1})
+	if err != nil || !manual.Truncated || len(manual.SourceSpans) != investigation.MapSpanLimit || len(manual.BaselineSpans) != 1 {
+		t.Fatalf("manual bounds: %+v %v", manual, err)
+	}
+	reader, err := OpenReadOnly(t.Context(), store.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if comparison, err := reader.TraceComparisonWithBaseline(t.Context(), root.TraceID, telemetry.TraceID{1}); err != nil || comparison.Baseline == nil {
+		t.Fatalf("read-only selection: %+v %v", comparison, err)
+	}
 	if !got.SourceSpans[0].HasEvidence {
 		t.Error("evidence flag missing")
 	}

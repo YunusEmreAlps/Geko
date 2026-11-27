@@ -127,7 +127,7 @@ func (s *Store) truncateJournal(ctx context.Context) (drained bool, err error) {
 }
 
 func (s *Store) checkWriteCapacity(ctx context.Context, tx *sql.Tx) error {
-	if s.maxBytes == 0 {
+	if s.capacity(ctx).MaxBytes == 0 {
 		return nil
 	}
 	var pageSize int64
@@ -135,7 +135,7 @@ func (s *Store) checkWriteCapacity(ctx context.Context, tx *sql.Tx) error {
 		return fmt.Errorf("read storage page size: %w", err)
 	}
 	// Apply on the writer connection even if database/sql has reopened it.
-	maxPages := s.maxBytes / pageSize
+	maxPages := s.capacity(ctx).MaxBytes / pageSize
 	if maxPages == 0 {
 		return storage.ErrCapacity
 	}
@@ -145,7 +145,7 @@ func (s *Store) checkWriteCapacity(ctx context.Context, tx *sql.Tx) error {
 	}
 	// SQLite floors the limit at the existing page count. Evict mode can
 	// continue to reuse that space without growing the main database.
-	if effective > maxPages && !s.onFull.Evicts() {
+	if effective > maxPages && !s.capacity(ctx).OnFull.Evicts() {
 		return storage.ErrCapacity
 	}
 
@@ -155,6 +155,7 @@ func (s *Store) checkWriteCapacity(ctx context.Context, tx *sql.Tx) error {
 // withinCapacity runs a change that can add pages, such as triage metadata,
 // under the same size limit as an export. Removals don't need it.
 func (s *Store) withinCapacity(ctx context.Context, change func(*sql.Tx) error) error {
+	ctx = s.captureCapacity(ctx)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -170,14 +171,14 @@ func (s *Store) withinCapacity(ctx context.Context, change func(*sql.Tx) error) 
 }
 
 func (s *Store) checkJournalCapacity(ctx context.Context) error {
-	if s.maxBytes == 0 {
+	if s.capacity(ctx).MaxBytes == 0 {
 		return nil
 	}
 	size, err := s.journalSize()
 	if err != nil {
 		return err
 	}
-	if size >= s.maxBytes {
+	if size >= s.capacity(ctx).MaxBytes {
 		drained, err := s.truncateJournal(ctx)
 		if err != nil {
 			return err

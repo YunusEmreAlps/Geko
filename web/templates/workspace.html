@@ -1,0 +1,25 @@
+{{define "workspace"}}
+<details class="saved-workspace" data-workspace hidden>
+  <summary>Saved views<span data-workspace-count></span></summary>
+  <div class="workspace-content">
+    <p class="note" id="workspace-help">Keep project filters in this browser. Saves application, services, time range, status, pins and group state; excludes search text, protected attributes and run-specific filters. Apply filters before saving.</p>
+    <form class="view-form" aria-describedby="workspace-help view-name-help">
+      <label for="view-name">View name<input id="view-name" name="view_name" required maxlength="64" placeholder="Storefront failures" autocomplete="off"></label>
+      <button class="button" type="submit">Save current view</button>
+    </form>
+    <p class="field-hint" id="view-name-help">Up to 12 views. Reusing a name replaces that view.</p>
+    <ul class="workspace-list" data-workspace-views aria-label="Saved project views"></ul>
+    <p class="note" data-workspace-empty>No saved views yet.</p>
+    <a class="text-link" data-last-view hidden>Resume last view</a>
+    <div class="recent-investigations">
+      <label class="check"><input type="checkbox" data-remember-traces> Remember recent investigations</label>
+      <p class="field-hint">Optional: stores up to 20 trace IDs and visit times for 30 days. Trace contents are never copied. Clearing site data removes these preferences.</p>
+      <ul class="workspace-list" data-workspace-recent aria-label="Recent investigations"></ul>
+      <p class="note" data-recent-empty>No recent investigations saved.</p>
+      <button class="button small ghost" type="button" data-clear-recent disabled>Clear recent investigations</button>
+    </div>
+    <div class="workspace-footer"><button class="button small ghost" type="button" data-clear-workspace>Clear local data</button><p class="note">Clears saved views, the last view and recent investigations for this sign-in on this site.</p></div>
+    <p class="note workspace-status" role="status" data-workspace-status></p>
+  </div>
+</details>
+{{end}}

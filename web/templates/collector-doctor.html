@@ -2,8 +2,9 @@
 <header class="page-head">
   <div class="title"><a class="crumb" href="/settings">Settings</a><span class="crumb-sep" aria-hidden="true">/</span><h1>Collector Doctor</h1></div>
   <div class="actions">
-    <a class="button" href="/collector-doctor" data-loading>{{if .Sampled}}Current snapshot{{else}}Refresh{{end}}</a>
-    {{if .CanSample}}<a class="button" href="/collector-doctor?sample=true" data-loading>Compare {{.SampleInterval}} samples</a>{{end}}
+    {{with .ReturnURL}}<a class="button ghost" href="{{.}}">Back to connection check</a>{{end}}
+    <a class="button" href="{{.RefreshURL}}" data-loading>{{if .Sampled}}Current snapshot{{else}}Refresh{{end}}</a>
+    {{if .CanSample}}<a class="button" href="{{.SampleURL}}" data-loading>Compare {{.SampleInterval}} samples</a>{{end}}
   </div>
 </header>
 {{if .Sampled}}<p class="muted">Failure counter increases between two scrapes taken {{.SampleInterval}} apart. Queue occupancy is from the second scrape.</p>

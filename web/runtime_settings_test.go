@@ -87,14 +87,49 @@ func TestLiveSettingsAuthorizationCSRFAndTraceRefresh(t *testing.T) {
 		return string(b)
 	}
 	for _, credential := range []string{viewer, triager} {
+		for _, endpoint := range []string{"/api/v1/settings/operations", "/api/v1/settings/operations/preview"} {
+			if w := do("GET", "/api/v1/settings/operations", credential, "", ""); w.Code != 403 {
+				t.Fatal("nonadmin operational read")
+			}
+			if w := do("POST", endpoint, credential, `{}`, ""); w.Code != 403 && w.Code != 401 {
+				t.Fatal("nonadmin operational write")
+			}
+		}
+
+		scopeName, scopeRole := "viewer", "viewer"
+		if credential == triager {
+			scopeName, scopeRole = "triager", "triager"
+		}
+		if w := do("GET", "/traces", credential, "", ""); !strings.Contains(w.Body.String(), `data-workspace-scope="token:`+scopeName+`:`+scopeRole+`"`) || strings.Contains(w.Body.String(), credential) {
+			t.Fatal("local workspace identity scope missing or leaked credential")
+		}
+
+		if w := do("GET", "/api/v1/settings/budget", credential, "", ""); w.Code != http.StatusForbidden {
+			t.Fatalf("nonadmin budget read: %d", w.Code)
+		}
+		if w := do("POST", "/api/v1/settings/budget", credential, `{"revision":"`+before.Revision+`","limits":{}}`, ""); w.Code != http.StatusForbidden && w.Code != http.StatusUnauthorized {
+			t.Fatalf("nonadmin budget write: %d", w.Code)
+		}
+
+		if w := do("GET", "/api/v1/settings/owners", credential, "", ""); w.Code != http.StatusForbidden {
+			t.Fatalf("nonadmin ownership read: %d", w.Code)
+		}
+		if w := do("POST", "/api/v1/settings/owners", credential, `{"revision":"`+before.Revision+`","owners":{}}`, ""); w.Code != http.StatusForbidden && w.Code != http.StatusUnauthorized {
+			t.Fatalf("nonadmin ownership write: %d", w.Code)
+		}
 		if w := do("GET", "/api/v1/settings/runtime", credential, "", ""); w.Code != http.StatusForbidden {
 			t.Fatalf("nonadmin settings read: %d", w.Code)
 		}
 		if w := do("POST", "/api/v1/settings/runtime", credential, payload(before.Revision, "https://viewer.example/{trace_id}"), ""); w.Code != http.StatusForbidden && w.Code != http.StatusUnauthorized {
 			t.Fatalf("nonadmin settings write: %d", w.Code)
 		}
-		if w := do("GET", "/settings", credential, "", ""); strings.Contains(w.Body.String(), `action="/settings/runtime"`) {
+		if w := do("GET", "/settings", credential, "", ""); strings.Contains(w.Body.String(), `action="/settings/runtime"`) || strings.Contains(w.Body.String(), `action="/settings/owners"`) || strings.Contains(w.Body.String(), `action="/settings/budget"`) || strings.Contains(w.Body.String(), `action="/settings/operations/preview"`) {
 			t.Fatal("nonadmin sees live settings editor")
+		}
+	}
+	for _, endpoint := range []string{"/api/v1/settings/operations", "/api/v1/settings/operations/preview"} {
+		if w := do("POST", endpoint, admin, `{}`, "https://evil.example"); w.Code != 403 {
+			t.Fatal("operational CSRF")
 		}
 	}
 	if w := do("POST", "/api/v1/settings/runtime", admin, payload(before.Revision, "https://viewer.example/{trace_id}"), "https://evil.example"); w.Code != http.StatusForbidden {
@@ -102,6 +137,12 @@ func TestLiveSettingsAuthorizationCSRFAndTraceRefresh(t *testing.T) {
 	}
 	if runtimeSettings.Snapshot() != before {
 		t.Fatal("rejected requests mutated settings")
+	}
+	if w := do("POST", "/api/v1/settings/budget", admin, `{"revision":"`+before.Revision+`","limits":{}}`, "https://evil.example"); w.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin budget: %d", w.Code)
+	}
+	if w := do("POST", "/api/v1/settings/owners", admin, `{"revision":"`+before.Revision+`","owners":{}}`, "https://evil.example"); w.Code != http.StatusForbidden {
+		t.Fatalf("cross-origin ownership: %d", w.Code)
 	}
 	if w := do("POST", "/api/v1/settings/runtime", admin, `{"revision":"`+before.Revision+`"}`, ""); w.Code != http.StatusBadRequest {
 		t.Fatal("omitted fields could implicitly clear settings")
@@ -134,7 +175,14 @@ func TestLiveSettingsAuthorizationCSRFAndTraceRefresh(t *testing.T) {
 	if w.Code != http.StatusSeeOther || w.Header().Get("Location") != "/settings#runtime-settings" {
 		t.Fatalf("form update: %d %s", w.Code, w.Body)
 	}
-	for _, secret := range []string{admin, "do-not-log", "viewer.example", "second.example", "stale.example"} {
+	ownerPayload := `{"revision":"` + runtimeSettings.Snapshot().Revision + `","owners":{"services":{"api":"private-team-marker"}}}`
+	if w := do("POST", "/api/v1/settings/owners", admin, ownerPayload, ""); w.Code != 200 {
+		t.Fatalf("ownership save: %d %s", w.Code, w.Body)
+	}
+	if w := do("GET", "/failures?view=groups", admin, "", ""); w.Code != 200 {
+		t.Fatal("owner update broke group view")
+	}
+	for _, secret := range []string{admin, "do-not-log", "viewer.example", "second.example", "stale.example", "private-team-marker"} {
 		if strings.Contains(auditBuffer.String(), secret) {
 			t.Fatalf("audit leaked settings value %q", secret)
 		}

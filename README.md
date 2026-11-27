@@ -154,10 +154,11 @@ OTLP/gRPC, a separate dashboard port and receiver limits are in
 
 | Guide | Covers |
 | --- | --- |
-| [Investigate a failure](docs/investigate.md) | Failures, the service map and waterfall, applications, comparing with a success, version regressions, error groups and triage, notifications, moving a trace |
+| [Investigate a failure](docs/investigate.md) | Failures, saved project views, the service map and waterfall, applications, comparing with a success, version regressions, error groups and triage, notifications, moving a trace |
 | [Run Geko for a team](docs/server.md) | Docker with a token, Compose with Caddy, access, ingest, read and triage tokens, roles, sign-in through a proxy, the audit log, token reload |
+| [Recorded agent investigation](docs/agent-walkthrough.md) | A genuine agent investigation of a deliberate fixture: MCP evidence, source-linked fix and repeated run verification |
 | [Coding agents and test runs](docs/agents.md) | `geko failures --json`, MCP over stdio and HTTP, `geko run` |
-| [Connect your application](docs/connect.md) | Ports, OTLP/gRPC, receiver limits |
+| [Connect your application](docs/connect.md) | Delivery diagnostics, ports, OTLP/gRPC, receiver limits |
 | [Configuration and reference](docs/configuration.md) | Every setting, retention and capacity, privacy modes, upgrades, CLI, JSON API |
 | [Collector Doctor](docs/collector-doctor.md) | Diagnose Collector pipelines, export failures and queue pressure |
 | [Telemetry Budget](docs/telemetry-budget.md) | Measure hourly span volume, service limits and attribute cardinality |

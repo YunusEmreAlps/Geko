@@ -242,11 +242,13 @@ func TestGRPCBackpressure(t *testing.T) {
 	}
 	check(err, 30*time.Second)
 	for range maxConcurrent {
-		receiver.slots <- struct{}{}
+		if ok, _ := receiver.tryAcquire(); !ok {
+			t.Fatal("could not occupy admission slot")
+		}
 	}
 	defer func() {
 		for range maxConcurrent {
-			<-receiver.slots
+			receiver.release()
 		}
 	}()
 	_, err = client.Export(t.Context(), &request)
@@ -286,11 +288,13 @@ func TestGRPCAdmissionPrecedesDecoding(t *testing.T) {
 	receiver.wait = 0
 	conn := grpcClient(t, receiver, "127.0.0.1:4317")
 	for range maxConcurrent {
-		receiver.slots <- struct{}{}
+		if ok, _ := receiver.tryAcquire(); !ok {
+			t.Fatal("could not occupy admission slot")
+		}
 	}
 	defer func() {
 		for range maxConcurrent {
-			<-receiver.slots
+			receiver.release()
 		}
 	}()
 	err := conn.Invoke(t.Context(), collector.TraceService_Export_FullMethodName, []byte{0xff}, &collector.ExportTraceServiceResponse{}, grpc.ForceCodec(rawCodec{}))

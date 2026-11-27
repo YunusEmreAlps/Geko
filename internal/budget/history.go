@@ -44,7 +44,7 @@ func minTime(a, b time.Time) time.Time {
 	}
 	return b
 }
-func (t *Tracker) HistoryDays() int { return t.cfg.HistoryDays }
+func (t *Tracker) HistoryDays() int { return t.policy().historyDays }
 func (t *Tracker) Session() string  { return t.session }
 
 func ParseHour(raw string) (time.Time, error) {
@@ -136,6 +136,9 @@ func (t *Tracker) CheckpointResult(at time.Time, err error) {
 // checkpoints, then overlays live counters exactly once. Restarts never add
 // old totals to Record, and checkpoint retries cannot double count them.
 func (t *Tracker) HistoryReport(ctx context.Context, reader HistoryReader, now, hour time.Time) (Report, error) {
+	return t.historyReport(ctx, reader, now, hour, t.policy())
+}
+func (t *Tracker) historyReport(ctx context.Context, reader HistoryReader, now, hour time.Time, policy Policy) (Report, error) {
 	live := t.Checkpoints(now)
 	w := window{services: make(map[identity]*usage)}
 	intervals := [][2]time.Time{}
@@ -154,7 +157,7 @@ func (t *Tracker) HistoryReport(ctx context.Context, reader HistoryReader, now, 
 		intervals = append(intervals, [2]time.Time{c.Since, c.Until})
 		for _, v := range c.Services {
 			key := identity{v.Namespace, v.Service}
-			_, configured := t.limits[key]
+			_, configured := policy.services[key]
 			if u := w.service(key, configured); u != nil {
 				u.Spans += v.Spans
 				u.Bytes += v.Bytes
@@ -178,8 +181,8 @@ func (t *Tracker) HistoryReport(ctx context.Context, reader HistoryReader, now, 
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	report := t.report(w, now)
-	report.HistoryDays = t.cfg.HistoryDays
+	report := t.report(w, now, policy)
+	report.HistoryDays = policy.historyDays
 	report.CheckpointedAt = t.checkpointAt
 	report.CheckpointFailed = t.checkpointFailed
 	report.Start, report.End = hour, hour.Add(time.Hour)
@@ -207,7 +210,7 @@ func (t *Tracker) HistoryReport(ctx context.Context, reader HistoryReader, now, 
 		if !active.start.Equal(hour) {
 			continue
 		}
-		current := t.report(active, now)
+		current := t.report(active, now, policy)
 		report.CardinalitySince = current.ObservedSince
 		for i := range report.Services {
 			for _, v := range current.Services {
@@ -226,27 +229,28 @@ func (t *Tracker) HistoryReport(ctx context.Context, reader HistoryReader, now, 
 }
 
 func (t *Tracker) ReportAt(ctx context.Context, reader HistoryReader, now, hour time.Time) (Report, error) {
+	policy := t.policy()
 	current := now.UTC().Truncate(time.Hour)
-	if t.cfg.HistoryDays == 0 {
+	if policy.historyDays == 0 {
 		if hour.Equal(current) {
-			return t.Snapshot(now, false), nil
+			return t.snapshotWithPolicy(now, false, policy), nil
 		}
 		if hour.Equal(current.Add(-time.Hour)) {
-			return t.Snapshot(now, true), nil
+			return t.snapshotWithPolicy(now, true, policy), nil
 		}
 		return Report{Start: hour, End: hour.Add(time.Hour), Services: []Service{}, Advice: []string{}}, nil
 	}
-	if hour.Before(current.Add(-time.Duration(t.cfg.HistoryDays)*24*time.Hour)) || hour.After(current) {
-		return Report{Start: hour, End: hour.Add(time.Hour), HistoryDays: t.cfg.HistoryDays, Services: []Service{}, Advice: []string{}}, nil
+	if hour.Before(current.Add(-time.Duration(policy.historyDays)*24*time.Hour)) || hour.After(current) {
+		return Report{Start: hour, End: hour.Add(time.Hour), HistoryDays: policy.historyDays, Services: []Service{}, Advice: []string{}}, nil
 	}
-	report, err := t.HistoryReport(ctx, reader, now, hour)
+	report, err := t.historyReport(ctx, reader, now, hour, policy)
 	if err != nil || !report.Available || report.Partial {
 		return report, err
 	}
-	if hour.Add(-time.Hour).Before(current.Add(-time.Duration(t.cfg.HistoryDays) * 24 * time.Hour)) {
+	if hour.Add(-time.Hour).Before(current.Add(-time.Duration(policy.historyDays) * 24 * time.Hour)) {
 		return report, nil
 	}
-	previous, err := t.HistoryReport(ctx, reader, now, hour.Add(-time.Hour))
+	previous, err := t.historyReport(ctx, reader, now, hour.Add(-time.Hour), policy)
 	if err != nil {
 		return Report{}, err
 	}

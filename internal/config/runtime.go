@@ -14,7 +14,18 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/YunusEmreAlps/geko/internal/budget"
+	"github.com/YunusEmreAlps/geko/internal/ownership"
 	"go.yaml.in/yaml/v3"
+)
+
+type liveGroup uint8
+
+const (
+	liveTraceLinks liveGroup = iota
+	liveOwners
+	liveBudget
+	liveOperations
 )
 
 const maxRuntimeConfigBytes = 1 << 20
@@ -41,113 +52,183 @@ type RuntimeState struct {
 	Warning    string        `json:"warning,omitempty"`
 }
 
-// Runtime serializes updates and publishes value-only immutable snapshots.
+// Runtime serializes updates and publishes immutable snapshots.
 // Only successful file replacement changes the effective snapshot; any
 // directory synchronization warning is retained in the published state.
 type Runtime struct {
 	mu      sync.Mutex
-	state   atomic.Pointer[RuntimeState]
+	state   atomic.Pointer[runtimeSnapshot]
 	replace func(string, string) (string, error)
+}
+
+type runtimeSnapshot struct {
+	RuntimeState
+	owners                      ownership.Owners
+	ownerSource                 SettingSource
+	ownersEditable              bool
+	ownersReason                string
+	ownersAppliedAt             time.Time
+	budgetPolicy                budget.Policy
+	budgetSources               BudgetSources
+	budgetEditable              bool
+	budgetReason                string
+	budgetAppliedAt             time.Time
+	operations                  OperationsPolicy
+	opsSources                  map[string]SettingSource
+	opsEditable                 bool
+	opsReason                   string
+	opsAppliedAt                time.Time
+	hasBudget, hasNotifications bool
 }
 
 func NewRuntime(cfg Config) *Runtime {
 	r := &Runtime{replace: replaceConfigFile}
-	s := RuntimeState{Revision: cfg.Source.FileRevision, ConfigFile: cfg.Source.FilePath, URL: cfg.TraceLinkURL, Name: cfg.TraceLinkName, URLSource: cfg.Source.TraceLinkURL, NameSource: cfg.Source.TraceLinkName}
-	switch {
-	case cfg.ReadOnly:
-		s.Reason = "This instance is read-only."
-	case s.ConfigFile == "":
-		s.Reason = "Load a YAML configuration file and restart Geko to enable persistent edits."
-	case s.URLSource.Kind == "env" && s.NameSource.Kind == "env":
-		s.Reason = "Both fields are managed by environment variables."
-	default:
-		// Resolve directory symlinks once. Replacing a symlinked config file
-		// itself would break its target/mount semantics, so reject that case.
-		info, err := os.Lstat(s.ConfigFile)
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0222 == 0 {
-			s.Reason = "The configuration must be a writable regular file, not a symlink."
-		} else if info.Size() > maxRuntimeConfigBytes {
-			s.Reason = "Live editing supports configuration files up to 1 MiB; edit this file externally and restart."
-		} else if resolved, err := filepath.EvalSymlinks(s.ConfigFile); err != nil {
-			s.Reason = "The configuration path could not be resolved."
+	file, data, reason := runtimeTarget(cfg)
+	source := cfg.Source.Owners
+	if source.Kind == "" {
+		source = SettingSource{Kind: "default"}
+	}
+	s := runtimeSnapshot{RuntimeState: RuntimeState{Revision: cfg.Source.FileRevision, ConfigFile: file, URL: cfg.TraceLinkURL, Name: cfg.TraceLinkName, URLSource: cfg.Source.TraceLinkURL, NameSource: cfg.Source.TraceLinkName}, owners: cfg.Owners, ownerSource: source}
+	s.Reason, s.ownersReason = reason, reason
+	if reason == "" {
+		if _, err := runtimeDocument(data); err != nil {
+			s.Reason = "Live trace edits require explicit scalar trace-link fields without root YAML merges or shared anchors."
+		} else if s.URLSource.Kind == "env" && s.NameSource.Kind == "env" {
+			s.Reason = "Both trace-link fields are managed by environment variables."
 		} else {
-			s.ConfigFile = resolved
-			data, _, err := runtimeFile(s.ConfigFile)
-			if err != nil || revision(data) != s.Revision {
-				s.Reason = "The configuration changed during startup; restart Geko before editing."
-			} else if _, err := runtimeDocument(data); err != nil {
-				s.Reason = "Live edits require explicit scalar trace-link fields without root YAML merges or shared anchors."
-			} else {
-				s.Editable = true
-			}
+			s.Editable = true
+		}
+		if _, err := runtimeOwnerDocument(data); err != nil {
+			s.ownersReason = "Live ownership edits require a mapping without YAML aliases, anchors or merges in owners."
+		} else if source.Kind == "env" {
+			s.ownersReason = "Owner mappings are managed by GEKO_OWNERS."
+		} else if len(cfg.Owners.Rules()) > MaxLiveOwnerRules {
+			s.ownersReason = "Too many owner rules for the live editor; edit YAML externally and restart."
+		} else if _, err := validatedOwners(ownerMappings(cfg.Owners)); err != nil {
+			s.ownersReason = "Ownership exceeds live editor limits; edit YAML externally and restart."
+		} else {
+			s.ownersEditable = true
 		}
 	}
+	initRuntimeBudget(&s, cfg, data, reason)
+	initRuntimeOperations(&s, cfg, data, reason)
 	r.state.Store(&s)
 	return r
 }
 
-func (r *Runtime) Snapshot() RuntimeState { return *r.state.Load() }
+func runtimeTarget(cfg Config) (string, []byte, string) {
+	file := cfg.Source.FilePath
+	if cfg.ReadOnly {
+		return file, nil, "This instance is read-only."
+	}
+	if file == "" {
+		return file, nil, "Load a YAML configuration file and restart Geko to enable persistent edits."
+	}
+	info, err := os.Lstat(file)
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0222 == 0 {
+		return file, nil, "The configuration must be a writable regular file, not a symlink."
+	}
+	if info.Size() > maxRuntimeConfigBytes {
+		return file, nil, "Live editing supports configuration files up to 1 MiB; edit this file externally and restart."
+	}
+	resolved, err := filepath.EvalSymlinks(file)
+	if err != nil {
+		return file, nil, "The configuration path could not be resolved."
+	}
+	data, _, err := runtimeFile(resolved)
+	if err != nil || revision(data) != cfg.Source.FileRevision {
+		return resolved, nil, "The configuration changed during startup; restart Geko before editing."
+	}
+	return resolved, data, ""
+}
 
-// Update persists before publishing. Concurrent Geko writers cooperate through
-// an exclusive lock file; stale browser revisions and external edits conflict.
-// Uncooperative external editors must not write YAML concurrently with Geko.
+func (r *Runtime) Snapshot() RuntimeState { return r.state.Load().RuntimeState }
+
+// Update retains the existing trace-link contract. Both live editors share
+// one revision, file lock and immutable publication boundary.
 func (r *Runtime) Update(ctx context.Context, expected, link, name string) (RuntimeState, error) {
+	s, err := r.updateDocument(ctx, expected, liveTraceLinks, func(s *runtimeSnapshot, doc *yaml.Node) error {
+		if s.URLSource.Kind == "env" && link != s.URL || s.NameSource.Kind == "env" && name != s.Name {
+			return ErrSettingsLocked
+		}
+		cleanLink, cleanName, err := traceLink(link, name)
+		if err != nil {
+			return ErrSettingsInvalid
+		}
+		if _, err := runtimeDocumentNode(doc); err != nil {
+			return ErrSettingsConflict
+		}
+		if s.URLSource.Kind != "env" {
+			setRuntimeScalar(doc.Content[0], "trace_link_url", cleanLink)
+			s.URLSource = SettingSource{Kind: "yaml"}
+		}
+		if s.NameSource.Kind != "env" {
+			setRuntimeScalar(doc.Content[0], "trace_link_name", cleanName)
+			s.NameSource = SettingSource{Kind: "yaml"}
+		}
+		s.URL, s.Name = cleanLink, cleanName
+		return nil
+	})
+	return s.RuntimeState, err
+}
+
+func (r *Runtime) updateDocument(ctx context.Context, expected string, group liveGroup, change func(*runtimeSnapshot, *yaml.Node) error) (runtimeSnapshot, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	s := r.Snapshot()
-	if !s.Editable {
-		return s, ErrSettingsLocked
+	old := *r.state.Load()
+	s := old
+	editable := s.Editable
+	switch group {
+	case liveOwners:
+		editable = s.ownersEditable
+	case liveBudget:
+		editable = s.budgetEditable
+	case liveOperations:
+		editable = s.opsEditable
+	}
+	if !editable {
+		return old, ErrSettingsLocked
 	}
 	if expected != s.Revision {
-		return s, ErrSettingsConflict
-	}
-	if s.URLSource.Kind == "env" && link != s.URL || s.NameSource.Kind == "env" && name != s.Name {
-		return s, ErrSettingsLocked
-	}
-	link, name, err := traceLink(link, name)
-	if err != nil {
-		return s, ErrSettingsInvalid
+		return old, ErrSettingsConflict
 	}
 	if err := ctx.Err(); err != nil {
-		return s, err
+		return old, err
 	}
 	lock, err := os.OpenFile(s.ConfigFile+".lock", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		return s, ErrSettingsSave
+		return old, ErrSettingsSave
 	}
 	defer func() { _ = lock.Close(); _ = os.Remove(s.ConfigFile + ".lock") }()
 	data, mode, err := runtimeFile(s.ConfigFile)
 	if err != nil {
-		return s, ErrSettingsSave
+		return old, ErrSettingsSave
 	}
 	if revision(data) != s.Revision {
-		return s, ErrSettingsConflict
+		return old, ErrSettingsConflict
 	}
-	doc, err := runtimeDocument(data)
+	doc, err := runtimeRootDocument(data)
 	if err != nil {
-		return s, ErrSettingsConflict
+		return old, ErrSettingsConflict
 	}
-	if s.URLSource.Kind != "env" {
-		setRuntimeScalar(doc.Content[0], "trace_link_url", link)
-	}
-	if s.NameSource.Kind != "env" {
-		setRuntimeScalar(doc.Content[0], "trace_link_name", name)
+	if err := change(&s, doc); err != nil {
+		return old, err
 	}
 	var encoded bytes.Buffer
 	encoder := yaml.NewEncoder(&encoded)
 	encoder.SetIndent(2)
 	if err := encoder.Encode(doc); err != nil {
-		return s, ErrSettingsSave
+		return old, ErrSettingsSave
 	}
 	if err := encoder.Close(); err != nil {
-		return s, ErrSettingsSave
+		return old, ErrSettingsSave
 	}
 	if encoded.Len() > maxRuntimeConfigBytes {
-		return s, ErrSettingsSave
+		return old, ErrSettingsSave
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(s.ConfigFile), ".geko-config-*")
 	if err != nil {
-		return s, ErrSettingsSave
+		return old, ErrSettingsSave
 	}
 	defer os.Remove(tmp.Name())
 	_, writeErr := tmp.Write(encoded.Bytes())
@@ -159,32 +240,35 @@ func (r *Runtime) Update(ctx context.Context, expected, link, name string) (Runt
 	}
 	writeErr = errors.Join(writeErr, tmp.Close())
 	if writeErr != nil {
-		return s, ErrSettingsSave
+		return old, ErrSettingsSave
 	}
 	if err := ctx.Err(); err != nil {
-		return s, err
+		return old, err
 	}
 	// Check again immediately before replacement. The lock protects other
 	// Geko processes; an external editor still needs operational coordination.
 	latest, _, err := runtimeFile(s.ConfigFile)
 	if err != nil {
-		return s, ErrSettingsSave
+		return old, ErrSettingsSave
 	}
 	if revision(latest) != s.Revision {
-		return s, ErrSettingsConflict
+		return old, ErrSettingsConflict
 	}
 	warning, err := r.replace(tmp.Name(), s.ConfigFile)
 	if err != nil {
-		return s, ErrSettingsSave
+		return old, ErrSettingsSave
 	}
-	s.URL, s.Name, s.Revision = link, name, revision(encoded.Bytes())
-	if s.URLSource.Kind != "env" {
-		s.URLSource = SettingSource{Kind: "yaml"}
-	}
-	if s.NameSource.Kind != "env" {
-		s.NameSource = SettingSource{Kind: "yaml"}
-	}
+	s.Revision = revision(encoded.Bytes())
 	s.AppliedAt, s.Warning = time.Now().UTC(), warning
+	if group == liveOwners {
+		s.ownersAppliedAt = s.AppliedAt
+	}
+	if group == liveBudget {
+		s.budgetAppliedAt = s.AppliedAt
+	}
+	if group == liveOperations {
+		s.opsAppliedAt = s.AppliedAt
+	}
 	r.state.Store(&s)
 	return s, nil
 }
@@ -211,7 +295,7 @@ func runtimeFile(path string) ([]byte, os.FileMode, error) {
 	return data, info.Mode(), err
 }
 
-func runtimeDocument(data []byte) (*yaml.Node, error) {
+func runtimeRootDocument(data []byte) (*yaml.Node, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return nil, err
@@ -224,6 +308,24 @@ func runtimeDocument(data []byte) (*yaml.Node, error) {
 		return nil, ErrSettingsInvalid
 	}
 	for i := 0; i < len(root.Content); i += 2 {
+		if root.Content[i].Value == "<<" {
+			return nil, ErrSettingsInvalid
+		}
+	}
+	return &doc, nil
+}
+
+func runtimeDocument(data []byte) (*yaml.Node, error) {
+	doc, err := runtimeRootDocument(data)
+	if err != nil {
+		return nil, err
+	}
+	return runtimeDocumentNode(doc)
+}
+
+func runtimeDocumentNode(doc *yaml.Node) (*yaml.Node, error) {
+	root := doc.Content[0]
+	for i := 0; i < len(root.Content); i += 2 {
 		key, value := root.Content[i], root.Content[i+1]
 		if key.Value == "<<" {
 			return nil, ErrSettingsInvalid
@@ -234,7 +336,7 @@ func runtimeDocument(data []byte) (*yaml.Node, error) {
 			}
 		}
 	}
-	return &doc, nil
+	return doc, nil
 }
 
 func setRuntimeScalar(root *yaml.Node, key, value string) {

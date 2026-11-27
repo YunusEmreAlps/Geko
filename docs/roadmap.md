@@ -1,15 +1,16 @@
 # Implementation status
 
 This checklist distinguishes implemented functionality from planned work.
-The latest release is [v0.2.0](https://github.com/YunusEmreAlps/geko/releases/tag/v0.2.0).
+The release used for this validation is [v0.2.0](https://github.com/YunusEmreAlps/geko/releases/tag/v0.2.0).
 
 ## Next phases after v0.2.0 (planned 2026-11-23)
 
 The new release closes the preceding code review findings. The next objective
 is to make one developer's repeated debugging workflow reliable across several
-projects, then validate it with other developers. These are proposals, not
-implemented capabilities or committed release dates. Phases 12–13 come first;
-start 14–15 only when observed usage supports the need.
+projects, then validate it with other developers. This section preserves the
+original sequence; checked items below describe implemented work, while unchecked
+items remain evidence gates or deferred proposals. There are no committed
+release dates. Human study results must come from actual participant sessions.
 
 ### Release follow-through: before the next feature release
 
@@ -20,8 +21,9 @@ start 14–15 only when observed usage supports the need.
       paths were verified with the installed release. Linux/amd64 archive
       installation, MCP setup paths and seeded demo also passed in Docker on
       2026-11-24 ([record](benchmarks/2026-11-24-docker-validation.md)).
-      Package-manager installs, native macOS and the hosted release Action
-      remain unverified.
+      Linux Homebrew public-tap installation, formula test and smoke checks also
+      passed in Docker on 2026-11-27. Scoop, native macOS and the hosted release
+      Action remain unverified.
 - [x] Capture the Linux nightly baseline from the actual job (2026-11-24),
       with the artifact digest/provenance and regression-guard self-tests.
 - [x] Repeat the large-database migration measurement on Linux. Schema 15→21
@@ -30,8 +32,21 @@ start 14–15 only when observed usage supports the need.
       checks ([record](benchmarks/2026-11-24-linux-upgrade-schema15-21.json)).
       Docker Desktop/WSL2, reconstructed fixture; retain the Windows record
       and do not treat different data/schema/hosts as a speed comparison.
-- [ ] Record one genuine agent investigation. A public demo is optional until
-      hosting is available; the existing local demo remains the primary trial.
+- [x] Record one genuine agent investigation of an explicitly synthetic defect
+      (2026-11-27): actual MCP evidence, fresh-context diagnosis, source fix and
+      repeated workload/run comparison. See [walkthrough](agent-walkthrough.md).
+      A public demo remains optional; no production incident or human-study result
+      is inferred from this fixture.
+
+Additional release evidence (2026-11-27): published Windows/amd64 and Docker
+Linux/amd64 checksum/install/demo/dashboard/MCP setup passed; actual released
+Windows SDK reporting and MCP protocol queries passed from another directory.
+[The record](benchmarks/2026-11-27-release-validation.md) distinguishes each
+outcome. A manually triggered [release-validation workflow](../.github/workflows/release-validation.yml)
+prepares native macOS, Scoop and release-installed Action checks; Linux
+Homebrew installation, formula test and release smoke also passed locally.
+Those hosted/native/package-manager jobs are not claimed executed; no workflow
+was dispatched and no branch was pushed.
 
 The local tag and changelog identify v0.2.0. This plan does not certify the
 remote release assets, hosted jobs or package-manager installation paths.
@@ -87,8 +102,10 @@ SDK/workload coverage. The [comparison guide](agents.md#compare-two-runs) explai
 the distinction. Local regression/browser checks cover the implementation;
 the hosted SDK and explicit-baseline Action checks for commit `e60da6b` passed
 on 2026-11-24 ([CI run](https://github.com/YunusEmreAlps/Geko/actions/runs/45254844980)).
-A recorded real code-change walkthrough remains validation work, not a
-completed observation. New changes after that commit need their own hosted run.
+A recorded source-linked code-change walkthrough of a deliberate synthetic defect
+passed on 2026-11-27; see [the agent record](agent-walkthrough.md). This is an actual
+agent investigation, not a production incident or participant study. New changes
+after that commit still need their own hosted run.
 
 **Acceptance:** tests for unchanged, introduced and absent groups, different
 environments, zero exports, omitted run IDs and removed baseline history;
@@ -138,10 +155,11 @@ these changes do not complete the participant study or its outcome measures.
 
 - [ ] Run the existing five-developer study before selecting UI changes;
       record time to evidence, navigation steps and incorrect conclusions.
-- [ ] Candidate changes: shareable filter URLs and local saved views for
-      application/environment/owner; consistent selected-span context between
-      service map, waterfall and evidence details. Verify existing behavior
-      before adding controls that duplicate it.
+- [ ] Study-dependent candidates: dedicated environment/owner filters and any
+      further navigation changes need participant evidence before selection.
+      Application/service saved views and selected-span context were separately
+      authorized and implemented in phases 15/17; do not duplicate them or mark
+      the participant study complete based on automated checks.
 - [ ] Select only improvements supported by the sessions. Preserve keyboard
       navigation, both themes, narrow layouts and explicit partial-data states.
 
@@ -159,11 +177,33 @@ against the current Docker image and
 Jaeger on 2026-11-24 ([record](benchmarks/2026-11-24-docker-validation.md));
 this validates their data, not participant usability outcomes.
 
-### Phase 16: dynamic settings (in progress)
+### Accepted implementation sequence (2026-11-27; local work completed below)
+
+1. Extend the existing runtime manager to Budget reporting limits. Add an
+   immutable reporting policy supplier; preserve counters, fingerprint seeds,
+   session IDs, persisted checkpoints and collection/worker configuration.
+   Bound service rows even after repeated rule changes. Test persistence,
+   rollback, cross-editor revisions, historical reporting and admin/CSRF rules;
+   then check responsive and no-script forms and concurrent use under race.
+2. Add local named project/filter views and recent investigations, using the
+   existing filter URLs. Keep browser-local state bounded, removable and
+   explicit; avoid storing trace payloads or credentials.
+3. Unify Connect, receiver, Collector and storage diagnostics, using existing
+   diagnostics instead of adding a parallel collection system.
+4. Improve success-baseline selection and operation comparisons, then record a
+   source-linked agent investigation/fix/verification walkthrough.
+
+Own-project trials and the five-participant study remain open validation gates.
+These were the accepted implementation steps; their completed local results
+and remaining external evidence gates are recorded below.
+
+### Phase 16: dynamic settings (implemented supported scope 2026-11-27)
 
 Requested on 2026-11-24. On 2026-11-25 the user explicitly requested starting
-this phase; phase 15's participant sessions remain outstanding. The first
-implementation slice covers trace links, not every server setting.
+this phase; phase 15's participant sessions remain outstanding. Implemented
+slices cover trace links, owner mappings, Budget reporting limits and controlled
+operational policies. Listener, database and access-surface settings still require
+a restart.
 
 **Outcome:** administrators can change supported settings without restarting,
 with clear application status and durable configuration.
@@ -176,12 +216,23 @@ with clear application status and durable configuration.
 - [x] Apply trace links live through Settings and an admin-only API. Preserve
       unrelated YAML values/comments and show env locks, conflicts, persistence
       errors and successful application. Audit never records edited values.
-- [ ] Extend the manager to owner mappings and Budget limits. Preserve counters
-      and consistently update dashboard, CLI/MCP and notifications.
-- [ ] Add controlled reconfiguration for retention, size/full policies,
+- [x] Extend live editing to service/application owner mappings (2026-11-26).
+      The admin form/API shares YAML locking, revisions and atomic replacement
+      with trace links. Rules publish only after persistence, with environment
+      locks, bounded input, safe YAML subtree checks and value-free auditing.
+      Dashboard, HTTP MCP and notifications use one immutable owner source.
+      CLI commands read YAML on startup; separate stdio MCP sessions must be
+      restarted to reload their own configuration. No file watcher was added.
+- [x] Extend the manager to Budget reporting limits (2026-11-27). Persist and
+      publish immutable policies through the same revision/file-lock boundary.
+      Keep counters, cardinality fingerprints, session IDs and checkpoint history;
+      reports use current limits for live and historical hours. Bound service
+      rows across repeated rule changes. Tracker enablement and collected attribute
+      keys remain startup settings; history retention is now live as described below.
+- [x] Add controlled reconfiguration for retention, size/full policies,
       checkpoint workers and notification schedules. Preview destructive
       retention effects; applying a smaller file limit does not compact it.
-- [ ] Redesign admission concurrency before making it live: replacing the
+- [x] Redesign admission concurrency before making it live: replacing the
       existing channel while requests are active is unsafe. Apply privacy
       policy changes at export boundaries and disclose historical-data effects.
 - [x] Keep listener addresses, database paths and access-surface changes
@@ -192,14 +243,40 @@ with clear application status and durable configuration.
 
 The [live settings guide](configuration.md#live-settings) documents the current
 scope, revision conflicts, filesystem restrictions and recovery. These checked
-items apply to the trace-link slice only; multi-component reconfiguration and
-its rollback/lifecycle tests remain planned.
+items apply to trace links, ownership, Budget reporting limits and operational
+policies. Persistence, lifecycle and concurrent-update validation are summarized
+in the completion pass below.
 
 Local validation: the full Go suite, vet and targeted staticcheck passed.
 Windows persistence and Linux `-race` checks covered concurrent runtime edits,
 snapshots, trace writes and dashboard reads. Browser checks covered both themes
 at seven widths, successful saves, immediate trace-link changes and recovery
 from invalid form submissions. A new hosted CI run is still needed after push.
+
+Ownership validation (2026-11-26): full Windows Go suite, vet, targeted
+staticcheck and `go mod tidy -diff` passed. Linux Docker `-race` passed for
+config, ownership, notifications and web. Tests cover concurrent editors and
+lookups, failed-write rollback, restart persistence, comment retention,
+environment locks, unsafe YAML and admin/CSRF/audit isolation. Existing MCP
+sessions and notification instances observe published rule changes. Chromium
+checks passed at nine widths from 320 to 1440px in both themes, including
+ownership save, invalid YAML recovery and no-script save. The query/ingest
+schema, Budget tracker and worker lifecycles were not changed. Independent
+code review found no important issue. No commits or release were made.
+
+Budget validation (2026-11-27): full Windows Go suite, vet, targeted
+staticcheck and `go mod tidy -diff` passed. Linux Docker `-race` passed for
+config, budget and web; the final source-attribution/concurrent-editor changes
+were additionally retested for config and budget. Regression tests cover
+counter/session/checkpoint preservation, historical limits, cardinality retention,
+service-row bounds, three-editor revision conflicts, failed-write rollback,
+restart persistence, YAML comments/shared aliases and locked-editor source labels.
+Admin/CSRF/audit checks passed. Chromium checks passed at nine widths in both
+themes, including mobile saves, invalid-input recovery and no-script saves.
+Independent review's source-attribution finding was fixed and re-reviewed without
+significant remaining findings. Existing uncommitted work was retained; no commit
+or release was made at that slice. The later saved-view and operational
+policy implementations are recorded below.
 
 **Acceptance:** concurrent ingest plus configuration updates under `-race`,
 invalid-update rollback, restart persistence, stale-edit conflicts, env locks,
@@ -212,6 +289,156 @@ Distributed storage, production HA, logs/metrics storage, account management,
 automatic remediation and unsupported root-cause claims are outside this plan.
 MCP alone is not the differentiation; the target is a shorter, evidence-backed
 path from a failing operation to a checked change.
+
+### Phase 17: local project views (implemented 2026-11-27)
+
+**Goal:** reopen recurring investigations without rebuilding project filters.
+**Design:** reuse existing list URLs with browser-local preferences, scoped to
+origin and signed-in identity/role. Save only application, service, evidence
+service, time range, status, pins and group view/state. Omit text queries, protected
+attribute digests, run/group IDs, cursor tokens and trace payloads. Keep the
+normal server-rendered filters functional without JavaScript. No schema or API.
+
+- [x] Add bounded URL/state helpers in `web/assets/workspace.mjs` and regression
+      tests in `scripts/workspace.test.mjs`: same-origin list routes only, field
+      allowlist, malformed/oversized storage, immutable updates and history caps.
+- [x] Add a quiet Saved views disclosure alongside list filters, names up to
+      64 characters and up to 12 views. Saving an existing name replaces it;
+      provide individual removal and clear. Add an explicit resume link instead
+      of redirecting users or changing their active filters automatically.
+- [x] Add opt-in recent investigations: up to 20 trace IDs and visit times, no
+      payload/title/exception storage; disabling clears them. Deleted/expired
+      traces continue through the existing missing-trace page. Scope local
+      preferences by the current signed-in identity and role; storage is a
+      browser convenience, not an authorization boundary.
+- [x] Test the real save/reopen/delete/resume flow, keyboard and long names,
+      mobile overflow, unavailable storage and opt-in history in the existing
+      browser harness. Add Node checks to CI, run Go checks, and request one
+      independent review. Preserve prior uncommitted work; do not commit.
+
+Validation (2026-11-27): full Windows Go suite, vet, web staticcheck,
+`go mod tidy -diff`, formatting and Node workspace/action-report checks passed.
+Chromium checks passed for saved-view controls at nine widths from 320 to
+1440px in both themes, keyboard save, reopen/replace/remove/resume, safe text
+rendering, storage-event updates across tabs, opt-in/deduplicated history,
+missing traces, corrupt storage, denied reads/writes and the no-script filter
+fallback. Independent review found no significant issue. Existing uncommitted
+Budget/ownership work was retained; no commit, push or release was made.
+Next: unify existing connection, receiver, Collector and storage diagnostics.
+
+### Phase 18: evidence-led delivery diagnostics (implemented 2026-11-27)
+
+**Goal:** answer where to check when a printed trace ID never reaches Geko.
+Reuse the selected Connect observation, global receiver counters, bounded SQLite
+status lookup and a value-only summary of the last manually requested Collector
+inspection. Never attribute global/cumulative counters to the selected service,
+never label a metadata read an integrity check, and never scrape a Collector
+implicitly from Connect. Keep CLI `geko doctor` and existing diagnostic routes.
+
+- [x] Add a small delivery view model and regression tests covering unknown,
+      observed, waiting/ended, read-only, historical rejections, capacity with
+      reusable pages and unavailable storage. Keep failure explanations generic;
+      no paths, credentials, raw telemetry or Collector URLs in the shared summary.
+- [x] Render four stages on Connect: selected-service observation, receiver,
+      storage and Collector. Each shows evidence, scope and an actionable next
+      step, with existing snippets/check-again behavior retained. Reuse query
+      admission/timeouts for storage; failure must leave exporter setup readable.
+- [x] Publish only timestamp/coverage/severity counts from explicit Collector
+      checks; preserve a validated local Connect return context for refresh and
+      sampling links. Show age and absence of a check; no polling or new workers.
+- [x] Verify no implicit Collector requests, unavailable partial diagnostics,
+      safe return URLs, cancellation/concurrent reads and responsive/no-script
+      interactions. Update docs and obtain one independent review; do not commit.
+
+Validation (2026-11-27): full Windows Go suite, vet, web staticcheck, module
+consistency and Node checks passed. Linux Docker `-race ./web` passed. Tests
+cover global/historical scope, missing observations, read-only ingestion,
+capacity with reusable pages, partial diagnostic failure, no implicit Collector
+requests, value-only source summaries, stale checks, safe local return links,
+query admission and cancellation. Concurrent Collector checks/Connect reads
+passed; the final cancellation guard was additionally tested with the full web
+suite and vet. Chromium checks passed at nine widths in both themes, including
+Collector return, native repeated checks and the no-script flow. Independent
+review found no significant issue. No schema, receiver protocol or CLI doctor
+behavior was changed; prior uncommitted work was preserved. No commit was made.
+Next: user-selected successful baselines and deeper trace comparisons.
+
+### Phase 19: explicitly selected successful baselines (implemented 2026-11-27)
+
+Reuse the existing one-snapshot comparison and its 500-span/100-group bounds.
+Add an optional point-lookup baseline selector without changing the automatic
+method or existing CLI/MCP callers. A selected baseline must satisfy the same
+clean HTTP 2xx, unique server-entry, application/service/operation/namespace/
+environment eligibility rules as automatic matching. Never substitute another
+baseline for an invalid manual choice.
+
+- [x] Add storage selection and read-only-reader forwarding, with regression
+      tests for older clean successes, missing/ineligible/self choices, mismatched
+      identities, source errors and bounded span facts in one transaction.
+- [x] Add a native GET form on Compare traces; preserve safe results context,
+      disclose manual versus automatic selection and show recoverable errors.
+      Keep the current automatic comparison when no baseline parameter exists.
+- [x] Verify manual selection, automatic reset, invalid/missing references,
+      safe navigation, mobile and no-script flows. Update the investigation guide,
+      run Go/browser checks and obtain an independent review. Do not commit.
+
+Validation (2026-11-27): full Windows Go suite, vet, targeted staticcheck,
+`go mod tidy -diff`, formatting and Node checks passed. Linux Docker `-race`
+passed for SQLite and web. Storage tests cover explicit older successes,
+identity/status/evidence incompatibility, source/baseline absence, span bounds
+and read-only-reader forwarding. Query plans keep indexed point lookups for
+manual references and preserve automatic baseline lookup plans. Chromium checks
+passed for selection, editable errors, automatic reset, results context and
+native no-script submission; selector controls fit nine widths in both themes.
+Independent review found no actionable issue. No migrations, dependencies,
+commits or releases were introduced at that slice. The completion pass below
+subsequently implemented operational reconfiguration and recorded the agent
+investigation/fix/verification walkthrough. The real-user study remains open.
+
+### Completion pass (validated 2026-11-27)
+
+- [x] Genuine fresh-context agent investigation of a deliberately broken,
+      instrumented fixture: actual MCP evidence, source-linked diagnosis, minimal
+      fix and the same workload rerun. Baseline had two traces and one failure;
+      candidate had two traces and no observed failure. Comparison coverage stays
+      `partial`; absence in this run is not proof of a universal fix. The final
+      runtime binary also passed an independent automated replay, recorded
+      separately from the genuine agent session in [the evidence](agent-walkthrough.md).
+- [x] Published v0.2.0 Windows/amd64 and Linux/amd64 installer/checksum, demo,
+      dashboard and MCP setup checks; actual Windows SDK/run and stdio MCP calls.
+      Linux Homebrew public-tap install, formula test and release smoke also passed.
+      Add executable, manual native/package-manager/hosted Action jobs without
+      claiming they ran. See [release evidence](benchmarks/2026-11-27-release-validation.md).
+- [x] Immutable operational policies for retention, capacity/full behavior,
+      admission, privacy, Budget-history enable/retention and digest scheduling.
+      Existing workers read policy at export/write/tick boundaries; accepted
+      exports are not canceled. Listener/DB paths/auth/webhook targets remain
+      startup settings. Budget tracking must already be enabled for live history.
+- [x] Admin preview/apply with exact current retention candidates, explicit
+      acknowledgment for destructive/privacy changes, shared revision conflicts,
+      environment locks, durable-before-publish YAML and value-free audit.
+      Smaller file limits do not compact the file; current strict download
+      masking does not rewrite historical records. No background file watcher.
+- [x] Full Windows `go test ./...`, `go vet ./...`, pinned staticcheck and
+      `go mod tidy -diff`. Linux Docker `-race` passed for config, OTLP receiver,
+      SQLite, Budget, notifier, web and CLI packages. Full browser checks passed
+      in both themes at nine widths, including live changes and no-JavaScript
+      submission. Three release-smoke and nine benchmark-comparison Python tests,
+      17 workspace/Action Node tests and workflow actionlint passed.
+- [x] Independent code review and focused re-review. Fix current-policy export
+      masking, history-change acknowledgment, capacity UI/metrics consistency and
+      a stale full-capacity hint after increasing the limit. Regression coverage
+      includes persistence failure, null Budget configuration, active requests,
+      history and retention behavior. No important review findings remain.
+
+**External evidence still required:** five real developer study sessions,
+actual native macOS/ARM64 execution, Scoop installation and hosted release jobs.
+Prepared workflows do not count as results. Linux Homebrew passed locally in
+Docker; package-manager details and failed setup attempts are recorded in the
+release evidence. These gates need the
+corresponding people/platforms or a workflow run after publishing the changes.
+No participant feedback, hosted run or new release was invented. Existing
+uncommitted work was retained; no commit, push or workflow dispatch was performed.
 
 ## Current implementation status (2026-11-21)
 
@@ -403,8 +630,11 @@ application, and find a binary without a Go toolchain.
 - [x] A green build on master: the browser job builds with `-buildvcs=false`
       inside the Playwright image, and no test binary is tracked.
 - [x] Release v0.2.0 includes `geko demo`.
-- [ ] Verify the release installer path and provide a public demo instance
-      at a stable address linked from the README when hosting is available.
+- [x] Verify published v0.2.0 Windows/amd64 and Linux/amd64 installer paths,
+      checksums and demo startup ([record](benchmarks/2026-11-27-release-validation.md)).
+- [ ] Deferred until hosting is available: a public demo instance at a stable
+      address linked from the README. Local read-only demo/deployment assets
+      exist; no hosted instance is claimed.
 
 ## Phase 9: evidence behind the numbers
 
@@ -483,8 +713,10 @@ unique capability; evaluate the end-to-end investigation workflow.
       trace with span timings, the evidence spans with exceptions, stack
       traces and code locations, the same operation when it succeeded, and
       the versions its traces came from, oldest first.
-- [ ] A recorded session of an agent reading a failing trace and proposing the
-      fix, next to the walkthrough from phase 8.
+- [x] A [recorded genuine agent investigation](agent-walkthrough.md) of a
+      deliberately broken fixture: actual trace/MCP evidence, fresh-context
+      diagnosis, minimal source fix and unchanged workload verification
+      (2026-11-27). This does not replace a human study or a production trial.
 - [x] Release v0.2.0 includes the Action and `geko run --report`.
 - [ ] Verify `uses: YunusEmreAlps/geko@v0.2.0` with the release installer,
       without the source-built `geko-binary` override.
