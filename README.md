@@ -161,6 +161,7 @@ OTLP/gRPC, a separate dashboard port and receiver limits are in
 | [Connect your application](docs/connect.md) | Delivery diagnostics, ports, OTLP/gRPC, receiver limits |
 | [Configuration and reference](docs/configuration.md) | Every setting, retention and capacity, privacy modes, upgrades, CLI, JSON API |
 | [Collector Doctor](docs/collector-doctor.md) | Diagnose Collector pipelines, export failures and queue pressure |
+| [OpenTelemetry compatibility](docs/otel-compatibility.md) | Official SDK/protocol matrix, Collector hops and captured-data limits |
 | [Telemetry Budget](docs/telemetry-budget.md) | Measure hourly span volume, service limits and attribute cardinality |
 | [Architecture](docs/architecture.md) | Ingestion, storage, privacy filtering, evidence selection |
 

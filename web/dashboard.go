@@ -67,6 +67,7 @@ type Settings struct {
 	TelemetryBudget         *budget.Tracker
 	CollectorDoctor         collectordoctor.Sources
 	AttributeSearch         privacy.AttributeSearch
+	AttributeRetention      privacy.AttributeRetention
 	RestoreTrace            func(context.Context, io.Reader, func(context.Context, telemetry.TraceID) (bool, error)) (telemetry.TraceID, error)
 	Shutdown                <-chan struct{}
 	DashboardAddr, GRPCAddr string

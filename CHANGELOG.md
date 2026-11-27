@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Preserve bounded OpenTelemetry Span Links, event scalar attributes, trace context,
+  schema URLs and producer dropped counters across SQLite and OTLP export.
+  Distinguish legacy unknown metadata and Geko filtering in the trace inspector.
+- Add exact per-location `attribute_retention` lists with strict/HMAC protections
+  and official SDK/protocol/Collector compatibility checks.
+- Add explicit local Collector binary validation with bounded execution and
+  private output, alongside static coverage diagnostics.
+- Explain Collector validation coverage and retain privacy-safe historical
+  Budget cardinality lower bounds without storing attribute values.
+
 - Extend live operational settings to retention, storage capacity/full policy,
   shared HTTP/gRPC/import admission, redaction, Budget-history retention and weekly
   digest scheduling. Add admin preview/apply with current expiry counts, explicit

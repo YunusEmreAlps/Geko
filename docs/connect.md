@@ -103,3 +103,57 @@ reason.
 If another process such as a local OpenTelemetry Collector already uses port
 4318, set a different [`listen_addr`](configuration.md) and copy the new trace
 endpoint from **Settings → Receiver**.
+
+## Captured OpenTelemetry context
+
+Source builds after v0.2.0 preserve bounded Span Links, flags, filtered trace
+state, resource/scope schema URLs and producer-reported dropped counts. The
+trace inspector separates **SDK-reported drops** from **Geko filtering**. These
+are observations of this received span, not an end-to-end completeness claim.
+Filtered-attribute counts describe omitted pairs; retained text can also contain
+redaction replacements. No count certifies that all sensitive text was detected.
+SDK counters do not count whole traces removed by upstream sampling.
+
+Existing database records are retained; their new metadata field defaults to
+unknown, not zero drops. Invalid/zero link IDs and links beyond 128 per span are
+omitted and counted without discarding an otherwise valid span. Links open the
+referenced trace/span; its target may be absent because of sampling, separate
+exports or retention. Events retain their own producer attribute-drop count.
+
+Non-exception events retain the scalar fields `retry.attempt`, `retry.count`,
+`retry.delay_ms`, `error.type`, `event.name`, `event.domain` and
+`messaging.operation.type`. Add other exact keys explicitly in YAML:
+
+```yaml
+attribute_retention:
+  resource: [project.revision]
+  scope: [library.mode]
+  span: [order.id, custom.enabled]
+  event: [retry.reason]
+  link: [link.kind]
+```
+
+Lists accept at most 32 exact keys per location and require restart. Wildcards,
+reserved `geko.*` keys and known credential/payload keys are refused. Opt-in
+values pass the same best-effort text redaction; arbitrary sensitive data may
+still have no recognizable pattern. Supported values are strings, signed
+integers, booleans and finite doubles. Arrays/maps/bytes are omitted and counted,
+not silently stringified. Extra strings are bounded to 1,024 UTF-8 bytes; built-in
+fields retain their existing limits. Exact integer values survive storage and
+OTLP export without conversion through float64.
+
+Strict redaction ignores these extra-key lists and drops trace state. Protected
+attribute-search keys remain HMAC-only, even when also opted into retention.
+Schema URLs must be bounded HTTP(S) URLs without credentials, query or fragment;
+invalid or privacy-filtered metadata is omitted and counted.
+
+Trace and bundle downloads reapply the current privacy policy and configured
+extra-key lists. Standard OTLP fields preserve allowed producer context. A small,
+versioned set of reserved `geko.otel.*` scalar attributes carries Geko filtering
+counts and legacy capture status across Geko export/restore. These are untrusted
+transfer diagnostics, never invented producer dropped counts or an authenticity
+claim. Other backends may ignore them. Restoring a file applies the receiving
+instance's own policy and adds any new filtering to the reported counts.
+
+See [SDK/Collector compatibility checks](otel-compatibility.md) for the tested
+protocol matrix and how to reproduce it.

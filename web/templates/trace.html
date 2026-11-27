@@ -57,6 +57,7 @@
   {{if .Selected.Events}}<div class="span-events">
     {{range .Selected.Events}}
     <details{{if eq .Name "exception"}} open{{end}}><summary>{{.Name}} <small>{{timestamp .Time}}</small></summary>
+      {{if $.Selected.OTel.Present}}<p class="muted">Event attributes dropped by SDK: {{.DroppedAttributesCount}}</p>{{end}}
       {{if .Attributes}}<dl class="attributes">{{range $key,$value := .Attributes}}<div><dt><code>{{$key}}</code></dt><dd class="prewrap">{{$value}}</dd></div>{{end}}</dl>
       {{if eq .Name "exception"}}{{with sourceLinks (index .Attributes "exception.stacktrace")}}
       <details><summary>Open source in VS Code</summary><ul>{{range .}}<li><a href="{{.URL}}"><code>{{.Location}}</code></a></li>{{end}}</ul></details>
@@ -79,6 +80,49 @@
     {{template "attributes" (attributes "Resource attributes" .Selected.ResourceAttributes)}}
     {{with .ServiceMap.SelectedInstances}}<details><summary>Observed service instances ({{len .}})</summary><ul>{{range .}}<li><code>{{.}}</code></li>{{end}}</ul></details>{{end}}
     {{template "attributes" (attributes "Scope attributes" .Selected.Scope.Attributes)}}
+    {{with .Selected.OTel}}
+    {{if .Present}}
+    <details><summary>Span links ({{len .Links}})</summary>
+      <p class="muted">Linked traces or spans may be unavailable in this database.</p>
+      {{range .Links}}<details><summary><code>{{.SpanID}}</code></summary>
+        <dl class="properties">
+          <div><dt>Linked span</dt><dd><a href="/traces/{{.TraceID}}?span={{.SpanID}}#span-details"><code>{{.TraceID}} / {{.SpanID}}</code></a></dd></div>
+          {{with .TraceState}}<div><dt>Trace state</dt><dd class="prewrap">{{.}}</dd></div>{{end}}
+          <div><dt>Flags</dt><dd>{{.Flags}}</dd></div>
+          <div><dt>Link attributes dropped by SDK</dt><dd>{{.DroppedAttributesCount}}</dd></div>
+        </dl>
+        {{template "attributes" (attributes "Link attributes" .Attributes)}}
+      </details>{{else}}<p class="muted">No span links captured.</p>{{end}}
+    </details>
+    <details><summary>OTel context</summary>
+      <dl class="properties">
+        {{with .TraceState}}<div><dt>Trace state</dt><dd class="prewrap">{{.}}</dd></div>{{end}}
+        <div><dt>Flags</dt><dd>{{.Flags}}</dd></div>
+        {{with .ResourceSchemaURL}}<div><dt>Resource schema URL</dt><dd class="prewrap">{{.}}</dd></div>{{end}}
+        {{with .ScopeSchemaURL}}<div><dt>Scope schema URL</dt><dd class="prewrap">{{.}}</dd></div>{{end}}
+      </dl>
+    </details>
+    <details><summary>SDK-reported drops</summary>
+      <p class="muted">Reported by the telemetry producer before Geko received this span.</p>
+      <dl class="properties">
+        <div><dt>Span attributes</dt><dd>{{.DroppedAttributesCount}}</dd></div>
+        <div><dt>Events</dt><dd>{{.DroppedEventsCount}}</dd></div>
+        <div><dt>Links</dt><dd>{{.DroppedLinksCount}}</dd></div>
+        <div><dt>Resource attributes</dt><dd>{{.ResourceDroppedAttributesCount}}</dd></div>
+        <div><dt>Scope attributes</dt><dd>{{.ScopeDroppedAttributesCount}}</dd></div>
+      </dl>
+    </details>
+    <details><summary>Geko filtering</summary>
+      <p class="muted">Removed or shortened by Geko's privacy and size limits after receipt.</p>
+      <dl class="properties">
+        <div><dt>Filtered attributes</dt><dd>{{.Filtering.Attributes}}</dd></div>
+        <div><dt>Truncated values</dt><dd>{{.Filtering.TruncatedValues}}</dd></div>
+        <div><dt>Filtered links</dt><dd>{{.Filtering.Links}}</dd></div>
+        <div><dt>Filtered metadata fields</dt><dd>{{.Filtering.Metadata}}</dd></div>
+      </dl>
+    </details>
+    {{else}}<p class="empty-attributes">OTel metadata unavailable<span class="subtle">This record predates metadata capture. Link and loss counts are unknown.</span></p>{{end}}
+    {{end}}
   </div>
   {{end}}
 </section>

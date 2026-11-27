@@ -745,3 +745,53 @@ alerts.
 
 Not in scope: Geko keeps no user or password database; people sign in with a
 token or through your identity provider's proxy.
+
+## OpenTelemetry fidelity completion (validated 2026-11-27)
+
+**Goal:** retain bounded, privacy-filtered trace context from ingest through
+SQLite, UI and OTLP export, with honest diagnostics about missing evidence.
+Use the existing normalized model and a defaulted JSON metadata column; do not
+store raw OTLP or bypass redaction. No logs/metrics backend or custom SDK.
+
+- [x] Preserve validated Span Links, trace state/flags, resource/scope schema URLs
+      and producer dropped counters; distinguish old records without coverage.
+- [x] Preserve non-exception event attributes and opt-in custom scalar attributes
+      with exact per-location allowlists, hard limits and strict-mode protection.
+      Keep privacy filtering and truncation counts separate from producer drops.
+- [x] Persist/query/show/export/restore metadata without losing integer precision;
+      test legacy databases, current strict downloads and linked-trace navigation.
+- [x] Make Collector Doctor validation coverage explicit; detect unresolved
+      configuration inputs without resolving secrets by default. An explicit
+      CLI-only local binary can run distribution-specific validation with a
+      five-second timeout and discarded output; the UI never executes it.
+- [x] Persist privacy-safe Budget cardinality counts through existing bounded
+      checkpoints; report partial/lower-bound aggregation and measurement scope.
+- [x] Add reproducible official SDK/protocol/Collector compatibility checks.
+      Run available cells and distinguish prepared workflows from observed runs.
+- [x] Run focused regressions, full Go/static checks, browser checks and Linux
+      race tests; review security, allocation bounds and backwards compatibility.
+
+No commit, push, release or hosted workflow dispatch is part of this work.
+
+Validation (2026-11-27): the full Windows Go suite, vet, pinned
+staticcheck, module-tidy diff, actionlint, 12 Python regression tests and
+17 Node regression tests passed. Full Chromium checks passed in both themes
+at nine widths, including opened link/context/drop/filter disclosures, long
+status values and no-script settings. Official Collector validation accepted
+a valid config and rejected unsupported exporter options without exposing
+process output. The [recorded SDK matrix](benchmarks/2026-11-27-otel-compatibility.json)
+passed all 30 selected cells / 60 traces against the final binary, including
+Go link/event and numeric-type preservation through OTLP downloads. Linux
+Docker `-race` passed for config, privacy, OTLP, SQLite, Budget, Collector Doctor,
+web and CLI; the final shared-envelope accounting optimization also passed a
+fresh OTLP race run. Resource/Scope filtering and schema checks run once per
+envelope, then copy immutable counts to each span. Independent review findings
+on double-type fidelity, transfer provenance, location-specific limits and
+historical allocation bounds were fixed and re-reviewed without serious
+remaining issues. No commit or workflow dispatch was performed.
+
+Trace-only scope remains intentional: Budget bytes describe accepted Span
+protobuf size, not wire traffic or billing. Historical cardinality is a bounded
+privacy-safe lower bound, not an exact cross-session union. Extra attributes
+are explicitly opted-in scalars; strict mode still takes precedence. The SDK
+record names unexercised cells; prepared hosted CI is not a completed run.

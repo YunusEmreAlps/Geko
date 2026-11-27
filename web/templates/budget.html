@@ -3,6 +3,7 @@
   <div class="title"><a class="crumb" href="/settings">Settings</a><span class="crumb-sep" aria-hidden="true">/</span><h1>Telemetry Budget</h1></div>
   <div class="actions"><a class="button" href="/budget"{{if .CurrentHour}} aria-current="page"{{end}}>Current hour</a><a class="button" href="/budget?previous=true"{{if .PreviousHour}} aria-current="page"{{end}}>Previous hour</a></div>
 </header>
+<p class="note">Coverage: accepted OTLP trace spans and their protobuf Span messages. Resource/scope metadata, OTLP wrappers, rejected exports, compression and network overhead are excluded. Imported traces, metrics and logs are excluded.</p>
 <p class="note">Current reporting limits also apply to historical hours. <a class="text-link" href="/settings#budget-limits">Review reporting limits</a>.</p>
 <section class="budget-summary" aria-label="Selected measurement window">
   <div class="budget-window">
@@ -37,7 +38,7 @@
     </tbody>
   </table>
 </div></div>
-{{if .CardinalitySince.IsZero}}<p class="note">Cardinality is unavailable for persisted history.</p>{{else}}<p class="note">Cardinality covers this process only, since {{timestamp .CardinalitySince}}. Volume may include earlier sessions.</p>{{end}}
+{{if .CardinalitySince.IsZero}}<p class="note">Cardinality is unavailable for persisted history in this hour.</p>{{else if .HistoryDays}}<p class="note">Cardinality coverage: {{if eq .CardinalityCoverage "partial_historical_session_max_lower_bound"}}partial historical lower bound{{else}}historical lower bound{{end}}, since {{timestamp .CardinalitySince}}. Historical counts are lower bounds: the largest observed session count per attribute, never a sum. Older checkpoints may have no counts; collection-key changes may exceed the eight-key history bound. A dash does not prove low cardinality.</p>{{else}}<p class="note">Cardinality covers this process only, since {{timestamp .CardinalitySince}}.</p>{{end}}
 {{else}}
 <section class="empty"><h2>No spans counted yet</h2><p>Send an OTLP trace to see service usage.</p></section>
 {{end}}
@@ -49,7 +50,7 @@
   <summary>Measurement details</summary>
   {{if .Available}}<p class="muted">Counting since {{.ObservedSince.UTC.Format "2006-01-02 15:04:05"}} UTC. Volume measures protobuf span data, not network traffic or billing.</p>{{end}}
   {{if .HistoryDays}}
-  <p class="muted">Retaining up to {{.HistoryDays}} days of checkpointed volume within the database size limit. Limits use current settings. Attribute values and fingerprints are not persisted.</p>
+  <p class="muted">Retaining up to {{.HistoryDays}} days of checkpointed volume and bounded cardinality counts within the database size limit. Limits use current settings. Attribute values and fingerprints are not persisted.</p>
   <p class="muted">{{if .CheckpointedAt.IsZero}}This process has not checkpointed yet.{{else}}Last successful checkpoint in this process: {{timestamp .CheckpointedAt}}.{{end}} Newest volume may still be memory-only.</p>
   {{end}}
   {{if .Available}}

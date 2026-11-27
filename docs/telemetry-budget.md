@@ -75,9 +75,13 @@ geko budget --server https://geko.example.com --hour 2026-11-24T08:00:00Z
 
 Checkpointed totals from previous sessions are combined with live counters,
 without restoring old counters into ingestion or counting the current session
-twice. Cardinality sets/fingerprints are never persisted; current/previous-hour
-cardinality shows its separate process-local observation start. Older history
-has no cardinality result. Limits on historical rows use the current config.
+twice. Cardinality sets/fingerprints are never persisted. New checkpoints store
+bounded attribute names and distinct counts (up to eight keys per service, each
+capped at 256). Historical reports take the largest session count per key and
+mark it **at least**; they cannot calculate a cross-session union without
+persisting identifiers. Counts are never summed. Legacy checkpoints with no
+counts mark cardinality coverage partial or unavailable. A missing warning does
+not establish low cardinality. Limits on historical rows use the current config.
 
 Changes from the previous hour appear only when both observed intervals cover
 their full UTC hours without gaps or ambiguous overlapping sessions. A running hour, downtime or missing
@@ -113,7 +117,7 @@ for partial windows, clearly marked as partial.
 
 Raw values, exception data, cardinality fingerprints, tokens and historical
 limit configuration are not in checkpoint payloads. Only normalized service
-identity, volume counters and observation intervals are persisted.
+identity, volume counters, bounded attribute names/counts and observation intervals are persisted.
 
 The local write-stage stress comparison uses one checkpoint attempt per 32
 exports, much more frequent than the production one-minute worker. Raw runs
@@ -154,3 +158,15 @@ History enable/disable and retention can be changed under **Settings → Operati
 settings**, with preview and acknowledgment for persistence/deletion effects.
 The single existing checkpoint worker skips disabled ticks; counter/session state
 is preserved. See [operational policies](configuration.md#operational-policies-preview-and-apply).
+
+## Measurement coverage in reports
+
+`measurement_coverage` describes accepted, successfully stored OTLP trace spans and
+`proto.Size(Span)` bytes before privacy filtering. Bytes exclude Resource and
+InstrumentationScope messages, OTLP request wrappers, compression, transport
+framing and network traffic. Rejected/failed exports, imported traces, metrics and logs are
+outside these counters. These are neither wire usage nor billing estimates.
+`cardinality_coverage` distinguishes process-local observations, historical
+session-maximum lower bounds, partial historical coverage and unavailable
+counts. Historical counts survive normal checkpoint/restart boundaries; newest
+counts can be lost whenever the best-effort checkpoint fails or has not run.

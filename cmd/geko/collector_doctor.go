@@ -20,6 +20,7 @@ func collectorDoctorCommand(ctx context.Context, args []string, out io.Writer) e
 	flags.SetOutput(out)
 	configured := flags.Bool("collector", false, "use collector_doctor from Geko's configuration")
 	asJSON := flags.Bool("json", false, "output the Collector report as JSON")
+	flags.StringVar(&opts.CollectorBinary, "collector-binary", "", "explicit trusted local Collector executable for validate (5s limit)")
 	flags.StringVar(&opts.ConfigFile, "collector-config", "", "resolved Collector YAML file")
 	flags.StringVar(&opts.MetricsURL, "collector-metrics", "", "Collector internal Prometheus metrics URL")
 	flags.StringVar(&opts.MetricsFile, "metrics-file", "", "saved Collector metrics")
@@ -46,6 +47,9 @@ func collectorDoctorCommand(ctx context.Context, args []string, out io.Writer) e
 	if flags.NArg() != 0 || !opts.Sources.Enabled() && opts.MetricsFile == "" {
 		return errors.New("select a Collector source with --collector, --collector-config, --collector-metrics or --metrics-file")
 	}
+	if opts.CollectorBinary != "" && opts.ConfigFile == "" {
+		return errors.New("--collector-binary requires --collector-config or a configured Collector file")
+	}
 	if opts.MetricsFile != "" && opts.MetricsURL != "" {
 		return errors.New("select --collector-metrics or --metrics-file")
 	}
@@ -64,8 +68,10 @@ func collectorDoctorCommand(ctx context.Context, args []string, out io.Writer) e
 	} else {
 		var body strings.Builder
 		fmt.Fprintln(&body, "OpenTelemetry Collector Doctor")
+		fmt.Fprintf(&body, "Validation coverage: config=%s; metrics=%s\n", report.Coverage.Config, report.Coverage.Metrics)
+		fmt.Fprintf(&body, "Excluded: %s\n", strings.Join(report.Coverage.Excluded, "; "))
 		if len(report.Findings) == 0 {
-			fmt.Fprintln(&body, "No issues found in the inspected sources.")
+			fmt.Fprintln(&body, "No findings within the validation coverage shown above.")
 		}
 		for _, finding := range report.Findings {
 			fmt.Fprintf(&body, "\n[%s] %s (%s)\n  Evidence: %s\n  Action: %s\n",

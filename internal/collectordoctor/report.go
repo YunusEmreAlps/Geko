@@ -21,12 +21,20 @@ func (s Sources) Enabled() bool { return s.ConfigFile != "" || s.MetricsURL != "
 
 type Options struct {
 	Sources
-	MetricsFile    string
-	BaselineFile   string
-	SampleInterval time.Duration
+	CollectorBinary string
+	MetricsFile     string
+	BaselineFile    string
+	SampleInterval  time.Duration
+}
+
+type Coverage struct {
+	Config   string   `json:"config"`
+	Metrics  string   `json:"metrics"`
+	Excluded []string `json:"excluded"`
 }
 
 type Report struct {
+	Coverage       Coverage  `json:"coverage"`
 	ConfigChecked  bool      `json:"config_checked"`
 	MetricsChecked bool      `json:"metrics_checked"`
 	Sampled        bool      `json:"compared_samples"`
@@ -43,25 +51,44 @@ func (r Report) HasErrors() bool {
 }
 
 func Inspect(ctx context.Context, opts Options) Report {
-	report := Report{Findings: []Finding{}}
+	report := Report{Findings: []Finding{}, Coverage: Coverage{Config: "not_requested", Metrics: "not_requested", Excluded: []string{"Collector component option schemas and distribution availability", "provider resolution and multi-file merging", "end-to-end delivery and confirmed loss"}}}
 	if opts.ConfigFile != "" {
+		report.Coverage.Config = "unavailable"
 		data, err := readFile(opts.ConfigFile)
 		if err == nil {
 			report.Findings, err = configFindings(data)
 			report.ConfigChecked = err == nil
+			if err == nil {
+				report.Coverage.Config = "static_wiring"
+				for _, f := range report.Findings {
+					if f.Code == "config_unresolved" {
+						report.Coverage.Config = "partial_unresolved"
+					}
+				}
+			}
 		}
 		if err != nil {
 			report.Findings = append(report.Findings, Finding{"error", "config_unavailable", "Collector configuration",
 				"the configuration could not be inspected", err.Error(), "check the readable file and provide a resolved Collector YAML"})
 		}
 	}
+	if opts.CollectorBinary != "" {
+		validateCollector(ctx, opts, &report)
+	}
 	if opts.MetricsURL != "" || opts.MetricsFile != "" {
+		report.Coverage.Metrics = "unavailable"
 		metrics, baseline, err := snapshots(ctx, opts)
 		if err == nil {
 			var findings []Finding
 			findings, err = metricFindings(metrics, baseline)
 			report.Findings = append(report.Findings, findings...)
 			report.MetricsChecked, report.Sampled = err == nil, err == nil && baseline != nil
+			if err == nil {
+				report.Coverage.Metrics = "supported_internal_series_snapshot"
+				if baseline != nil {
+					report.Coverage.Metrics = "supported_internal_series_comparison"
+				}
+			}
 		}
 		if err != nil {
 			report.Findings = append(report.Findings, Finding{"error", "metrics_unavailable", "Collector metrics",

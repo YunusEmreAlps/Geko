@@ -22,6 +22,8 @@ type Finding struct {
 	Recommendation string `json:"recommendation"`
 }
 
+var unresolvedSubstitution = regexp.MustCompile(`\$\{[^}]+\}|\$[[:alpha:]_][[:alnum:]_]*`)
+
 var identifier = regexp.MustCompile(`^[[:alnum:]_.-]{1,64}(/[[:alnum:]_.-]{1,64})?$`)
 
 func label(value string) string {
@@ -46,16 +48,39 @@ type collectorConfig struct {
 }
 
 func configFindings(data []byte) ([]Finding, error) {
-	var cfg collectorConfig
+	var document yaml.Node
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	if err := decoder.Decode(&cfg); err != nil {
-		return nil, errors.New("expected a resolved Collector YAML mapping")
+	if err := decoder.Decode(&document); err != nil {
+		return nil, errors.New("expected one Collector YAML mapping; merge multiple configuration files before inspection")
 	}
 	var extra yaml.Node
 	if err := decoder.Decode(&extra); err != io.EOF {
-		return nil, errors.New("expected one Collector YAML document")
+		return nil, errors.New("expected one Collector YAML document; merge configuration files before inspection")
 	}
+	unresolved := false
+	var scan func(*yaml.Node)
+	scan = func(n *yaml.Node) {
+		if n.Kind == yaml.ScalarNode && unresolvedSubstitution.MatchString(strings.ReplaceAll(n.Value, "$$", "")) {
+			unresolved = true
+		}
+		for _, child := range n.Content {
+			scan(child)
+		}
+	}
+	scan(&document)
 	var findings []Finding
+	if unresolved {
+		findings = append(findings, Finding{"warning", "config_unresolved", "Collector configuration",
+			"environment or provider substitutions remain unresolved", "substitution syntax found; values and provider locations omitted",
+			"supply the merged, resolved YAML from your trusted Collector configuration workflow; Geko does not read environment values or fetch providers"})
+	}
+	var cfg collectorConfig
+	if err := document.Decode(&cfg); err != nil {
+		if unresolved {
+			return findings, nil
+		}
+		return nil, errors.New("expected a resolved Collector YAML mapping")
+	}
 	var names []string
 	for name := range cfg.Service.Pipelines {
 		names = append(names, name)

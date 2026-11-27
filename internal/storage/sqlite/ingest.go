@@ -28,7 +28,7 @@ const insertSpan = `
 INSERT INTO spans (
     trace_id, span_id, parent_span_id, service_name, name, kind, start_ns, end_ns,
     status_code, status_description, resource_attributes, scope_name, scope_version,
-    scope_attributes, attributes, events
+    scope_attributes, attributes, events, otel_metadata
 )
 `
 
@@ -282,7 +282,7 @@ func insertSpanBatch(ctx context.Context, tx *sql.Tx, observedNS int64, spans []
 }
 
 func insertSpanChunk(ctx context.Context, tx *sql.Tx, spans []telemetry.Span, services map[serviceProjection]projectedSpans) error {
-	const columns = 16
+	const columns = 17
 	args := make([]any, 0, len(spans)*columns)
 	for i := range spans {
 		span := &spans[i]
@@ -297,10 +297,10 @@ func insertSpanChunk(ctx context.Context, tx *sql.Tx, spans []telemetry.Span, se
 		args = append(args,
 			span.TraceID[:], span.ID[:], parent, span.ServiceName, span.Name, span.Kind,
 			span.StartTime.UnixNano(), span.EndTime.UnixNano(), span.StatusCode, span.StatusDescription,
-			fields[0], span.Scope.Name, span.Scope.Version, fields[1], fields[2], fields[3],
+			fields[0], span.Scope.Name, span.Scope.Version, fields[1], fields[2], fields[3], fields[4],
 		)
 	}
-	values := strings.TrimSuffix(strings.Repeat("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?),", len(spans)), ",")
+	values := strings.TrimSuffix(strings.Repeat("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?),", len(spans)), ",")
 	// RETURNING reports only newly inserted rows. SQLite may return them in
 	// any order, so derive membership from each returned identity.
 	rows, err := tx.QueryContext(ctx, insertSpan+" VALUES "+values+`
@@ -328,8 +328,8 @@ RETURNING trace_id, span_id, service_namespace, service_name`, args...)
 	return writeError(rows.Err())
 }
 
-func encodeSpanFields(span *telemetry.Span) ([4]string, error) {
-	var fields [4]string
+func encodeSpanFields(span *telemetry.Span) ([5]string, error) {
+	var fields [5]string
 	values := [...]any{span.ResourceAttributes, span.Scope.Attributes, span.Attributes, span.Events}
 	for i, value := range values {
 		encoded, err := json.Marshal(value)
@@ -337,6 +337,15 @@ func encodeSpanFields(span *telemetry.Span) ([4]string, error) {
 			return fields, fmt.Errorf("encode span metadata: %w", err)
 		}
 		fields[i] = string(encoded)
+	}
+	fields[4] = "{}"
+	metadata := span.OTel
+	if metadata.Present || metadata.TraceState != "" || metadata.Flags != 0 || metadata.ResourceSchemaURL != "" || metadata.ScopeSchemaURL != "" || metadata.DroppedAttributesCount != 0 || metadata.DroppedEventsCount != 0 || metadata.DroppedLinksCount != 0 || metadata.ResourceDroppedAttributesCount != 0 || metadata.ScopeDroppedAttributesCount != 0 || len(metadata.Links) != 0 || metadata.Filtering != (telemetry.Filtering{}) {
+		encoded, err := json.Marshal(metadata)
+		if err != nil {
+			return fields, fmt.Errorf("encode OTel metadata: %w", err)
+		}
+		fields[4] = string(encoded)
 	}
 	return fields, nil
 }

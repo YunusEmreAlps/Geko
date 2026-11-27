@@ -293,26 +293,34 @@ type Service struct {
 	ByteDelta       *int64        `json:"byte_delta,omitempty"`
 }
 
+type MeasurementCoverage struct {
+	Spans    string   `json:"spans"`
+	Bytes    string   `json:"bytes"`
+	Excluded []string `json:"excluded"`
+}
+
 type Report struct {
-	Start                time.Time `json:"window_start"`
-	End                  time.Time `json:"window_end"`
-	ObservedSince        time.Time `json:"observed_since"`
-	Available            bool      `json:"available"`
-	Total                totals    `json:"total"`
-	Other                totals    `json:"unattributed_services"`
-	Services             []Service `json:"services"`
-	CardinalityLimit     int       `json:"cardinality_limit"`
-	Advice               []string  `json:"recommendations"`
-	ObservedUntil        time.Time `json:"observed_until"`
-	Partial              bool      `json:"partial"`
-	CardinalitySince     time.Time `json:"cardinality_since"`
-	HistoryDays          int       `json:"history_days"`
-	CheckpointedAt       time.Time `json:"checkpointed_at"`
-	CheckpointFailed     bool      `json:"checkpoint_failed"`
-	DiscardedCheckpoints int64     `json:"discarded_checkpoints"`
-	ChangesTruncated     bool      `json:"changes_truncated"`
-	SpanDelta            *int64    `json:"span_delta,omitempty"`
-	ByteDelta            *int64    `json:"byte_delta,omitempty"`
+	MeasurementCoverage  MeasurementCoverage `json:"measurement_coverage"`
+	CardinalityCoverage  string              `json:"cardinality_coverage"`
+	Start                time.Time           `json:"window_start"`
+	End                  time.Time           `json:"window_end"`
+	ObservedSince        time.Time           `json:"observed_since"`
+	Available            bool                `json:"available"`
+	Total                totals              `json:"total"`
+	Other                totals              `json:"unattributed_services"`
+	Services             []Service           `json:"services"`
+	CardinalityLimit     int                 `json:"cardinality_limit"`
+	Advice               []string            `json:"recommendations"`
+	ObservedUntil        time.Time           `json:"observed_until"`
+	Partial              bool                `json:"partial"`
+	CardinalitySince     time.Time           `json:"cardinality_since"`
+	HistoryDays          int                 `json:"history_days"`
+	CheckpointedAt       time.Time           `json:"checkpointed_at"`
+	CheckpointFailed     bool                `json:"checkpoint_failed"`
+	DiscardedCheckpoints int64               `json:"discarded_checkpoints"`
+	ChangesTruncated     bool                `json:"changes_truncated"`
+	SpanDelta            *int64              `json:"span_delta,omitempty"`
+	ByteDelta            *int64              `json:"byte_delta,omitempty"`
 }
 
 func (t *Tracker) Snapshot(now time.Time, previous bool) Report {
@@ -333,7 +341,7 @@ func (t *Tracker) snapshotWithPolicy(now time.Time, previous bool, policy Policy
 // report is called with the tracker locked; the history path supplies a
 // separate aggregated window and replaces observation/cardinality metadata.
 func (t *Tracker) report(active window, now time.Time, policy Policy) Report {
-	report := Report{Available: !active.start.IsZero(), Start: active.start, Total: active.total,
+	report := Report{MeasurementCoverage: MeasurementCoverage{Spans: "accepted_persisted_otlp_trace_spans", Bytes: "accepted_span_protobuf_size", Excluded: []string{"resource and instrumentation scope metadata", "OTLP request wrappers", "compression, transport framing and network bytes", "rejected or failed exports", "imported traces", "metrics and logs"}}, CardinalityCoverage: "process_local_bounded_counts", Available: !active.start.IsZero(), Start: active.start, Total: active.total,
 		Other: active.other, CardinalityLimit: policy.threshold(), Services: []Service{}, Advice: []string{}}
 	if !report.Available {
 		return report

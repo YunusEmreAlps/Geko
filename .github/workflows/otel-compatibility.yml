@@ -1,0 +1,91 @@
+name: OpenTelemetry compatibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'internal/ingest/otlp/**'
+      - 'internal/storage/**'
+      - 'internal/telemetry/**'
+      - 'internal/privacy/**'
+      - 'internal/config/**'
+      - 'cmd/geko/**'
+      - 'web/**'
+      - 'examples/sdk/**'
+      - 'scripts/otel-compatibility.py'
+      - 'scripts/otel-sdk/**'
+      - '.github/workflows/otel-compatibility.yml'
+      - 'go.mod'
+      - 'go.sum'
+
+permissions:
+  contents: read
+
+jobs:
+  sdk-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        route: [direct, collector-http, collector-grpc]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+          skip-lts-prepass: true
+      - name: Build real SDK fixtures
+        env:
+          DOTNET_NOLOGO: '1'
+          DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+        run: |
+          go build -o bin/geko ./cmd/geko
+          npm ci --prefix scripts/otel-sdk --ignore-scripts --no-audit --no-fund
+          python -m pip install -r examples/sdk/python/requirements.txt opentelemetry-exporter-otlp-proto-grpc==1.45.2
+          mvn -B -q -f examples/sdk/java/pom.xml package
+          dotnet build examples/sdk/dotnet/GekoSdkExample.csproj --configuration Release --nologo
+      - name: Install pinned official Collector
+        if: matrix.route != 'direct'
+        shell: bash
+        run: |
+          version=0.166.0
+          base="https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v$version"
+          archive="otelcol_${version}_linux_amd64.tar.gz"
+          curl --fail --location --retry 3 "$base/$archive" -o "$RUNNER_TEMP/$archive"
+          curl --fail --location --retry 3 "$base/$archive.sha256" -o "$RUNNER_TEMP/otelcol-checksums.txt"
+          cd "$RUNNER_TEMP"
+          expected=$(awk '{print $1}' otelcol-checksums.txt)
+          [[ "$expected" =~ ^[a-f0-9]{64}$ ]]
+          printf '%s  %s\n' "$expected" "$archive" | sha256sum --check --strict
+          mkdir otelcol-bin
+          tar -xzf "$archive" -C otelcol-bin otelcol
+      - name: Verify accepted SDK evidence
+        shell: bash
+        run: |
+          options=()
+          if [[ '${{ matrix.route }}' == collector-http ]]; then
+            options+=(--collector "$RUNNER_TEMP/otelcol-bin/otelcol" --collector-export http/protobuf)
+          elif [[ '${{ matrix.route }}' == collector-grpc ]]; then
+            options+=(--collector "$RUNNER_TEMP/otelcol-bin/otelcol" --collector-export grpc)
+          fi
+          python scripts/otel-compatibility.py --binary bin/geko "${options[@]}" --report 'dist/otel-${{ matrix.route }}.json'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: otel-${{ matrix.route }}
+          path: dist/otel-${{ matrix.route }}.json

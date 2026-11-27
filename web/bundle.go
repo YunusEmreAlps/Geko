@@ -67,7 +67,7 @@ func (d *dashboard) downloadBundle(w http.ResponseWriter, r *http.Request) {
 			}
 			body, err := otlp.EncodeTraceJSON(traceID, strict, func(visit func(investigation.Span) error) error {
 				return d.store.VisitTraceSpans(ctx, traceID, visit)
-			})
+			}, d.settings.AttributeRetention)
 			// A trace beyond the transfer limit stays out; the rest still travel.
 			if errors.Is(err, otlp.ErrTransferLimit) || errors.Is(err, otlp.ErrInvalidTransfer) || errors.Is(err, investigation.ErrTraceNotFound) {
 				continue

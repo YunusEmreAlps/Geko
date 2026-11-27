@@ -7,6 +7,7 @@
     {{if .CanSample}}<a class="button" href="{{.SampleURL}}" data-loading>Compare {{.SampleInterval}} samples</a>{{end}}
   </div>
 </header>
+<p class="note">Validation coverage: configuration {{if eq .Coverage.Config "static_wiring"}}static pipeline wiring{{else if eq .Coverage.Config "partial_unresolved"}}partial wiring (unresolved substitutions){{else if .ConfigChecked}}validated{{else if eq .Coverage.Config "not_requested"}}not requested{{else}}unavailable{{end}}; metrics {{if .MetricsChecked}}{{if .Sampled}}supported series compared{{else}}supported series snapshot{{end}}{{else if eq .Coverage.Metrics "not_requested"}}not requested{{else}}unavailable{{end}}. Static checks cover pipeline wiring. The CLI can validate component options with an explicitly selected local Collector binary. End-to-end delivery requires separate evidence.</p>
 {{if .Sampled}}<p class="muted">Failure counter increases between two scrapes taken {{.SampleInterval}} apart. Queue occupancy is from the second scrape.</p>
 {{else if .MetricsChecked}}<p class="muted">Failure counters are cumulative. Queue occupancy is current.</p>{{end}}
 {{if .Findings}}
@@ -19,6 +20,6 @@
   </table>
 </div>
 {{else}}
-<section class="empty"><h2>No issues found</h2><p>The configured Collector sources were checked.</p></section>
+<section class="empty"><h2>No issues found</h2><p>No findings in the coverage shown above. This does not establish end-to-end delivery.</p></section>
 {{end}}
 {{end}}

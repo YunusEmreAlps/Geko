@@ -220,6 +220,7 @@ type OperationCount struct {
 
 type Span struct {
 	SpanSummary
+	OTel               telemetry.Metadata   `json:"otel"`
 	ParentID           string               `json:"parent_span_id,omitempty"`
 	Kind               telemetry.SpanKind   `json:"kind"`
 	Start              time.Time            `json:"start"`

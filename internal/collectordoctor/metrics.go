@@ -23,7 +23,7 @@ var counterRules = map[string]metricRule{
 	"receiver_refused":        {"receiver_refused", "the receiver could not pass items to the pipeline", "check downstream backpressure and exporter retry behavior"},
 	"processor_refused":       {"processor_refused", "a processor refused telemetry", "check the processor limits and verify that clients can retry"},
 	"exporter_enqueue_failed": {"enqueue_failed", "items could not enter the sending queue", "check queue saturation, downstream throughput and persistent queue storage"},
-	"exporter_send_failed":    {"send_failed", "export attempts failed", "check the exporter logs, destination availability, credentials and retry settings"},
+	"exporter_send_failed":    {"send_failed", "export attempts failed; later retries may succeed", "check exporter logs and retry outcomes; this counter alone does not prove permanent telemetry loss"},
 }
 
 type sample struct {

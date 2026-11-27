@@ -56,6 +56,16 @@
     <div><dt>Dashboard listener</dt><dd><code>{{or .DashboardAddr .ListenAddr}}</code>{{template "settings-source" .ConfigSource.DashboardAddr}}{{if not .ConfigSource.DashboardAddr.Kind}} <span class="subtle">Shared HTTP listener unless configured separately</span>{{end}}</dd></div>
     <div><dt>OTLP/gRPC listener</dt><dd>{{if .GRPCAddr}}<code>{{.GRPCAddr}}</code>{{else}}Disabled{{end}}{{template "settings-source" .ConfigSource.GRPCAddr}}</dd></div>
     {{if .IngestConcurrency}}<div><dt>Concurrent exports</dt><dd>{{.IngestConcurrency}}{{template "settings-source" .ConfigSource.IngestSlots}}</dd></div>{{end}}
+    <div><dt>Additional attribute capture</dt><dd><details><summary>Startup policy</summary>
+      <p class="muted">Exact YAML keys; restart after editing. Strict mode ignores extra keys. Known credentials and payloads are refused.</p>
+      <dl class="properties">
+        <div><dt>Resource</dt><dd>{{range .AttributeRetention.Resource}}<code>{{.}}</code> {{else}}Built-in keys only{{end}}</dd></div>
+        <div><dt>Scope</dt><dd>{{range .AttributeRetention.Scope}}<code>{{.}}</code> {{else}}Built-in keys only{{end}}</dd></div>
+        <div><dt>Span</dt><dd>{{range .AttributeRetention.Span}}<code>{{.}}</code> {{else}}Built-in keys only{{end}}</dd></div>
+        <div><dt>Event</dt><dd>{{range .AttributeRetention.Event}}<code>{{.}}</code> {{else}}Built-in keys only{{end}}</dd></div>
+        <div><dt>Link</dt><dd>{{range .AttributeRetention.Link}}<code>{{.}}</code> {{else}}No extra keys{{end}}</dd></div>
+      </dl>
+    </details></dd></div>
     <div><dt>Receiver status</dt><dd><span class="status-ok">Running</span></dd></div>
     {{with .Receiver}}
     <div><dt>Accepted exports with spans</dt><dd>{{.AcceptedExports}}</dd></div>

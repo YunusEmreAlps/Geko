@@ -40,16 +40,17 @@ type spanWriter interface {
 }
 
 type Receiver struct {
-	store            spanWriter
-	concurrency      int
-	admissionMu      sync.Mutex
-	active           int
-	admissionChanged chan struct{}
-	policySource     func() Policy
-	wait             time.Duration
-	strict           bool
-	attributeSearch  privacy.AttributeSearch
-	budget           *budget.Tracker
+	store              spanWriter
+	concurrency        int
+	admissionMu        sync.Mutex
+	active             int
+	admissionChanged   chan struct{}
+	policySource       func() Policy
+	wait               time.Duration
+	strict             bool
+	attributeSearch    privacy.AttributeSearch
+	attributeRetention privacy.AttributeRetention
+	budget             *budget.Tracker
 
 	mu                     sync.Mutex
 	accepted               uint64
@@ -95,6 +96,11 @@ func NewHandler(store spanWriter) *Receiver {
 
 func NewHandlerWithRedaction(store spanWriter, strict bool) *Receiver {
 	return &Receiver{store: store, concurrency: maxConcurrent, wait: admissionWait, strict: strict}
+}
+
+func (h *Receiver) WithAttributeRetention(policy privacy.AttributeRetention) *Receiver {
+	h.attributeRetention = policy.Clone()
+	return h
 }
 
 func (h *Receiver) WithAttributeSearch(policy privacy.AttributeSearch) *Receiver {
@@ -254,7 +260,7 @@ func (h *Receiver) export(ctx context.Context, req *collector.ExportTraceService
 	if h.budget != nil {
 		observe = func(value budget.Observation) { observations = append(observations, value) }
 	}
-	spans, rejected, err := normalize(req, h.policyFor(ctx).Strict, h.attributeSearch, observe)
+	spans, rejected, err := normalize(req, h.policyFor(ctx).Strict, h.attributeSearch, observe, h.attributeRetention)
 	if err != nil {
 		if errors.Is(err, errBatchLimit) {
 			h.reject(limitExceeded)

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -13,24 +14,27 @@ const MaxHistoryServices = 256
 const CheckpointInterval = time.Minute
 
 type Volume struct {
-	Namespace string `json:"namespace"`
-	Service   string `json:"service"`
-	Spans     int64  `json:"spans"`
-	Bytes     int64  `json:"bytes"`
+	Namespace   string        `json:"namespace"`
+	Service     string        `json:"service"`
+	Spans       int64         `json:"spans"`
+	Bytes       int64         `json:"bytes"`
+	Cardinality []Cardinality `json:"cardinality,omitempty"`
 }
 
-// Checkpoint stores cumulative volume for one session/hour. No attribute
+// Checkpoint stores cumulative volume and bounded counts for one session/hour. No attribute
 // values, fingerprints, cardinality sets or credentials cross this boundary.
+// Only bounded per-attribute counts are persisted; cross-session union is unknown.
 type Checkpoint struct {
-	Session    string    `json:"session"`
-	Start      time.Time `json:"start"`
-	Since      time.Time `json:"since"`
-	Until      time.Time `json:"until"`
-	Spans      int64     `json:"spans"`
-	Bytes      int64     `json:"bytes"`
-	OtherSpans int64     `json:"other_spans"`
-	OtherBytes int64     `json:"other_bytes"`
-	Services   []Volume  `json:"services"`
+	CardinalityMeasured bool      `json:"cardinality_measured,omitempty"`
+	Session             string    `json:"session"`
+	Start               time.Time `json:"start"`
+	Since               time.Time `json:"since"`
+	Until               time.Time `json:"until"`
+	Spans               int64     `json:"spans"`
+	Bytes               int64     `json:"bytes"`
+	OtherSpans          int64     `json:"other_spans"`
+	OtherBytes          int64     `json:"other_bytes"`
+	Services            []Volume  `json:"services"`
 }
 
 type HistoryReader interface {
@@ -76,6 +80,16 @@ func (c Checkpoint) Validate() error {
 		if spans > c.Spans-v.Spans || bytes > c.Bytes-v.Bytes {
 			return bad
 		}
+		if len(v.Cardinality) > 8 || !c.CardinalityMeasured && len(v.Cardinality) > 0 {
+			return bad
+		}
+		keys := map[string]bool{}
+		for _, count := range v.Cardinality {
+			if !attributeKey.MatchString(count.Key) || keys[count.Key] || count.Distinct < 1 || count.Distinct > maxDistinct {
+				return bad
+			}
+			keys[count.Key] = true
+		}
 		seen[key] = true
 		spans += v.Spans
 		bytes += v.Bytes
@@ -99,9 +113,14 @@ func (t *Tracker) Checkpoints(now time.Time) []Checkpoint {
 		if t.started.After(since) {
 			since = t.started
 		}
-		c := Checkpoint{Session: t.session, Start: w.start, Since: since, Until: minTime(now, w.start.Add(time.Hour)), Spans: w.total.Spans, Bytes: w.total.Bytes, OtherSpans: w.other.Spans, OtherBytes: w.other.Bytes, Services: []Volume{}}
+		c := Checkpoint{CardinalityMeasured: true, Session: t.session, Start: w.start, Since: since, Until: minTime(now, w.start.Add(time.Hour)), Spans: w.total.Spans, Bytes: w.total.Bytes, OtherSpans: w.other.Spans, OtherBytes: w.other.Bytes, Services: []Volume{}}
 		for key, v := range w.services {
-			c.Services = append(c.Services, Volume{key.namespace, key.service, v.Spans, v.Bytes})
+			volume := Volume{Namespace: key.namespace, Service: key.service, Spans: v.Spans, Bytes: v.Bytes}
+			for key, set := range v.values {
+				volume.Cardinality = append(volume.Cardinality, Cardinality{key, len(set), len(set) == maxDistinct})
+			}
+			slices.SortFunc(volume.Cardinality, func(a, b Cardinality) int { return strings.Compare(a.Key, b.Key) })
+			c.Services = append(c.Services, volume)
 		}
 		slices.SortFunc(c.Services, func(a, b Volume) int {
 			if a.Namespace < b.Namespace {
@@ -142,12 +161,23 @@ func (t *Tracker) historyReport(ctx context.Context, reader HistoryReader, now, 
 	live := t.Checkpoints(now)
 	w := window{services: make(map[identity]*usage)}
 	intervals := [][2]time.Time{}
+	counts := map[identity]map[string]int{}
+	measured, missing := false, false
+	var cardinalitySince time.Time
 	merge := func(c Checkpoint) error {
 		if err := c.Validate(); err != nil {
 			return err
 		}
 		if !c.Start.Equal(hour) {
 			return errors.New("budget checkpoint hour mismatch")
+		}
+		if c.CardinalityMeasured {
+			measured = true
+			if cardinalitySince.IsZero() || c.Since.Before(cardinalitySince) {
+				cardinalitySince = c.Since
+			}
+		} else {
+			missing = true
 		}
 		w.start = hour
 		w.total.Spans += c.Spans
@@ -159,6 +189,16 @@ func (t *Tracker) historyReport(ctx context.Context, reader HistoryReader, now, 
 			key := identity{v.Namespace, v.Service}
 			_, configured := policy.services[key]
 			if u := w.service(key, configured); u != nil {
+				if counts[key] == nil {
+					counts[key] = map[string]int{}
+				}
+				for _, count := range v.Cardinality {
+					if _, present := counts[key][count.Key]; !present && len(counts[key]) >= 8 {
+						missing = true
+						continue
+					}
+					counts[key][count.Key] = max(counts[key][count.Key], count.Distinct)
+				}
 				u.Spans += v.Spans
 				u.Bytes += v.Bytes
 			} else {
@@ -204,27 +244,29 @@ func (t *Tracker) historyReport(ctx context.Context, reader HistoryReader, now, 
 	}
 	report.ObservedSince, report.ObservedUntil = since, until
 	report.Partial = gap || until.Before(report.End)
-	// Fingerprints stay process-local. A historical report can show current
-	// session cardinality only, with an independent observation start.
-	for _, active := range []window{t.current, t.previous} {
-		if !active.start.Equal(hour) {
-			continue
+	report.CardinalityCoverage = "unavailable"
+	if measured {
+		report.CardinalitySince = cardinalitySince
+		report.CardinalityCoverage = "historical_session_max_lower_bound"
+		hasHighCardinality := false
+		if missing {
+			report.CardinalityCoverage = "partial_historical_session_max_lower_bound"
 		}
-		current := t.report(active, now, policy)
-		report.CardinalitySince = current.ObservedSince
 		for i := range report.Services {
-			for _, v := range current.Services {
-				if report.Services[i].Namespace == v.Namespace && report.Services[i].Name == v.Name {
-					report.Services[i].HighCardinality = v.HighCardinality
+			service := &report.Services[i]
+			for key, count := range counts[identity{service.Namespace, service.Name}] {
+				if count > policy.threshold() {
+					service.HighCardinality = append(service.HighCardinality, Cardinality{key, count, true})
+					hasHighCardinality = true
 				}
 			}
+			slices.SortFunc(service.HighCardinality, func(a, b Cardinality) int { return strings.Compare(a.Key, b.Key) })
 		}
-		for _, advice := range current.Advice {
-			if !slices.Contains(report.Advice, advice) {
-				report.Advice = append(report.Advice, advice)
-			}
+		if hasHighCardinality {
+			report.Advice = append(report.Advice, "Use bounded categories or route templates for high-cardinality attributes. Historical counts are lower bounds across sessions.")
 		}
 	}
+
 	return report, nil
 }
 

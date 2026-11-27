@@ -277,7 +277,7 @@ func traceSummary(ctx context.Context, tx *sql.Tx, id telemetry.TraceID) (invest
 
 const spanSelect = `SELECT span_id, service_name, name, http_status, start_ns, end_ns, application,
         parent_span_id, kind, status_code, status_description,
-        resource_attributes, scope_name, scope_version, scope_attributes, attributes, events
+        resource_attributes, scope_name, scope_version, scope_attributes, attributes, events, otel_metadata
         FROM grouped_spans WHERE trace_id = ?`
 
 // VisitTraceSpans reads a single snapshot without retaining the entire trace in memory.
@@ -476,10 +476,10 @@ func scanSpan(row scanner) (investigation.Span, investigation.Cursor, error) {
 	var span investigation.Span
 	var summary spanSummaryRow
 	var parent []byte
-	var resource, scope, attributes, events []byte
+	var resource, scope, attributes, events, otel []byte
 	fields := append(summary.fields(),
 		&parent, &span.Kind, &span.StatusCode, &span.StatusDescription, &resource,
-		&span.Scope.Name, &span.Scope.Version, &scope, &attributes, &events,
+		&span.Scope.Name, &span.Scope.Version, &scope, &attributes, &events, &otel,
 	)
 	if err := row.Scan(fields...); err != nil {
 		return span, investigation.Cursor{}, err
@@ -493,7 +493,7 @@ func scanSpan(row scanner) (investigation.Span, investigation.Cursor, error) {
 		dest any
 	}{
 		{resource, &span.ResourceAttributes}, {scope, &span.Scope.Attributes},
-		{attributes, &span.Attributes}, {events, &span.Events},
+		{attributes, &span.Attributes}, {events, &span.Events}, {otel, &span.OTel},
 	} {
 		decoder := json.NewDecoder(bytes.NewReader(field.data))
 		decoder.UseNumber()

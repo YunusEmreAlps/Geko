@@ -358,7 +358,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		defer startBudgetHistory(ctx, db, tracker)()
 	}
 	receiver := otlp.NewHandlerWithRedaction(db, cfg.Redaction == "strict").
-		WithAttributeSearch(cfg.AttributeSearch).WithBudget(tracker).WithPolicySource(func() otlp.Policy {
+		WithAttributeRetention(cfg.AttributeRetention).WithAttributeSearch(cfg.AttributeSearch).WithBudget(tracker).WithPolicySource(func() otlp.Policy {
 		o := liveSettings.Operations()
 		return otlp.Policy{Concurrency: o.IngestConcurrency, Strict: o.Redaction == "strict"}
 	})
@@ -458,6 +458,7 @@ func serve(ctx context.Context, cfg config.Config, out io.Writer, options serveO
 		ReceiverConnections: receiver.Connections,
 		RestoreTrace:        restore,
 		AttributeSearch:     cfg.AttributeSearch,
+		AttributeRetention:  cfg.AttributeRetention,
 		CollectorDoctor:     cfg.CollectorDoctor,
 		TelemetryBudget:     tracker,
 		RetentionDays:       cfg.RetentionDays, MaxDBBytes: maxBytes,

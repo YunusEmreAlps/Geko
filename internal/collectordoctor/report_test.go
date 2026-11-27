@@ -86,3 +86,47 @@ func TestInspectionSamplesConfiguredEndpoint(t *testing.T) {
 		t.Fatalf("redirect = %+v", report)
 	}
 }
+
+func TestUnresolvedConfigIsReportedWithoutLeakingInput(t *testing.T) {
+	findings, err := configFindings([]byte("receivers:\n  otlp: ${file:secret-path}\nexporters:\n  debug: {}\nservice:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      exporters: [debug]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.Code == "config_unresolved" {
+			found = true
+		}
+		if strings.Contains(f.Evidence, "secret-path") {
+			t.Fatal("provider path leaked")
+		}
+	}
+	if !found {
+		t.Fatalf("missing unresolved input diagnostic: %+v", findings)
+	}
+}
+
+func TestUnresolvedWholePipelineRemainsPartial(t *testing.T) {
+	findings, err := configFindings([]byte("service:\n  pipelines: ${file:private-file}\n"))
+	if err != nil || len(findings) != 1 || findings[0].Code != "config_unresolved" {
+		t.Fatalf("unresolved pipeline should explain partial coverage: %+v, %v", findings, err)
+	}
+}
+
+func TestUnresolvedDocumentCannotHideAdditionalDocuments(t *testing.T) {
+	if findings, err := configFindings([]byte("service:\n  pipelines: ${file:private}\n---\nexporters:\n  debug: {}\n")); err == nil {
+		t.Fatalf("multiple documents accepted with partial substitution: %+v", findings)
+	}
+}
+
+func TestEscapedDollarDoesNotRequireProviderResolution(t *testing.T) {
+	findings, err := configFindings([]byte("receivers:\n  otlp: {}\nexporters:\n  debug:\n    endpoint: http://localhost/$$TOKEN\nservice:\n  pipelines:\n    traces:\n      receivers: [otlp]\n      exporters: [debug]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range findings {
+		if f.Code == "config_unresolved" {
+			t.Fatalf("literal escaped dollar treated as substitution: %+v", f)
+		}
+	}
+}

@@ -35,11 +35,12 @@ const ServerRedaction = "strict"
 const DefaultIngestConcurrency = 4
 
 type Config struct {
-	CollectorDoctor collectordoctor.Sources `yaml:"collector_doctor"`
-	TelemetryBudget budget.Config           `yaml:"telemetry_budget"`
-	AttributeSearch privacy.AttributeSearch `yaml:"-"`
-	AccessToken     access.Token            `yaml:"-"`
-	PublicURL       string                  `yaml:"public_url"`
+	AttributeRetention privacy.AttributeRetention `yaml:"attribute_retention"`
+	CollectorDoctor    collectordoctor.Sources    `yaml:"collector_doctor"`
+	TelemetryBudget    budget.Config              `yaml:"telemetry_budget"`
+	AttributeSearch    privacy.AttributeSearch    `yaml:"-"`
+	AccessToken        access.Token               `yaml:"-"`
+	PublicURL          string                     `yaml:"public_url"`
 	// TraceLinkURL opens a trace in another tool such as Grafana Tempo;
 	// {trace_id} is replaced with the trace ID. TraceLinkName labels the link.
 	TraceLinkURL  string        `yaml:"trace_link_url"`
@@ -469,23 +470,24 @@ func loadFile(path string, optional bool) (Config, error) {
 	decoder := yaml.NewDecoder(io.TeeReader(file, digest))
 	decoder.KnownFields(true)
 	var values struct {
-		CollectorDoctor collectordoctor.Sources `yaml:"collector_doctor"`
-		TelemetryBudget budgetFileConfig        `yaml:"telemetry_budget"`
-		DashboardAddr   *string                 `yaml:"dashboard_addr"`
-		GRPCAddr        *string                 `yaml:"grpc_addr"`
-		PublicURL       *string                 `yaml:"public_url"`
-		ListenAddr      *string                 `yaml:"listen_addr"`
-		DBPath          *string                 `yaml:"db_path"`
-		RetentionDays   *int                    `yaml:"retention_days"`
-		MaxDBMiB        *int                    `yaml:"max_db_mib"`
-		IngestSlots     *int                    `yaml:"ingest_concurrency"`
-		OnFull          *storage.FullPolicy     `yaml:"on_full"`
-		Redaction       *string                 `yaml:"redaction"`
-		TraceLinkURL    *string                 `yaml:"trace_link_url"`
-		TraceLinkName   *string                 `yaml:"trace_link_name"`
-		ReadOnly        *bool                   `yaml:"read_only"`
-		Digest          *string                 `yaml:"digest"`
-		Owners          *struct {
+		AttributeRetention privacy.AttributeRetention `yaml:"attribute_retention"`
+		CollectorDoctor    collectordoctor.Sources    `yaml:"collector_doctor"`
+		TelemetryBudget    budgetFileConfig           `yaml:"telemetry_budget"`
+		DashboardAddr      *string                    `yaml:"dashboard_addr"`
+		GRPCAddr           *string                    `yaml:"grpc_addr"`
+		PublicURL          *string                    `yaml:"public_url"`
+		ListenAddr         *string                    `yaml:"listen_addr"`
+		DBPath             *string                    `yaml:"db_path"`
+		RetentionDays      *int                       `yaml:"retention_days"`
+		MaxDBMiB           *int                       `yaml:"max_db_mib"`
+		IngestSlots        *int                       `yaml:"ingest_concurrency"`
+		OnFull             *storage.FullPolicy        `yaml:"on_full"`
+		Redaction          *string                    `yaml:"redaction"`
+		TraceLinkURL       *string                    `yaml:"trace_link_url"`
+		TraceLinkName      *string                    `yaml:"trace_link_name"`
+		ReadOnly           *bool                      `yaml:"read_only"`
+		Digest             *string                    `yaml:"digest"`
+		Owners             *struct {
 			Services     map[string]string `yaml:"services"`
 			Applications map[string]string `yaml:"applications"`
 		} `yaml:"owners"`
@@ -546,6 +548,10 @@ func loadFile(path string, optional bool) (Config, error) {
 			return Config{}, fmt.Errorf("config %q owners: %w", path, err)
 		}
 		cfg.Source.Owners = SettingSource{Kind: "yaml"}
+	}
+	cfg.AttributeRetention = values.AttributeRetention.Clone()
+	if err := cfg.AttributeRetention.Validate(); err != nil {
+		return Config{}, fmt.Errorf("config attribute_retention: %w", err)
 	}
 	cfg.CollectorDoctor = values.CollectorDoctor
 	cfg.TelemetryBudget, cfg.Source.Budget = values.TelemetryBudget.effective()

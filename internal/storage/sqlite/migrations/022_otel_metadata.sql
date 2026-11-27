@@ -1,0 +1,1 @@
+ALTER TABLE spans ADD COLUMN otel_metadata TEXT NOT NULL DEFAULT '{}';

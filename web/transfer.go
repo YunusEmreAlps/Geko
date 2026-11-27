@@ -25,7 +25,7 @@ func (d *dashboard) downloadTrace(w http.ResponseWriter, r *http.Request) {
 	d.withQuery(w, r, func(ctx context.Context) {
 		body, err := otlp.EncodeTraceJSON(id, strict, func(visit func(investigation.Span) error) error {
 			return d.store.VisitTraceSpans(ctx, id, visit)
-		})
+		}, d.settings.AttributeRetention)
 		switch {
 		case errors.Is(err, investigation.ErrTraceNotFound):
 			d.problem(w, r, http.StatusNotFound, "Trace not found", "The trace may have expired or been evicted.")

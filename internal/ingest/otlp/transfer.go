@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"maps"
+	"math"
 	"slices"
 	"time"
 
@@ -30,7 +31,7 @@ var ErrTraceExists = errors.New("the trace is already stored; restoring it would
 
 // EncodeTraceJSON produces one bounded OTLP request. Each stored span carries
 // its own resource and scope, preserving traces across service boundaries.
-func EncodeTraceJSON(id telemetry.TraceID, strict bool, visit func(func(investigation.Span) error) error) ([]byte, error) {
+func EncodeTraceJSON(id telemetry.TraceID, strict bool, visit func(func(investigation.Span) error) error, policies ...privacy.AttributeRetention) ([]byte, error) {
 	var output bytes.Buffer
 	output.WriteString(`{"resourceSpans":[`)
 	count := 0
@@ -38,7 +39,7 @@ func EncodeTraceJSON(id telemetry.TraceID, strict bool, visit func(func(investig
 		if count == maxSpans {
 			return ErrTransferLimit
 		}
-		item, err := encodeTransferSpan(id, span, strict)
+		item, err := encodeTransferSpan(id, span, strict, policies...)
 		if err != nil {
 			return err
 		}
@@ -62,7 +63,7 @@ func EncodeTraceJSON(id telemetry.TraceID, strict bool, visit func(func(investig
 	return output.Bytes(), nil
 }
 
-func encodeTransferSpan(id telemetry.TraceID, span investigation.Span, strict bool) ([]byte, error) {
+func encodeTransferSpan(id telemetry.TraceID, span investigation.Span, strict bool, policies ...privacy.AttributeRetention) ([]byte, error) {
 	spanID, err := hex.DecodeString(span.SpanID)
 	if err != nil {
 		return nil, err
@@ -76,16 +77,32 @@ func encodeTransferSpan(id telemetry.TraceID, span investigation.Span, strict bo
 		Kind: trace.Span_SpanKind(span.Kind), StartTimeUnixNano: uint64(span.Start.UnixNano()), EndTimeUnixNano: uint64(span.End.UnixNano()),
 		Status:     &trace.Status{Code: trace.Status_StatusCode(span.StatusCode), Message: span.StatusDescription},
 		Attributes: transferAttributes(span.Attributes),
+		TraceState: span.OTel.TraceState, Flags: span.OTel.Flags, DroppedAttributesCount: span.OTel.DroppedAttributesCount, DroppedEventsCount: span.OTel.DroppedEventsCount, DroppedLinksCount: span.OTel.DroppedLinksCount,
+	}
+	for _, link := range span.OTel.Links {
+		traceID, e1 := hex.DecodeString(link.TraceID)
+		linkID, e2 := hex.DecodeString(link.SpanID)
+		if e1 != nil || e2 != nil {
+			return nil, ErrInvalidTransfer
+		}
+		wire.Links = append(wire.Links, &trace.Span_Link{TraceId: traceID, SpanId: linkID, TraceState: link.TraceState, Flags: link.Flags, Attributes: transferAttributes(link.Attributes), DroppedAttributesCount: link.DroppedAttributesCount})
 	}
 	for _, event := range span.Events {
 		wire.Events = append(wire.Events, &trace.Span_Event{
-			Name: event.Name, TimeUnixNano: uint64(event.Time.UnixNano()), Attributes: transferAttributes(event.Attributes),
+			DroppedAttributesCount: event.DroppedAttributesCount, Name: event.Name, TimeUnixNano: uint64(event.Time.UnixNano()), Attributes: transferAttributes(event.Attributes),
 		})
 	}
 	// Apply the current policy to records written under a previous policy.
-	normalized, err := normalizeSpan(wire, span.Service, nil, telemetry.Scope{}, strict, privacy.AttributeSearch{})
+	normalized, err := normalizeSpan(wire, span.Service, nil, telemetry.Scope{}, strict, privacy.AttributeSearch{}, policies...)
 	if err != nil {
 		return nil, ErrInvalidTransfer
+	}
+	wire.TraceState = normalized.OTel.TraceState
+	wire.Links = nil
+	for _, link := range normalized.OTel.Links {
+		tid, _ := hex.DecodeString(link.TraceID)
+		sid, _ := hex.DecodeString(link.SpanID)
+		wire.Links = append(wire.Links, &trace.Span_Link{TraceId: tid, SpanId: sid, TraceState: link.TraceState, Flags: link.Flags, Attributes: transferAttributes(link.Attributes), DroppedAttributesCount: link.DroppedAttributesCount})
 	}
 	wire.Name = normalized.Name
 	wire.Status.Message = normalized.StatusDescription
@@ -94,6 +111,34 @@ func encodeTransferSpan(id telemetry.TraceID, span investigation.Span, strict bo
 		wire.Events[i].Name = event.Name
 		wire.Events[i].Attributes = transferAttributes(event.Attributes)
 	}
+	resourceAttrs := maps.Clone(span.ResourceAttributes)
+	if resourceAttrs == nil {
+		resourceAttrs = make(telemetry.Attributes)
+	}
+	resourceAttrs["service.name"] = span.Service
+	resourceWire := transferAttributes(resourceAttrs)
+	retainedResource := textAttributes(resourceWire, resourceFields)
+	policy := retentionPolicy(policies)
+	mergeExtra(resourceWire, retainedResource, policy.Resource, strict, privacy.AttributeSearch{})
+	accountAttributes(resourceWire, retainedResource, resourceFields, &normalized.OTel.Filtering)
+	resourceJSON, err := protojson.Marshal(&resource.Resource{Attributes: transferAttributes(retainedResource), DroppedAttributesCount: span.OTel.ResourceDroppedAttributesCount})
+	if err != nil {
+		return nil, err
+	}
+	scopeAttrs := textAttributes(transferAttributes(span.Scope.Attributes), scopeFields)
+	mergeExtra(transferAttributes(span.Scope.Attributes), scopeAttrs, policy.Scope, strict, privacy.AttributeSearch{})
+	accountAttributes(transferAttributes(span.Scope.Attributes), scopeAttrs, scopeFields, &normalized.OTel.Filtering)
+	scopeJSON, err := protojson.Marshal(&common.InstrumentationScope{
+		DroppedAttributesCount: span.OTel.ScopeDroppedAttributesCount, Name: privacy.Text(span.Scope.Name, labelSize), Version: privacy.Text(span.Scope.Version, labelSize), Attributes: transferAttributes(scopeAttrs),
+	})
+	if err != nil {
+		return nil, err
+	}
+	resourceURL := schemaURL(span.OTel.ResourceSchemaURL, &normalized.OTel.Filtering)
+	scopeURL := schemaURL(span.OTel.ScopeSchemaURL, &normalized.OTel.Filtering)
+	exportMeta := span.OTel
+	addFiltering(&exportMeta.Filtering, normalized.OTel.Filtering)
+	wire.Attributes = append(wire.Attributes, provenanceAttributes(exportMeta)...)
 	body, err := protojson.MarshalOptions{UseEnumNumbers: true}.Marshal(wire)
 	if err != nil {
 		return nil, err
@@ -107,30 +152,28 @@ func encodeTransferSpan(id telemetry.TraceID, span investigation.Span, strict bo
 	if span.ParentID != "" {
 		object["parentSpanId"], _ = json.Marshal(span.ParentID)
 	}
-	resourceAttrs := maps.Clone(span.ResourceAttributes)
-	if resourceAttrs == nil {
-		resourceAttrs = make(telemetry.Attributes)
-	}
-	resourceAttrs["service.name"] = span.Service
-	resourceJSON, err := protojson.Marshal(&resource.Resource{Attributes: transferAttributes(textAttributes(transferAttributes(resourceAttrs), resourceFields))})
-	if err != nil {
-		return nil, err
-	}
-	scopeAttrs := textAttributes(transferAttributes(span.Scope.Attributes), scopeFields)
-	scopeJSON, err := protojson.Marshal(&common.InstrumentationScope{
-		Name: privacy.Text(span.Scope.Name, labelSize), Version: privacy.Text(span.Scope.Version, labelSize), Attributes: transferAttributes(scopeAttrs),
-	})
-	if err != nil {
+	if err := rewriteObjects(object, "links", "", func(link jsonObject) error {
+		for _, key := range []string{"traceId", "spanId"} {
+			var raw []byte
+			if err := json.Unmarshal(link[key], &raw); err != nil {
+				return err
+			}
+			link[key], _ = json.Marshal(hex.EncodeToString(raw))
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	type scopeSpans struct {
-		Scope json.RawMessage `json:"scope"`
-		Spans []jsonObject    `json:"spans"`
+		SchemaURL string          `json:"schemaUrl,omitempty"`
+		Scope     json.RawMessage `json:"scope"`
+		Spans     []jsonObject    `json:"spans"`
 	}
 	return json.Marshal(struct {
-		Resource json.RawMessage `json:"resource"`
-		Scopes   []scopeSpans    `json:"scopeSpans"`
-	}{resourceJSON, []scopeSpans{{scopeJSON, []jsonObject{object}}}})
+		SchemaURL string          `json:"schemaUrl,omitempty"`
+		Resource  json.RawMessage `json:"resource"`
+		Scopes    []scopeSpans    `json:"scopeSpans"`
+	}{resourceURL, resourceJSON, []scopeSpans{{scopeURL, scopeJSON, []jsonObject{object}}}})
 }
 
 func transferAttributes(attrs telemetry.Attributes) []*common.KeyValue {
@@ -142,9 +185,22 @@ func transferAttributes(attrs telemetry.Attributes) []*common.KeyValue {
 			value.Value = &common.AnyValue_StringValue{StringValue: v}
 		case int64:
 			value.Value = &common.AnyValue_IntValue{IntValue: v}
+		case bool:
+			value.Value = &common.AnyValue_BoolValue{BoolValue: v}
+		case float64:
+			if math.IsNaN(v) || math.IsInf(v, 0) {
+				continue
+			}
+			value.Value = &common.AnyValue_DoubleValue{DoubleValue: v}
 		case json.Number:
 			n, err := v.Int64()
 			if err != nil {
+				f, e := v.Float64()
+				if e != nil || math.IsNaN(f) || math.IsInf(f, 0) {
+					continue
+				}
+				value.Value = &common.AnyValue_DoubleValue{DoubleValue: f}
+				result = append(result, &common.KeyValue{Key: key, Value: value})
 				continue
 			}
 			value.Value = &common.AnyValue_IntValue{IntValue: n}
@@ -179,7 +235,7 @@ func (h *Receiver) RestoreTraceJSON(ctx context.Context, input io.Reader, stored
 		}
 		return id, ErrInvalidTransfer
 	}
-	spans, rejected, err := normalize(&request, h.policyFor(ctx).Strict, h.attributeSearch, nil)
+	spans, rejected, err := normalize(&request, h.policyFor(ctx).Strict, h.attributeSearch, nil, h.attributeRetention)
 	if err != nil || rejected != 0 || len(spans) == 0 {
 		return id, ErrInvalidTransfer
 	}

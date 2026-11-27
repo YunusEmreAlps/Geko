@@ -114,6 +114,16 @@ try {
     ],
   }];
   tracePayload.resourceSpans[0].scopeSpans[0].spans.push(child);
+  tracePayload.resourceSpans[0].schemaUrl = 'https://opentelemetry.io/schemas/1.30.0';
+  for (const span of tracePayload.resourceSpans[0].scopeSpans[0].spans) {
+    span.flags = 257;
+    span.traceState = 'vendor=example';
+    span.droppedAttributesCount = 2;
+    span.droppedEventsCount = 3;
+    span.links = [{traceId:id,spanId:'0100000000000000',flags:1,droppedAttributesCount:4}];
+    (span.events ??= []).push({name:'retry',timeUnixNano:'2000000',droppedAttributesCount:5,attributes:[{key:'retry.attempt',value:{intValue:'9007199254740993'}}]});
+  }
+
   const response = await fetch(base + "/v1/traces", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -607,6 +617,15 @@ try {
           });
           assert.equal(alignment.columns, alignment.width > 280, "property alignment follows available inspector width");
           await assertControlsFit(propertyRows, "#span-details", `properties fit at ${width}px`);
+          const otelSummaries = page.locator('#span-details summary').filter({hasText:/^(Span links|OTel context|SDK-reported drops|Geko filtering)/});
+          assert.equal(await otelSummaries.count(),4,'OTel source and filtering disclosures are present');
+          await otelSummaries.evaluateAll(elements=>elements.forEach(summary=>summary.parentElement.open=true));
+          const linkedSpan = page.locator('#span-details details').filter({has:page.locator('summary').filter({hasText:/^Span links/})}).locator('a[href="/traces/'+id+'?span=0100000000000000#span-details"]');
+          assert.equal(await linkedSpan.count(),1,'captured link preserves trace/span destination');
+          await linkedSpan.evaluate(element=>element.closest('details').open=true);
+          await assertControlsFit(page.locator('#span-details details .properties > div'), '#span-details', `OTel metadata fits at ${width}px`);
+          await otelSummaries.evaluateAll(elements=>elements.forEach(summary=>summary.parentElement.open=false));
+
           if ([320, 390, 1440].includes(width)) {
             await page.locator("#span-details").screenshot({ path: `dist/browser-checks/span-inspector-${theme}-${width}.png`, animations: "disabled" });
           }
@@ -781,7 +800,7 @@ try {
     if (!(await inspector.locator(".span-properties").evaluate((element) => element.open))) {
       await inspector.locator(".span-properties > summary").click();
     }
-    await assertControlsFit(inspector.locator(".properties > div"), "#span-details", "long status values stay within the inspector");
+    await assertControlsFit(inspector.locator(".span-properties .properties > div"), "#span-details", "long status values stay within the inspector");
     const scopeCount = inspector.getByText("Scope attributes (0)", { exact: false });
     assert(await scopeCount.isVisible(), "empty attributes show a noninteractive zero count");
     assert.equal(await inspector.locator("summary").filter({ hasText: /^Scope attributes/ }).count(), 0);

@@ -25,13 +25,15 @@ const (
 
 var errBatchLimit = errors.New("trace batch exceeds a resource, scope, span, or event limit")
 
-func normalize(req *collector.ExportTraceServiceRequest, strict bool, search privacy.AttributeSearch, observe func(budget.Observation)) ([]telemetry.Span, int64, error) {
+func normalize(req *collector.ExportTraceServiceRequest, strict bool, search privacy.AttributeSearch, observe func(budget.Observation), policies ...privacy.AttributeRetention) ([]telemetry.Span, int64, error) {
+	policy := retentionPolicy(policies)
 	var spans []telemetry.Span
 	var rejected int64
 	var firstError error
 	var total int
 	for _, resourceSpans := range req.GetResourceSpans() {
 		resource := textAttributes(resourceSpans.GetResource().GetAttributes(), resourceFields)
+		mergeExtra(resourceSpans.GetResource().GetAttributes(), resource, policy.Resource, strict, privacy.AttributeSearch{})
 		for _, attr := range resourceSpans.GetResource().GetAttributes() {
 			if attr.GetKey() == "geko.run.id" {
 				value := attr.GetValue().GetStringValue()
@@ -44,6 +46,9 @@ func normalize(req *collector.ExportTraceServiceRequest, strict bool, search pri
 		if service == "" {
 			service = "unknown_service"
 		}
+		var resourceLoss telemetry.Filtering
+		resourceSchema := schemaURL(resourceSpans.GetSchemaUrl(), &resourceLoss)
+		accountAttributes(resourceSpans.GetResource().GetAttributes(), resource, resourceFields, &resourceLoss)
 		for _, scopeSpans := range resourceSpans.GetScopeSpans() {
 			if len(scopeSpans.GetSpans()) > maxSpans-total {
 				return nil, 0, errBatchLimit
@@ -55,8 +60,12 @@ func normalize(req *collector.ExportTraceServiceRequest, strict bool, search pri
 				Version:    privacy.Text(src.GetVersion(), labelSize),
 				Attributes: textAttributes(src.GetAttributes(), scopeFields),
 			}
+			mergeExtra(src.GetAttributes(), scope.Attributes, policy.Scope, strict, privacy.AttributeSearch{})
+			var scopeLoss telemetry.Filtering
+			scopeSchema := schemaURL(scopeSpans.GetSchemaUrl(), &scopeLoss)
+			accountAttributes(src.GetAttributes(), scope.Attributes, scopeFields, &scopeLoss)
 			for _, span := range scopeSpans.GetSpans() {
-				normalized, err := normalizeSpan(span, service, resource, scope, strict, search)
+				normalized, err := normalizeSpan(span, service, resource, scope, strict, search, policy)
 				if err != nil {
 					rejected++
 					if firstError == nil {
@@ -64,6 +73,12 @@ func normalize(req *collector.ExportTraceServiceRequest, strict bool, search pri
 					}
 					continue
 				}
+				normalized.OTel.ResourceSchemaURL = resourceSchema
+				normalized.OTel.ScopeSchemaURL = scopeSchema
+				normalized.OTel.ResourceDroppedAttributesCount = resourceSpans.GetResource().GetDroppedAttributesCount()
+				normalized.OTel.ScopeDroppedAttributesCount = src.GetDroppedAttributesCount()
+				addFiltering(&normalized.OTel.Filtering, resourceLoss)
+				addFiltering(&normalized.OTel.Filtering, scopeLoss)
 				spans = append(spans, normalized)
 				if observe != nil {
 					observe(budget.Observation{Span: span, Resource: resourceSpans.GetResource()})
@@ -77,7 +92,7 @@ func normalize(req *collector.ExportTraceServiceRequest, strict bool, search pri
 	return spans, rejected, nil
 }
 
-func normalizeSpan(src *trace.Span, service string, resource telemetry.Attributes, scope telemetry.Scope, strict bool, search privacy.AttributeSearch) (telemetry.Span, error) {
+func normalizeSpan(src *trace.Span, service string, resource telemetry.Attributes, scope telemetry.Scope, strict bool, search privacy.AttributeSearch, policies ...privacy.AttributeRetention) (telemetry.Span, error) {
 	var span telemetry.Span
 	if len(src.GetTraceId()) != len(span.TraceID) || len(src.GetSpanId()) != len(span.ID) {
 		return span, errors.New("invalid trace or span ID length")
@@ -103,6 +118,8 @@ func normalizeSpan(src *trace.Span, service string, resource telemetry.Attribute
 		return span, errBatchLimit
 	}
 
+	policy := retentionPolicy(policies)
+	span.OTel = normalizeMetadata(src, strict, policy)
 	span.ServiceName = service
 	span.Name = privacy.Text(src.GetName(), labelSize)
 	if span.Name == "" {
@@ -125,6 +142,8 @@ func normalizeSpan(src *trace.Span, service string, resource telemetry.Attribute
 	span.ResourceAttributes = resource
 	span.Scope = scope
 	span.Attributes = protectedSpanAttributes(src.GetAttributes(), strict, search)
+	mergeExtra(src.GetAttributes(), span.Attributes, policy.Span, strict, search)
+	accountAttributes(src.GetAttributes(), span.Attributes, spanFields, &span.OTel.Filtering, localSpanFields)
 	span.Events = make([]telemetry.Event, 0, len(src.GetEvents()))
 	for _, event := range src.GetEvents() {
 		if !validTime(event.GetTimeUnixNano()) {
@@ -138,12 +157,19 @@ func normalizeSpan(src *trace.Span, service string, resource telemetry.Attribute
 				attributes = exceptionAttributes(event.GetAttributes())
 			}
 		}
+		if event.GetName() != "exception" {
+			attributes = retainedAttributes(event.GetAttributes(), policy.Event, eventFields, strict, privacy.AttributeSearch{}, &span.OTel.Filtering)
+		} else {
+			accountAttributes(event.GetAttributes(), attributes, exceptionFields, &span.OTel.Filtering)
+		}
 		span.Events = append(span.Events, telemetry.Event{
-			Name:       privacy.Text(event.GetName(), labelSize),
-			Time:       fromUnixNano(event.GetTimeUnixNano()),
-			Attributes: attributes,
+			Name:                   privacy.Text(event.GetName(), labelSize),
+			DroppedAttributesCount: event.GetDroppedAttributesCount(),
+			Time:                   fromUnixNano(event.GetTimeUnixNano()),
+			Attributes:             attributes,
 		})
 	}
+	restoreProvenance(src.GetAttributes(), &span.OTel)
 	return span, nil
 }
 

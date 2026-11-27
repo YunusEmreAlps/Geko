@@ -16,9 +16,10 @@ type Scope struct {
 }
 
 type Event struct {
-	Name       string     `json:"name"`
-	Time       time.Time  `json:"time"`
-	Attributes Attributes `json:"attributes"`
+	Name                   string     `json:"name"`
+	Time                   time.Time  `json:"time"`
+	Attributes             Attributes `json:"attributes"`
+	DroppedAttributesCount uint32     `json:"dropped_attributes_count,omitempty"`
 }
 
 type SpanKind uint8
@@ -41,6 +42,7 @@ const (
 )
 
 type Span struct {
+	OTel               Metadata
 	TraceID            TraceID
 	ID                 SpanID
 	ParentID           SpanID // Zero for a root span.

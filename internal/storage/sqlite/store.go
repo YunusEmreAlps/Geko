@@ -84,12 +84,15 @@ var groupRefreshBatchSchema string
 //go:embed migrations/021_budget_history.sql
 var budgetHistorySchema string
 
+//go:embed migrations/022_otel_metadata.sql
+var otelMetadataSchema string
+
 var migrations = []string{
 	initialSchema, evidenceSchema, applicationSchema, maintenanceSchema,
 	exceptionSearchSchema, evidenceInsertSchema, traceProjectionSchema, serviceProjectionBatchSchema,
 	groupStateSchema, groupStateActorSchema, groupNoteSchema, tracePinSchema, runIDSchema,
 	evidenceWithoutEventsSchema, entryOperationsSchema, failureGroupMembersSchema,
-	sharedGroupTotalsSchema, applicationEvictionsSchema, evictionCounterBudgetSchema, groupRefreshBatchSchema, budgetHistorySchema,
+	sharedGroupTotalsSchema, applicationEvictionsSchema, evictionCounterBudgetSchema, groupRefreshBatchSchema, budgetHistorySchema, otelMetadataSchema,
 }
 
 type Store struct {

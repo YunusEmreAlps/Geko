@@ -441,3 +441,11 @@ stopping the process or a full disk, the database stays at its previous
 schema with its data intact: free space and start Geko again. Another process
 reading the database does not block the upgrade, but `geko compact` cannot
 truncate the WAL until that reader closes.
+
+### Additional captured attributes
+
+`attribute_retention` opts into exact extra resource/scope/span/event/link keys
+using YAML lists. It is a startup setting; strict mode ignores extras and
+protected span search stays HMAC-only. Known credential/payload keys and
+wildcards are refused. See [capture policy and limits](connect.md#captured-opentelemetry-context)
+for supported scalar types, per-location limits and a complete example.
